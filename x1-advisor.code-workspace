@@ -1,0 +1,14 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../x1-backend"
+		},
+		{
+			"path": "../x1-app"
+		}
+	],
+	"settings": {}
+}

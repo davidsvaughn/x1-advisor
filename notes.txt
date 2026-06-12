@@ -1,0 +1,4 @@
+gcloud auth login
+gcloud auth application-default login
+gcloud auth application-default set-quota-project vertical-album-400917
+gcloud config set project vertical-album-400917
