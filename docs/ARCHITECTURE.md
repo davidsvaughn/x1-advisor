@@ -2,6 +2,12 @@
 
 > Status: **design draft** (2026-06-12). This is the agreed target design, not a record of
 > existing code. Decisions marked **[DECIDED]** are settled; **[OPEN]** still needs a call.
+>
+> Several sections below are informed by reference mining of two external codebases —
+> see [`docs/refs/pipeshub-ai.md`](refs/pipeshub-ai.md) (a close sibling system: hybrid
+> retrieval, block-level citations, deep-research agent) and [`docs/refs/chroma.md`](refs/chroma.md)
+> (vector-store internals + a pgvector-vs-Chroma evaluation). Borrowed patterns are cited inline as
+> _(ref: pipeshub …)_.
 
 ## 1. What we are building
 
@@ -106,9 +112,12 @@ advisor.documents
   extraction_model, extraction_version, content_hash,   -- provenance (cf. doc_extraction_cache)
   created_at, updated_at
 
-advisor.doc_chunks
+advisor.doc_chunks            -- the "block" in citation terms
   id, document_id -> documents.id,
-  ordinal, text, char_span, metadata (jsonb)   -- entity ids, stage, industry, region, etc.
+  block_index,                       -- STABLE position within the doc; the citation primitive (see §8)
+  granularity ('block'|'sentence'|'record_summary'),   -- dual-granularity + the profile-summary block
+  text, char_span, page_number, bounding_box (jsonb),  -- page/bbox enable precise span citations for PDFs
+  metadata (jsonb)                   -- entity ids, stage, industry, region, etc.
 
 advisor.doc_embeddings        -- or folded into doc_chunks
   chunk_id -> doc_chunks.id, embedding vector, model
@@ -118,7 +127,9 @@ advisor.entity_profiles       -- denormalized, embeddable entity cards (regenera
 ```
 
 `content_hash` drives cache-invalidation and re-indexing, reusing the pattern already in
-`doc_extraction_cache`.
+`doc_extraction_cache`. `block_index` is **stable across re-ingest** (see diff-indexing in §5.1) so
+that citations emitted in earlier turns keep resolving _(ref: pipeshub `models/blocks.py`,
+`utils/citations.py`)_.
 
 ## 5. Pipelines
 
@@ -126,7 +137,7 @@ advisor.entity_profiles       -- denormalized, embeddable entity cards (regenera
 
 ```text
 new/changed markdown in advisor.documents
-  → chunk
+  → chunk (structure-aware; see below)
   → embed (document embedder)
   → write chunks + embeddings (PgvectorDocumentStore)
 
@@ -135,7 +146,22 @@ new/changed app entity row
   → chunk + embed + write
 ```
 
-Re-indexing is a DB job; no GCS access. Triggered by content-hash mismatch.
+**Chunking strategy [DECIDED direction]** _(ref: pipeshub `modules/transformers/vectorstore.py`)_ —
+**structure-aware, not fixed-window.** No `chunk_size`/`overlap` constant; chunk boundaries follow
+document structure (headings, paragraphs, table rows, slides). Two refinements worth importing:
+
+- **Dual granularity:** index each block *and* its individual sentences, so retrieval can match a
+  precise sentence or a whole section. (`granularity` column in §4.3.)
+- **Record-summary block:** every document also gets one denormalized, LLM-written summary block
+  indexed as its own unit — this is the same construct as our **entity profile document**, so a
+  single semantic hit can surface a whole doc/entity's gist. Decks/CVs/reports all get one.
+- **Multimodal → searchable text** for visual pitch decks: VLM-caption each slide/image and
+  convert table rows to natural language, carrying `page_number` + `bounding_box` for citations.
+
+**Re-indexing = diff-indexing [DECIDED]** _(ref: pipeshub `pipeline.py` reconciliation)_. On
+re-ingest of a changed document, diff blocks against the prior version and **re-embed only changed
+blocks, preserving `block_index` for unchanged ones**. This keeps the index fresh cheaply *and*
+keeps previously-emitted citations valid. Trigger is content-hash mismatch; no GCS access.
 
 ### 5.2 Retrieval (hybrid + rerank)
 
@@ -153,6 +179,16 @@ query
 
 Metadata filters (entity, stage, industry, region, date) are applied at the retriever level.
 
+Notes from reference mining:
+- **Fusion is ours to assemble.** PipesHub gets dense+sparse RRF "for free" from Qdrant's named
+  vectors; on pgvector we fuse the two retrievers ourselves via `DocumentJoiner`. Haystack ships
+  this off-the-shelf, but it is our composition, not a single server-side call _(ref: chroma.md §5)_.
+- **Reranker blend, starting point:** combine dense and rerank scores rather than replacing, e.g.
+  `final = 0.3·dense + 0.7·rerank` _(ref: pipeshub `retrieval_service.py`)_. Tune later.
+- **Scoring as algebra (later):** Chroma models ranking as a serializable arithmetic expression
+  (`RankExpr`: sum/mul/exp/log/RRF) — a clean, loggable way to express weighted fusion if our
+  blend grows beyond a constant _(ref: chroma.md §3e)_.
+
 ## 6. Tools exposed to the agent
 
 The Haystack `Agent` owns the tool-call loop. Tools (each a `ComponentTool` or `@tool`):
@@ -160,51 +196,104 @@ The Haystack `Agent` owns the tool-call loop. Tools (each a `ComponentTool` or `
 | Tool | Purpose |
 |---|---|
 | `search_corpus(query, filters)` | The hybrid retrieval pipeline above. Primary research tool. Returns ranked evidence with source ids. |
-| `get_source(source_id, span?)` | Fetch fuller context / an excerpt of a specific chunk or document on demand (rehydrate). |
+| `get_source(source_id, span?)` | Fetch fuller context / an excerpt of a specific chunk or document on demand (rehydrate). Mirrors pipeshub's `fetch_full_record`: search returns excerpts; the agent pulls the full doc only when it asks. |
 | `structured_query(...)` | Narrow, safe aggregates/counts where retrieval is wrong (e.g. "how many seed-stage fintechs"). Parameterized / read-only — **not** free-form LLM SQL. |
 | `web_search(query)` | External evidence (e.g. `SerperDevWebSearch`). |
 | `fetch_url(url)` | Read a specific web page; converted to markdown for grounding. |
 
 ## 7. The agent loop [DECIDED shape, OPEN tuning]
 
-Each user turn runs a **bounded multi-hop loop** and then waits:
+**Two tiers, not one** _(ref: pipeshub `qna/` vs `deep/`)_. Most questions should not pay
+deep-research cost. We run two paths and route by question complexity:
+
+**Tier 1 — fast single-turn (default).** A bounded ReAct loop, one-to-few tool calls, answers in
+seconds. This is what every ordinary question hits.
 
 - `max_agent_steps` / per-turn tool-call budget (start ~6–12).
 - `exit_conditions = ["text"]` — agent returns when it answers without a tool call.
-- Multi-hop: retrieve → read → if a new entity/claim surfaces, search again → stop when the
-  question is covered or budget is hit.
+- Multi-hop within the turn: retrieve → read → if a new entity/claim surfaces, search again →
+  stop when the question is covered or budget is hit.
 - Answer **only from collected evidence**; persist a compact research record per turn.
 
-## 8. Citations & grounding
+**Tier 2 — deep multi-hop (opt-in / on hard questions).** A plan→critic→execute→evaluate loop for
+genuinely multi-part research. Borrowed shape from pipeshub's deep agent:
 
-Answers cite the `source_id`s of the evidence actually used. Because retrieval results carry
-source metadata (document/chunk id, entity, url), citations resolve to real artifacts and can be
-re-opened via `get_source`. The final answer is constrained to the collected evidence set, not
-arbitrary prior chat/tool text — this is the main defense against hallucinated citations.
+- **Plan** into a typed task DAG with explicit `depends_on` and per-task *scoped instructions*
+  (each sub-task sees only its slice, not the global prompt).
+- **Critic gate** the plan once, **biased toward approve** (partial execution beats stalling);
+  allow a single re-plan.
+- **Execute** sub-tasks in parallel, each gated on its own dependencies; isolated context per
+  sub-task.
+- **Evaluate / aggregate** → answer or one bounded retry.
+- **Hard budgets:** max iterations (~3) and per-agent tool-call caps. No unbounded loops.
+
+The fast tier is the priority to build first; the deep tier is a later addition for the "deep
+answer" product mode. Both share the same `respond` / citation stage so output is identical.
+
+## 8. Citations & grounding [DECIDED — adopt pipeshub's block-citation mechanism]
+
+Grounding is **enforced in code, not trusted from the LLM**. We adopt PipesHub's end-to-end
+block-citation design _(ref: pipeshub `models/blocks.py`, `utils/chat_helpers.py`,
+`utils/citations.py`)_, which is the strongest part of that codebase. The chain:
+
+1. **The chunk/block is the citation primitive.** Each retrieved unit resolves to a stable
+   `(document_id, block_index)` → text + `page_number`/`bounding_box` (for PDFs) or entity row +
+   field (for profile documents). `block_index` is stable across re-ingest (§5.1), so citations
+   stay valid over time.
+2. **Tiny opaque refs in the model's output, not URLs.** Each block shown to the agent is labelled
+   with a short id like `ref1`. The model cites by emitting `[source](ref1)` inline right after the
+   claim. (LLMs reproduce short refs reliably and mangle long URLs.)
+3. **"Omit rather than guess."** The system prompt instructs the model to use the exact ref shown,
+   never invent numbers, and **omit a citation if unsure** which block a fact came from.
+4. **Server-side post-validator.** After generation, a resolver walks every emitted ref, maps it
+   back to the actual retrieved block row, **repairs malformed refs, de-dupes, drops refs that
+   don't resolve, and renumbers sequentially** to `[1], [2], …`. The model never picks the final
+   numbers; invalid citations cannot survive.
+
+The final answer is constrained to the collected evidence set, not arbitrary prior chat/tool text.
+Web citations carry a `web|url` type; internal ones carry `document`/`entity` + the resolvable
+`(document_id, block_index)` so the UI can deep-link to the exact span. `get_source` re-opens any
+cited block on demand.
 
 ## 9. Context discipline
 
-Carried over from prior lessons (the "Hermes" notes), expressed in Haystack terms:
+Carried over from prior lessons (the "Hermes" notes) and sharpened with concrete mechanisms from
+pipeshub's `deep/context_manager.py` / `qna/memory_optimizer.py`:
 
 1. The latest user request stays an active, unsummarized message.
 2. Large tool results do **not** live in the transcript. The LLM sees compact references
    (counts, previews, source ids); full payloads stay retrievable and are rehydrated on demand
-   via `get_source`.
-3. Memory (`MemoryStore`) is injected as **background**, never as a new user instruction.
-4. Switching entities/tasks must not let stale results dominate the next answer.
-5. Prompt prefix stays stable for provider caching.
+   via `get_source`. Concretely _(ref: pipeshub `compact_tool_results`)_: keep priority keys
+   (id/url/name/status) intact, truncate large string bodies, flag `_truncated` — but **never
+   silently drop items** (preserve-all is the rule; truncation is opt-in and visible).
+3. **Conversation compaction:** keep the last ~5 turns verbatim, LLM-summarize older turns.
+4. Memory (`MemoryStore`) is injected as **background**, never as a new user instruction.
+5. Switching entities/tasks must not let stale results dominate the next answer.
+6. Deep-tier sub-tasks get **isolated context** (their task + dependency results only), not the
+   whole conversation.
+7. Explicit token + iteration budgets (start: context budget ~16k tokens, deep max iterations ~3).
+8. Prompt prefix stays stable for provider caching.
 
 ## 10. Open decisions / next steps
 
-- **[OPEN]** Embedding model + dimension (affects pgvector column + recall/cost).
-- **[OPEN]** Chunking strategy for extracted pitch decks (visual, slide-structured) vs. CVs vs.
-  long reports.
-- **[OPEN]** Reranker choice (hosted cross-encoder vs. local late-interaction).
-- **[OPEN]** Web search provider.
-- **[OPEN]** Entity-profile rendering: which joins/fields compose each entity card, and the
-  re-index trigger (event vs. periodic content-hash sweep).
+Resolved by reference mining (now [DECIDED direction], detailed above):
+- **Chunking** → structure-aware + dual-granularity + record-summary block + multimodal (§5.1).
+- **Citations** → block-index + tiny-ref + omit-rather-than-guess + server-side validator (§8).
+- **Re-index trigger** → diff-indexing on content-hash mismatch, stable `block_index` (§5.1).
+- **Deep-research loop shape** → plan→critic→execute→evaluate, two-tier (§7).
+
+Still open:
+- **[OPEN]** Embedding model + dimension (affects pgvector column + recall/cost). Pipeshub reads
+  dimension at runtime from the embedder and defaults to cosine; we should pick a model first.
+- **[OPEN]** Reranker choice (hosted cross-encoder vs. local late-interaction) — blend ~`0.3·dense
+  + 0.7·rerank` to start.
+- **[OPEN]** Web search provider (e.g. Serper/Brave/Tavily).
+- **[OPEN]** Entity-profile rendering: which joins/fields compose each entity card; event-driven vs.
+  periodic content-hash sweep for refresh.
 - **[OPEN]** `structured_query` surface: which parameterized queries to expose, read-only guard.
+- **[OPEN]** Question router for Tier-1 vs Tier-2 (fast vs deep) — when to escalate.
+
 - **Next:** stand up the smallest end-to-end slice — `advisor` schema + pgvector, index a handful
   of real entity profiles + extracted decks, wire `search_corpus` + `web_search` into a Haystack
-  `Agent`, and ask real questions to find where retrieval actually strains.
+  `Agent` (Tier-1 fast path only), and ask real questions to find where retrieval actually strains.
 ```

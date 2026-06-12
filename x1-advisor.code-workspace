@@ -8,6 +8,12 @@
 		},
 		{
 			"path": "../x1-app"
+		},
+		{
+			"path": "../../link/pipeshub-ai"
+		},
+		{
+			"path": "../chroma"
 		}
 	],
 	"settings": {}
