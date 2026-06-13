@@ -274,7 +274,31 @@ pipeshub's `deep/context_manager.py` / `qna/memory_optimizer.py`:
 7. Explicit token + iteration budgets (start: context budget ~16k tokens, deep max iterations ~3).
 8. Prompt prefix stays stable for provider caching.
 
-## 10. Open decisions / next steps
+## 10. Telemetry & cost tracking [DECIDED]
+
+Every LLM call **requests full token usage and routes it through a cost tracker** — not just the
+chat answer, but *all* model calls: query planning, the deep-tier critic/sub-agents, ingestion-time
+calls (VLM captions, table summaries, record/profile summaries), embeddings. Implemented in
+[`x1_advisor/cost.py`](../x1_advisor/cost.py).
+
+- **Full usage, normalized.** Haystack exposes usage on `reply.meta["usage"]`, but field names
+  differ by provider. `Usage.from_haystack_meta(provider, meta)` normalizes into canonical
+  non-overlapping fields: uncached input / cache-read / cache-write / output. (Critical subtlety:
+  Anthropic's `input_tokens` already *excludes* cached tokens; OpenAI's `prompt_tokens` *includes*
+  them — mishandling either silently mis-prices every call.)
+- **Cache-aware pricing.** Anthropic prompt caching bills **reads ≈ 0.1× input** and **writes ≈
+  1.25× input**; both are tracked, since our stable-prefix strategy (§9) makes them material.
+- **Loud on unknown models.** `estimate()` raises if a model isn't in the `PRICING` table — a
+  missing entry is never a silent $0.
+- **Pluggable persistence.** A `CostSink` interface decouples accounting from storage; `JsonlSink`
+  is the zero-infra default and writes the **full** record per call (honors no-silent-truncation).
+- **Budgets.** `Tracker` accumulates per-run cost and exposes a soft per-run cap; the deep-tier
+  budget gate (§7) consults it. A daily cap is enforced by a ledger sink once one exists.
+- Pricing table is the canonical source, kept current (mirrors
+  `signal-hunter/signal_hunter/cost.py`); `[OPEN]` — pick the embedding model so its per-token
+  rate and the pgvector dimension are both pinned.
+
+## 11. Open decisions / next steps
 
 Resolved by reference mining (now [DECIDED direction], detailed above):
 - **Chunking** → structure-aware + dual-granularity + record-summary block + multimodal (§5.1).
