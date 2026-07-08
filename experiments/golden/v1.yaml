@@ -1,0 +1,267 @@
+# Golden set v1 (PLAN Phase 2) — 45 questions grounded in the test corpus
+# (2026-07-08: 50 test startups + 24 prod fixture bundles + 75 CVs + investors/orgs).
+#
+# Grading contract (experiments/run.py):
+#   expected: list of matchers. A hit matches a matcher when ALL its fields hold:
+#     source_type       — equality on documents.source_type
+#     title_contains    — case-insensitive substring on document title
+#     company_name      — equality on chunk metadata company_name
+#     section_key       — equality on chunk metadata section_key
+#     entity_type       — equality on chunk metadata entity_type
+#   recall@k  = matched expected / total expected (within top-k)
+#   MRR       = 1 / rank of first matching hit
+#   web_required: true → skipped by the retrieval harness (E3 grades these later).
+#
+# Hard negatives built in: "Accelium Partners AG" (test startup) vs
+# "AcceliumPartnersAG"/"Accelium Partners GmbH" (prod fixtures); two Matt Young CVs;
+# similar sports startups (Athlete's Edge fixture vs ATHLETE DEVELOPMENT GROUP fixture).
+
+version: v1
+questions:
+  # ---- entity lookup ------------------------------------------------------
+  - id: g001
+    category: entity_lookup
+    question: What does X1 Pipeline do and what is its business model?
+    expected:
+      - {source_type: profile, title_contains: "X1 Pipeline"}
+  - id: g002
+    category: entity_lookup
+    question: What problem is 2ndCourt.com solving?
+    expected:
+      - {company_name: "2ndCourt.com", section_key: problem}
+  - id: g003
+    category: entity_lookup
+    question: Tell me about Orphagen Pharmaceuticals.
+    expected:
+      - {source_type: profile, title_contains: "Orphagen"}
+  - id: g004
+    category: entity_lookup
+    question: What is Ask Norby and who is it for?
+    expected:
+      - {company_name: "Ask Norby"}
+  - id: g005
+    category: entity_lookup
+    question: What does BMI OrganBank make and why does it matter?
+    expected:
+      - {company_name: "BMI OrganBank"}
+  - id: g006
+    category: entity_lookup
+    question: Give me an overview of ZeroPact.
+    expected:
+      - {source_type: profile, title_contains: "ZeroPact"}
+  - id: g007
+    category: entity_lookup
+    question: What is Calmr working on?
+    expected:
+      - {company_name: "Calmr"}
+  - id: g008
+    category: entity_lookup
+    question: What does the startup Angiex do in the biotech space?
+    expected:
+      - {company_name: "Angiex"}
+  - id: g009
+    category: entity_lookup
+    question: Describe TEN Capital Network.
+    expected:
+      - {source_type: profile, title_contains: "TEN Capital"}
+  - id: g010
+    category: entity_lookup
+    question: What is Accelium Partners AG focused on?   # hard negative: GmbH/slug fixtures
+    expected:
+      - {source_type: profile, title_contains: "Accelium Partners AG"}
+
+  # ---- cross-doc ----------------------------------------------------------
+  - id: g011
+    category: cross_doc
+    question: Compare what X1 Pipeline's pitch deck claims about traction with what its evaluation found.
+    expected:
+      - {source_type: deck_extract, company_name: "X1 Pipeline"}
+      - {company_name: "X1 Pipeline", section_key: traction}
+  - id: g012
+    category: cross_doc
+    question: Does 2ndCourt.com's website say the same thing as its pitch deck about the product?
+    expected:
+      - {source_type: website, company_name: "2ndCourt.com"}
+      - {source_type: deck_extract, company_name: "2ndCourt.com"}
+  - id: g013
+    category: cross_doc
+    question: How does the X1 evaluation assess X1 Pipeline's founders versus its team overall?
+    expected:
+      - {company_name: "X1 Pipeline", section_key: founder}
+      - {company_name: "X1 Pipeline", section_key: team}
+  - id: g014
+    category: cross_doc
+    question: What are the market conditions and market opportunity findings for Bits Lifestyle?
+    expected:
+      - {company_name: "Bits Lifestyle", section_key: market_conditions}
+      - {company_name: "Bits Lifestyle", section_key: market}
+  - id: g015
+    category: cross_doc
+    question: Summarize the technology assessment and the open risks in Angiex's evaluation.
+    expected:
+      - {company_name: "Angiex", section_key: technology}
+      - {source_type: eval_premium, company_name: "Angiex"}
+  - id: g016
+    category: cross_doc
+    question: What does Athlete's Edge claim versus what did the evaluators conclude overall?
+    expected:
+      - {company_name: "Athlete's Edge"}
+
+  # ---- filtered -----------------------------------------------------------
+  - id: g017
+    category: filtered
+    question: Which startups in the corpus are healthcare or medical device companies?
+    filters: {source_type: profile}
+    expected:
+      - {source_type: profile, title_contains: "SonoVascular"}
+      - {source_type: profile, title_contains: "Orphagen"}
+  - id: g018
+    category: filtered
+    question: Find education-focused startups.
+    filters: {source_type: profile}
+    expected:
+      - {source_type: profile, title_contains: "InnerJoy"}
+      - {source_type: profile, title_contains: "Limitless Education"}
+  - id: g019
+    category: filtered
+    question: Which startups are working on climate, sustainability, or green energy?
+    filters: {source_type: profile}
+    expected:
+      - {source_type: profile, title_contains: "VeriGreen"}
+      - {source_type: profile, title_contains: "GreenCycle"}
+  - id: g020
+    category: filtered
+    question: Show me seed-stage startups that are currently raising.
+    filters: {source_type: profile, fundraising_round: Seed}
+    expected:
+      - {source_type: profile, entity_type: startup_company}
+  - id: g021
+    category: filtered
+    question: Which profiles mention AI or machine learning products?
+    filters: {source_type: profile}
+    expected:
+      - {source_type: profile, title_contains: "Levare AI"}
+      - {source_type: profile, title_contains: "VeraAI"}
+  - id: g022
+    category: filtered
+    question: What deck slides discuss pricing or revenue models for X1 Pipeline?
+    filters: {source_type: deck_extract}
+    expected:
+      - {source_type: deck_extract, company_name: "X1 Pipeline"}
+
+  # ---- aggregate ----------------------------------------------------------
+  - id: g023
+    category: aggregate
+    question: How many startups in the corpus have been evaluated by X1?
+    expected:
+      - {source_type: eval_basic}
+  - id: g024
+    category: aggregate
+    question: What are the highest-scoring evaluations in the corpus?
+    expected:
+      - {source_type: eval_basic}
+  - id: g025
+    category: aggregate
+    question: Which companies have both a pitch deck and website content indexed?
+    expected:
+      - {source_type: deck_extract}
+      - {source_type: website}
+  - id: g026
+    category: aggregate
+    question: What are the common weaknesses evaluators found across traction sections?
+    expected:
+      - {section_key: traction}
+
+  # ---- team / person ------------------------------------------------------
+  - id: g027
+    category: person
+    question: Who founded X1 Pipeline and what is their background?
+    expected:
+      - {source_type: profile, title_contains: "X1 Pipeline"}
+      - {company_name: "X1 Pipeline", section_key: founder}
+  - id: g028
+    category: person
+    question: What is Paul Jaminet's professional background?
+    expected:
+      - {source_type: profile, title_contains: "Paul Jaminet"}
+  - id: g029
+    category: person
+    question: Tell me about Hall Martin's experience with startup funding.
+    expected:
+      - {source_type: profile, title_contains: "Hall Martin"}
+  - id: g030
+    category: person
+    question: What does Randolph W. Hubbell's CV say about his healthcare experience?
+    expected:
+      - {source_type: profile, title_contains: "Hubbell"}
+  - id: g031
+    category: person
+    question: Which people in the corpus have biotech or pharmaceutical backgrounds?
+    expected:
+      - {source_type: profile, title_contains: "Scott Thacher"}
+      - {source_type: profile, title_contains: "Jaminet"}
+  - id: g032
+    category: person
+    question: What skills does Marco Cappellini bring?
+    expected:
+      - {source_type: profile, title_contains: "Cappellini"}
+
+  # ---- investor / org -----------------------------------------------------
+  - id: g033
+    category: investor
+    question: Which investors in the corpus focus on early-stage companies?
+    expected:
+      - {source_type: profile, entity_type: investor}
+  - id: g034
+    category: investor
+    question: What is Hall Martin's investment approach and check size?
+    expected:
+      - {source_type: profile, title_contains: "Hall Martin"}
+  - id: g035
+    category: investor
+    question: What does Coomes Management Group do?
+    expected:
+      - {source_type: profile, title_contains: "Coomes Management"}
+  - id: g036
+    category: investor
+    question: How should founders pitch to the investors listed on the platform?
+    expected:
+      - {source_type: profile, entity_type: investor}
+
+  # ---- web-required (E3 subset; skipped by the retrieval harness) ---------
+  - id: g037
+    category: web
+    web_required: true
+    question: What is the current state of the organ transplant preservation market that BMI OrganBank competes in?
+  - id: g038
+    category: web
+    web_required: true
+    question: Who are the main competitors to Calmr in the stress-management app space right now?
+  - id: g039
+    category: web
+    web_required: true
+    question: What happened in seed-stage fintech funding this quarter?
+  - id: g040
+    category: web
+    web_required: true
+    question: Is the AI liability insurance market that Axiom targets growing? Cite recent sources.
+  - id: g041
+    category: web
+    web_required: true
+    question: What are current valuations like for pre-seed edtech startups?
+  - id: g042
+    category: web
+    web_required: true
+    question: Find recent news about anti-angiogenesis cancer therapeutics relevant to Angiex.
+  - id: g043
+    category: web
+    web_required: true
+    question: What is the latest on EU sustainability-reporting regulation that would affect ZeroPact's market?
+  - id: g044
+    category: web
+    web_required: true
+    question: How large is the sports-tech athlete development market in 2026?
+  - id: g045
+    category: web
+    web_required: true
+    question: What are typical SaaS churn benchmarks investors expect at seed stage in 2026?
