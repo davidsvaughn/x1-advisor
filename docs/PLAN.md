@@ -90,13 +90,21 @@ Schema + credentials + the checks that decide whether the Haystack path proceeds
       Anthropic candidate just runs through a thin direct-SDK tool instead.
 - [ ] **Spike C (models):** current + newest Claude model ids and thinking kwargs don't 400
       through the integration.
-- [ ] **Spike D (DeepSeek search):** verify the *API* surface for deepseek-v4-flash with web
-      search — the chat product has built-in search, but a server-side `web_search` tool on
-      the API could not be confirmed from public docs (checked 2026-07-07). Determine: exact
-      request shape, whether result URLs are returned (citation contract!), what it bills.
-      Add `deepseek` `_tool_web_search` row to `cost.py` `PRICING` with the verified rate.
-      *(V4-Flash token pricing verified: $0.14/1M in, $0.28/1M out, $0.0028 cache-hit — the
-      "incredibly cheap" claim holds on tokens.)*
+- [x] **Spike D (DeepSeek search): RESOLVED** — a working implementation exists in
+      `/home/david/code/davidsvaughn/cedar/alpha-claw/alpha_claw/strategy/engine/deepseek_agentic_provider.py`
+      (empirically verified there 2026-06-22). The contract: DeepSeek's server-side web search
+      works **only via its Anthropic-compatible endpoint** (`https://api.deepseek.com/anthropic`)
+      using the Anthropic Messages server tool `{"type": "web_search_20250305", "name":
+      "web_search", "max_uses": N}` (`server_tool_use`/`web_search_tool_result` blocks); the
+      OpenAI-compatible `/chat/completions` endpoint **rejects** web-search tools. Citations
+      come back as `{url, title}` from both text-block `citations` and tool-result blocks —
+      satisfies our citation contract. alpha-claw's `research()` mode (search → grounded
+      findings + citations, no decision) is exactly the E3 "delegated searcher" shape; port it
+      (httpx-only, ~150 lines). Note flash defaults to single-round search and truncates at
+      low `max_tokens` — raise `search_max_tokens` for research use. Remaining sub-task:
+      confirm what the search tool itself bills (tokens only vs per-search fee) from a live
+      call's usage block, then add the `deepseek` `_tool_web_search` row to `cost.py`.
+      *(V4-Flash token pricing verified: $0.14/1M in, $0.28/1M out, $0.0028 cache-hit.)*
 - [ ] PgBouncer decision or per-worker store instances (review §6.1.3) noted in deploy config.
 - **Gate:** Spikes A–C pass (or have working adapters) → continue on Haystack. Two or more
   hard-fail → switch Phase 4 to the thin-stack (direct SDK tool runner); Phases 1–3 are
