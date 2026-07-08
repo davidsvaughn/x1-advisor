@@ -4,6 +4,22 @@
 > engineering choices land here, newest first. Each entry names its evidence (spike
 > output, manifest path, or doc reference) and the revisit trigger if one exists.
 
+## 2026-07-09 — Record-summary blocks land: recall@10 0.778 → 0.833 (best lever so far)
+
+Phase-1 leftover closed (`ingest/summaries.py`): one gpt-5-mini record-summary chunk per
+live document (`granularity='record_summary'`, block_index 10000, ACL inherited), 412
+embedded. One-time cost **$0.20** (reasoning_effort=minimal + 8-way pool; serial
+default-effort was ~20s/doc — 10× slower). Golden v1 after: **recall@10 0.833 (+0.055),
+MRR 0.746, full recall 28/36, zero-recall 4/36** — a bigger lift than the E2 reranker
+(which was a wash), at one-tenth the E2 evaluation cost. E4b note: gpt-5-mini at minimal
+effort is the working record-summary model.
+
+Also tonight: multi-turn history discipline (last-5 verbatim + gpt-5-mini condense;
+verified follow-up coreference), default-on cost ledger, gated-vs-absent messaging
+(class+count only; hidden evals never revealed), FastAPI service skeleton (+Dockerfile/
+cloudbuild, trigger NOT wired), first unit tests incl. the §9 prompt-prefix-stability CI
+assertion (SYSTEM_PROMPT hash pinned; 5/5 passing).
+
 ## 2026-07-08 — E2 reranker bake-off: RRF-only WINS (reranker adds nothing at this scale)
 
 First Phase-3 bake-off decided. Candidate `jina-reranker-v3` (blend 0.3·rrf + 0.7·rerank
