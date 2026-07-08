@@ -262,31 +262,35 @@ Ladder per review §4.4: tuned FTS → BGE-M3 sparse in `sparsevec` → app-laye
       `count_startups`, `list_startups`, `top_by_score`, `investments_by_investor`),
       `web_search`/`fetch_url` (E3 winner). `exit_conditions=["text"]`,
       `max_agent_steps` ~8, per-turn tool budget.
-- [ ] **Citation layer** (plain Python, framework-independent): tiny refs (`ref1…`) on every
-      evidence block shown to the model; "omit rather than guess" prompt rule; post-validator
-      that repairs/dedupes/resolves/renumbers and **drops non-resolving refs**; internal
-      citations resolve to `(document_id, block_index, page_number)`, web to `{url}`.
-- [ ] **Access filter**: requesting-user → *guardrail-class* resolver (SQL over
-      `is_published`, doc `visibility`, `report_purchases`, ownership for draft/private
-      carve-outs, `is_admin`), applied as mandatory retriever filter. Default is OPEN
-      cross-user research (§0.2) — the filter removes gated *classes*, it never scopes
-      results to the requester's own entities. Smoke-test with admin auth first, then open
-      to founders/investors with the same policy (config, not code).
-- [ ] Context discipline per §9: compact tool results (keep ids/URLs, truncate bodies, flag
-      `_truncated`, never drop items), last-5-turns verbatim + summary, stable prompt prefix
-      (+ CI assertion of prefix stability), token budget.
-- [ ] Persistence: `advisor.threads` / `advisor.turns` with the per-turn research record
-      (evidence set, tool calls, citations, cost) — feeds the eval set and future indexing of
-      research notes (with max-restrictive ACL inheritance).
-- [ ] `cost.py` `Tracker` wired to every call; per-turn soft cap; Langfuse tracing on.
-- **Exit criteria:** 20 golden questions answered end-to-end with ≥95% resolvable citations,
-  full cost visibility per turn, zero ACL violations on a seeded private-doc probe set.
+- [x] **Citation layer** (`agent/evidence.py`, 2026-07-08): tiny refs, omit-rather-than-
+      guess, post-validator (resolve/dedupe/renumber/drop), internal → (document_id,
+      block_index, page_number), web → {url}.
+- [x] **Access filter** (`retrieval._acl_sql` + `agent/tools.py`, 2026-07-08): class-based
+      retriever-level filter (private, drafts, premium purchase-gating, hidden evals);
+      gated-vs-absent messaging (class+count only, hidden evals never revealed).
+      *Remaining: the requesting-user → class-dict SQL resolver (service auth, Phase 5).*
+- [x] Context discipline per §9 (2026-07-08): compact flagged tool results + get_source
+      escalation; last-5-turns verbatim + condensed older history (`agent.condense`,
+      gpt-5-mini); byte-stable prompt prefix (verified via cached-token growth);
+      per-step usage table on every run; step-budget guidance + graceful wrap-up
+      synthesis at the cap. *Remaining: CI assertion of prefix stability.*
+- [x] Persistence (`advisor.threads`/`turns` + `save_turn`, wired into service + chat REPL).
+- [x] `cost.py` `Tracker` on every call; $0.50 per-turn soft cap; default-on JSONL ledger;
+      **Langfuse tracing live** (telemetry.py, SDK v4; per-step usage/cost observations +
+      citation_resolvability & cost_usd scores; verified via langfuse-cli).
+- **Exit criteria: MET 2026-07-08** — 20-question agent run **100% resolvable citations**
+  (63/63; bar ≥95%), mean $0.011/turn with full per-step visibility, seeded ACL probes
+  (`experiments/acl_probes.py`) zero violations + positive purchase control.
 
 ### Phase 5 — Serving & UI *(≈2–4 days, can start during Phase 4)*
 
 - [ ] FastAPI service, SSE streaming chat endpoint; Cloud Run deploy (Cloud Build, same
       pattern as the rest of the platform); Cloud SQL Python connector (no proxy sidecar);
       PgBouncer/per-worker-store per Phase 0 decision.
+      *Started 2026-07-08: `x1_advisor/service.py` (/ask JSON + /health + thread
+      persistence, per-worker connection, dev auth stub) smoke-tested locally;
+      Dockerfile + cloudbuild.yaml written (trigger NOT wired; deploys are David's call).
+      SSE token streaming still open.*
 - [ ] Auth: signed user token from the Laravel session → service (the service must know the
       requesting user for ACL); admin-gated in v1.
 - [ ] UI: the app already ships `@assistant-ui/react` — wire a chat page to the SSE endpoint;

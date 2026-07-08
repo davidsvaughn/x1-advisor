@@ -16,8 +16,16 @@ import argparse
 import json
 import os
 import sys
+from typing import Any
 
 from openai import OpenAI
+
+
+def _safe(fn, *args):
+    try:
+        return fn(*args)
+    except Exception as exc:  # noqa: BLE001 — surfaced by the caller
+        return exc
 
 from x1_advisor.cost import Tracker, Usage
 from x1_advisor.db import connect
@@ -59,34 +67,48 @@ def main() -> None:
             rows = rows[: args.limit]
         print(f"{len(rows)} documents need record summaries")
 
-        for row in rows:
-            try:
-                resp = client.chat.completions.create(
-                    model=MODEL,
-                    messages=[{"role": "user", "content": PROMPT.format(
-                        title=row["title"], kind=row["source_type"],
-                        body=row["markdown"][:DOC_HEAD_CHARS])}],
-                )
-                tracker.log(provider="openai", model=MODEL, stage="ingest.record_summary",
-                            usage=Usage.from_haystack_meta("openai", resp.usage.model_dump()))
-                summary = (resp.choices[0].message.content or "").strip()
-                if not summary:
-                    raise ValueError("empty summary")
-                conn.execute(
-                    """INSERT INTO advisor.doc_chunks
-                         (document_id, block_index, granularity, text, metadata)
-                       VALUES (%s, %s, 'record_summary', %s, %s)""",
-                    (row["id"], SUMMARY_BLOCK_INDEX, summary,
-                     json.dumps(row["meta"] or {}, default=str)),
-                )
-                conn.commit()
-                done += 1
-                if done % 50 == 0:
-                    print(f"  {done} done (${tracker.run_total:.4f})")
-            except Exception as exc:  # noqa: BLE001 — record and continue
-                failed += 1
-                print(f"  FAIL doc {row['id']}: {exc}", file=sys.stderr)
-                conn.rollback()
+        from concurrent.futures import ThreadPoolExecutor
+
+        def summarize(row: dict) -> tuple[dict, str, Any]:
+            resp = client.chat.completions.create(
+                model=MODEL,
+                reasoning_effort="minimal",   # summaries need no deliberation
+                messages=[{"role": "user", "content": PROMPT.format(
+                    title=row["title"], kind=row["source_type"],
+                    body=row["markdown"][:DOC_HEAD_CHARS])}],
+            )
+            return row, (resp.choices[0].message.content or "").strip(), resp.usage
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            for future_result in pool.map(
+                lambda r: _safe(summarize, r), rows
+            ):
+                if isinstance(future_result, Exception):
+                    failed += 1
+                    print(f"  FAIL: {future_result}", file=sys.stderr)
+                    continue
+                row, summary, usage = future_result
+                try:
+                    if not summary:
+                        raise ValueError("empty summary")
+                    tracker.log(provider="openai", model=MODEL,
+                                stage="ingest.record_summary",
+                                usage=Usage.from_haystack_meta("openai", usage.model_dump()))
+                    conn.execute(
+                        """INSERT INTO advisor.doc_chunks
+                             (document_id, block_index, granularity, text, metadata)
+                           VALUES (%s, %s, 'record_summary', %s, %s)""",
+                        (row["id"], SUMMARY_BLOCK_INDEX, summary,
+                         json.dumps(row["meta"] or {}, default=str)),
+                    )
+                    conn.commit()
+                    done += 1
+                    if done % 50 == 0:
+                        print(f"  {done} done (${tracker.run_total:.4f})")
+                except Exception as exc:  # noqa: BLE001 — record and continue
+                    failed += 1
+                    print(f"  FAIL doc {row['id']}: {exc}", file=sys.stderr)
+                    conn.rollback()
 
     print(f"\nrecord summaries: {done} written, {failed} failed, "
           f"${tracker.run_total:.4f}")
