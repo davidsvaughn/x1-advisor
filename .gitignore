@@ -6,3 +6,6 @@ __pycache__/
 
 # Python tooling
 .venv/
+
+# runtime artifacts
+cost_ledger.jsonl

@@ -52,6 +52,28 @@ def build_tools(conn, *, acl: Any, registry: EvidenceRegistry,
             filters = {**filters, "entity_type": et}
         hits = retrieve(conn, query, acl=acl, filters=filters, k=SEARCH_K,
                         tracker=tracker)
+        # gated-vs-absent: on an empty result for a NON-admin, check (count/class
+        # only — no titles, no content) whether access-restricted material exists,
+        # so the agent can say "restricted" instead of the misleading "not found"
+        gated_note = None
+        if not hits and acl != "admin":
+            open_hits = [
+                h for h in retrieve(conn, query, acl="admin", filters=filters,
+                                    k=SEARCH_K, tracker=tracker)
+                # platform-hidden evals are hidden, not user-gated: never reveal
+                if h.metadata.get("acl_eval_is_visible") is not False
+            ]
+            if open_hits:
+                classes = sorted({
+                    "premium report (purchase required)"
+                    if h.metadata.get("acl_premium_gated") else
+                    "private document" if h.metadata.get("acl_visibility") == "private"
+                    else "unpublished draft"
+                    for h in open_hits})
+                gated_note = (f"{len(open_hits)} relevant blocks exist but are "
+                              f"access-restricted for this user: {', '.join(classes)}. "
+                              "Tell the user the material exists but requires access "
+                              "— do not say it doesn't exist.")
         items = []
         for h in hits:
             ref = registry.register_chunk(document_id=h.document_id,
@@ -65,7 +87,10 @@ def build_tools(conn, *, acl: Any, registry: EvidenceRegistry,
             if truncated:
                 item["_truncated"] = True   # full text via get_source(ref)
             items.append(item)
-        return json.dumps({"results": items, "k": len(items)})
+        out = {"results": items, "k": len(items)}
+        if gated_note:
+            out["access_note"] = gated_note
+        return json.dumps(out)
 
     def get_source(ref: str) -> str:
         ev = registry.get(ref)

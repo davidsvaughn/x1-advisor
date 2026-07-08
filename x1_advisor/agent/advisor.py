@@ -14,6 +14,7 @@ Context discipline (§9, David's priority):
 from __future__ import annotations
 
 import json
+import os
 import time
 from typing import Any
 
@@ -23,7 +24,7 @@ from haystack.dataclasses import ChatMessage
 
 from x1_advisor.agent.evidence import EvidenceRegistry, validate_citations
 from x1_advisor.agent.tools import build_tools
-from x1_advisor.cost import Tracker, Usage
+from x1_advisor.cost import JsonlSink, Tracker, Usage
 
 AGENT_MODEL = "gpt-5.1"
 MAX_STEPS = 8
@@ -68,7 +69,10 @@ say so in the answer, and move on to the next part.\
 def run_turn(conn, question: str, *, acl: Any = "admin",
              tracker: Tracker | None = None) -> dict[str, Any]:
     """One user question → grounded, citation-validated answer + usage table."""
+    # cost ledger is default-ON (no-silent-spend); ADVISOR_COST_LEDGER overrides path
+    ledger = os.environ.get("ADVISOR_COST_LEDGER", "cost_ledger.jsonl")
     tracker = tracker or Tracker(run_id=f"turn:{int(time.time())}",
+                                 sink=JsonlSink(ledger),
                                  per_run_soft_cap_usd=PER_TURN_SOFT_CAP_USD)
     registry = EvidenceRegistry()
     agent = Agent(
