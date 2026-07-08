@@ -22,12 +22,37 @@ not a report job; **not** an app-controlling copilot (prior aborted direction �
 | `docs/ARCHITECTURE.md` | Design (2026-06-12), amended by the review |
 | `docs/ARCHITECTURE-REVIEW.md` | Full review vs. ground truth + July-2026 research (committed `8fa6f1c`) |
 | `docs/PLAN.md` | **The working plan.** Phased build; model choices are bake-offs, not commitments |
-| `x1_advisor/cost.py` | Implemented + tested (multi-provider telemetry) |
-| Everything else | **Not built.** No service, no `advisor` schema, no ingestion, no agent |
+| `docs/DECISIONS.md` | Dated decisions log (PgBouncer call, DeepSeek billing, Phase-0 gate status) |
+| `x1_advisor/cost.py` | Implemented + tested (multi-provider telemetry; DeepSeek search billing verified) |
+| `pyproject.toml` + `uv.lock` | Python 3.13; haystack-ai 2.30.2, anthropic-haystack 5.13.0, pgvector-haystack 6.3.1 pinned |
+| `spikes/` | Phase-0 spike scripts. D passed live; A–C written, **blocked on `ANTHROPIC_API_KEY`** |
+| `advisor` schema | Created on test (2026-07-07); pgvector 0.8.1 enabled there. No tables yet |
+| Everything else | **Not built.** No service, no ingestion, no agent |
 
-**Next action: PLAN.md Phase 0** (schema, keys, go/no-go spikes). Spike D (DeepSeek web
-search) is already resolved — see the plan; port the reference implementation from
-`/home/david/code/davidsvaughn/cedar/alpha-claw/alpha_claw/strategy/engine/deepseek_agentic_provider.py`.
+**Provider policy (David, 2026-07-08 — see DECISIONS.md):** don't block on Anthropic keys.
+**OpenAI is the dev default for chat, embeddings, and web search** (company-paid API key);
+**DeepSeek stays a wired-up option but is opt-in only** (David's personal key today; a
+company key may come later); Anthropic/Voyage candidates rejoin when their keys land.
+
+**Next action: finish Phase 4 exit criteria** (20-golden-question end-to-end run with
+≥95% resolvable citations; seeded ACL probe suite; Langfuse tracing; multi-turn history
+discipline), then Phase 3 bake-offs (E2/E3 runnable now; E1 when VOYAGE key lands) and
+Phase 5 serving. Phases 0–2 complete + **Phase-4 first slice WORKING** (all 2026-07-08,
+see DECISIONS.md): `uv run python -m x1_advisor.agent.ask "question"` answers with
+validated citations and a per-step usage table; corpus turn ≈ $0.02, aggregate ≈ $0.004,
+corpus+web ≈ $0.05. Corpus: 412 live docs / 7,281 ACL-stamped+embedded chunks on
+x1-db-test; retrieval baseline recall@10 0.778 / MRR 0.727
+(`experiments/runs/2026-07-08_active_v1.jsonl`). **Context discipline is the testing
+acceptance bar (David)** — keep the per-step usage table green: flat uncached input,
+growing cached tokens, compact tool results.
+Working defaults: gpt-5.1 (agent), text-embedding-3-small (1536d), OpenAI server-side web
+search (`include=["web_search_call.action.sources"]` for citations). Know before touching
+eval data: **test-env drift** — 75/79 test bundles are an experimental shape (skipped
+loudly at ingest) and test dropped redundant eval score columns; 24 original-shape prod
+fixture bundles live at `gs://x1-app-www-test/reports/prod_fixtures/` (DECISIONS.md).
+Phase-1 leftover: LLM record-summary blocks. Still pending David:
+`advisor_obs`/`advisor_evidence` drop confirm, `ANTHROPIC_API_KEY`/`VOYAGE_API_KEY`
+(Anthropic spikes shelved, non-blocking), who runs `CREATE EXTENSION vector` on prod.
 
 ## Decisions locked (don't relitigate without new evidence)
 

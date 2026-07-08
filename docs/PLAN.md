@@ -87,21 +87,29 @@ model outputs in manifests.
 
 Schema + credentials + the checks that decide whether the Haystack path proceeds.
 
-- [ ] Decide fate of leftovers on test: `advisor_obs` (8.77M rows — truncate or drop),
-      `advisor_evidence` (drop after noting the 1536-dim precedent). ⚠️ *David confirms drop.*
-- [ ] `CREATE SCHEMA advisor;` on test; enable `CREATE EXTENSION vector` on **prod** (one-time;
+- [ ] Decide fate of leftovers on test: `advisor_obs` (measured 2026-07-07: **10 GB**, events
+      8.77M rows — truncate or drop), `advisor_evidence` (**133 MB**, 8,268 rows of
+      `vector(1536)` HNSW cosine — drop after noting the dim precedent). ⚠️ *David confirms drop.*
+- [x] `CREATE SCHEMA advisor;` on test **(done 2026-07-07; pgvector 0.8.1 already ENABLED on
+      test)**; ⚠️ still open: enable `CREATE EXTENSION vector` on **prod** (one-time;
       decide who runs it against prod). DDL per Appendix A.
-- [ ] Secrets: add `ANTHROPIC_API_KEY`, `VOYAGE_API_KEY`, `DEEPSEEK_API_KEY` (present) to
-      `.env`; confirm Langfuse keys work.
+- [ ] Secrets: add `ANTHROPIC_API_KEY`, `VOYAGE_API_KEY` ⚠️ *(both still missing — David)*;
+      ⚠️ **`OPENAI_API_KEY` in `.env` is INVALID (401, found 2026-07-08) — David must refresh
+      it (it's the company-paid default provider now, see DECISIONS 2026-07-08)**;
+      `DEEPSEEK_API_KEY` present (David's personal key — opt-in use only); Langfuse keys
+      **verified working 2026-07-07** (project `x1-backend-agentic`).
 - [ ] **Spike A (cost):** one cached AnthropicChatGenerator call → assert
       `cache_creation_input_tokens`/`cache_read_input_tokens` arrive in `reply.meta["usage"]`
       and land correctly through `Usage.from_haystack_meta`. If missing: wrap usage extraction
       around the raw client response (thin adapter), file upstream issue.
+      *Script ready: `spikes/spike_a_cache_usage.py` — blocked on `ANTHROPIC_API_KEY`.*
 - [ ] **Spike B (server tools):** pass Anthropic server-side `web_search`/`web_fetch` tool
       blocks through the integration in an Agent loop. If blocked: E3 still proceeds — the
       Anthropic candidate just runs through a thin direct-SDK tool instead.
+      *Script ready: `spikes/spike_b_server_tools.py` — blocked on `ANTHROPIC_API_KEY`.*
 - [ ] **Spike C (models):** current + newest Claude model ids and thinking kwargs don't 400
       through the integration.
+      *Script ready: `spikes/spike_c_model_ids.py` — blocked on `ANTHROPIC_API_KEY`.*
 - [x] **Spike D (DeepSeek search): RESOLVED** — a working implementation exists in
       `/home/david/code/davidsvaughn/cedar/alpha-claw/alpha_claw/strategy/engine/deepseek_agentic_provider.py`
       (empirically verified there 2026-06-22). The contract: DeepSeek's server-side web search
@@ -113,56 +121,82 @@ Schema + credentials + the checks that decide whether the Haystack path proceeds
       satisfies our citation contract. alpha-claw's `research()` mode (search → grounded
       findings + citations, no decision) is exactly the E3 "delegated searcher" shape; port it
       (httpx-only, ~150 lines). Note flash defaults to single-round search and truncates at
-      low `max_tokens` — raise `search_max_tokens` for research use. Remaining sub-task:
-      confirm what the search tool itself bills (tokens only vs per-search fee) from a live
-      call's usage block, then add the `deepseek` `_tool_web_search` row to `cost.py`.
+      low `max_tokens` — raise `search_max_tokens` for research use.
+      **Billing sub-task CLOSED 2026-07-07** (`spikes/spike_d_deepseek_billing.py`, live call):
+      search bills **tokens only** — usage reports `server_tool_use.web_search_requests` but
+      no fee field, results are injected as input tokens (~5.5k for a one-line question), and
+      the official pricing page has no per-search line item. `cost.py` now carries an explicit
+      $0 `_tool_web_search` row for deepseek + Anthropic-shaped-usage detection (the endpoint
+      returns `input_tokens`/`cache_read_input_tokens`, not `prompt_tokens`). Full grounded
+      call: **$0.000825**. See DECISIONS.md.
       *(V4-Flash token pricing verified: $0.14/1M in, $0.28/1M out, $0.0028 cache-hit.)*
-- [ ] PgBouncer decision or per-worker store instances (review §6.1.3) noted in deploy config.
-- **Gate:** Spikes A–C pass (or have working adapters) → continue on Haystack. Two or more
-  hard-fail → switch Phase 4 to the thin-stack (direct SDK tool runner); Phases 1–3 are
-  framework-independent and unaffected either way.
+- [x] PgBouncer decision or per-worker store instances (review §6.1.3): **per-worker store
+      instances, no PgBouncer** (2026-07-07) — see DECISIONS.md for rationale + revisit trigger.
+- **Gate (re-scoped 2026-07-08, DECISIONS.md):** evaluated on the providers we hold keys
+  for — OpenAI (company-paid default for chat/embeddings/web search) with DeepSeek as the
+  opt-in alternate. Provider-swapped spikes: `spike_a2_openai_cache_usage.py`,
+  `spike_b2_agent_web_search.py` (Agent loop + delegated-searcher Tool — the Phase-4 shape),
+  `spike_c2_openai_deepseek_models.py` (chat models + embedder). These pass → continue on
+  Haystack. Two or more hard-fail → switch Phase 4 to the thin-stack; Phases 1–3 are
+  framework-independent either way. The original Anthropic spikes A–C stay on the shelf,
+  **non-blocking**, to run whenever `ANTHROPIC_API_KEY` lands.
+  **GATE PASSED 2026-07-08 — all three provider-swapped spikes green → continue on
+  Haystack.** A′: OpenAI cached_tokens arrive in `reply.meta` and price correctly
+  (3,328/3,385 tokens cache-read on call 2). B′: Agent loop + OpenAI web-search
+  delegated-searcher tool end-to-end, 37 resolvable citations (~$0.025/search-call —
+  note: use `include=["web_search_call.action.sources"]`; inline url_citation
+  annotations are unreliable on gpt-5.1). C′: gpt-5.1, gpt-5-mini,
+  deepseek-v4-flash, text-embedding-3-small (1536d) all work + price. Details in
+  DECISIONS.md.
 
 ### Phase 1 — Ingestion slice, breadth-first *(≈2–4 days)*
 
 Target: every evaluated startup + all entity profiles indexed, with ACL metadata.
 
-- [ ] `advisor.documents` / `doc_chunks` / `entity_profiles` tables (Appendix A).
-- [ ] **Eval-bundle backfill**: walk `startup_company_evaluations.raw_json` GCS pointers
-      (handle both path generations: `reports/{slug}_{uuid}.json` and
-      `evaluations/{id}_{time}.json`); ingest `premium_markdown`, `basic_markdown`,
-      `pitchDeckContent`, `websiteContent`, `section_results[].analysis+rawFindings` as
-      documents with provenance + `eval_is_visible` + purchase-gating metadata. Zero LLM cost.
-- [ ] **Entity profile renderer**: startups (+team) from the `ReportChatService` field lists;
-      investors, CVs (+experiences/education, polymorphic `companyable` names), funds, orgs.
-      TipTap HTML→markdown (`markdownify` or equivalent); label arrays resolved through
-      lookup tables into normalized filter metadata; latest eval score on the startup card.
-      `content_hash` per profile for the freshness sweep.
-- [ ] **Chunker v1**: structure-aware, block-level only. Split on `# Page N` (decks: page =
-      slide = chunk), headings, and paragraph groups; each doc also gets one **record-summary
-      block** (LLM-written; role=`record_summary` via the generator registry — this is where
-      a cheap-model experiment lands later). Stable `block_index`; re-ingest =
-      version-and-append (old chunks marked superseded, still citation-resolvable).
-- [ ] ACL stamping on every chunk (visibility, is_published, entity refs, eval gates,
-      derived-doc provenance rule: max-restrictive inheritance).
-- **Exit criteria:** ≥ 180 eval-derived docs + ~700 entity profiles ingested on test; spot
-  check 10 random chunks for correct ACL metadata and page numbers.
+- [x] `advisor.documents` / `doc_chunks` / `entity_profiles` tables (Appendix A) —
+      **applied on test 2026-07-08** (`x1_advisor/schema.sql`, idempotent).
+- [x] **Eval-bundle backfill** (`x1_advisor/ingest/backfill_evals.py`) — walks both pointer
+      forms; parser handles all FOUR original prod bundle generations (gen-0a/0b/1/2, see
+      `bundles.py`); premium/basic/sections/deck/website docs with provenance +
+      `eval_is_visible` + purchase-gating metadata. Zero LLM cost. **Note (2026-07-08):
+      75/79 test bundles are an experimental shape — skipped loudly; 24 original-shape
+      prod fixtures copied to `reports/prod_fixtures/` ingest via `--fixtures`. See
+      DECISIONS.md (test-env drift).**
+- [x] **Entity profile renderer** (`ingest/profiles.py` + `render_profiles.py`) — startups
+      (+team) per ReportChatService field lists; investors, CVs (+experiences/education,
+      polymorphic `companyable`), investment companies, funds, orgs. TipTap→markdown
+      (markdownify); labels resolved to filter metadata; latest eval score on startup card;
+      content_hash per profile; never-index list applied (emails/tokens/lat-long).
+- [x] **Chunker v1** (`ingest/chunker.py`, `ck1`) — `# Page N` (deck page=slide=chunk),
+      headings, paragraph groups; stable `block_index`; char_span verified; re-ingest =
+      version-and-append. ⚠️ *Still open: the per-doc LLM record-summary block
+      (role=`record_summary` via generator registry — gpt-5-mini candidate).*
+- [x] ACL stamping on every chunk (`ingest/store.py`) — visibility, is_published, entity
+      refs, eval gates, deck max-restrictive inheritance (private unless the source doc row
+      upgrades it).
+- **Exit criteria: MET on test 2026-07-08** — 412 live docs / 6,728 chunks: 270 eval-derived
+  (≥180 ✓) + 142 profiles (= every entity on test; ~700 is the PROD entity count, reachable
+  at cutover). 10-random-chunk spot check: ACL fields + gated premium + unpublished-profile
+  flags correct; deck chunks paged.
 
 ### Phase 2 — Retrieval + golden set *(≈2–3 days, before any bake-off)*
 
-- [ ] Hybrid pipeline: `PgvectorEmbeddingRetriever` + `PgvectorKeywordRetriever`
-      (`websearch_to_tsquery`-style tuning where possible, `unaccent`) → RRF join →
-      (optional reranker slot) → **group-by-entity diversification** (window top-k per
-      document/entity in SQL).
-- [ ] Retrieval is a function of `(query, filters, config_id)` — the bake-off entry point.
-- [ ] **Golden set v1**: 40–60 questions with expected source docs/entities, spanning:
-      entity lookup ("what does X do"), cross-doc ("compare X's traction claims vs eval
-      findings"), filtered ("seed-stage fintechs in Europe"), aggregate ("how many…"),
-      team/person, investor-thesis, and **10–15 web-required questions** (for E3). Store as
-      YAML in `experiments/golden/`; grade retrieval by recall@k/MRR, answers by
-      LLM-as-judge groundedness + citation-resolvability (mechanical).
-- [ ] Harness CLI: `python -m experiments.run --config <id> --golden v1` → manifest JSONL +
-      cost summary.
-- **Exit criteria:** harness runs end-to-end on the active config; baseline numbers recorded.
+- [x] Hybrid pipeline (`x1_advisor/retrieval.py`, 2026-07-08) — implemented as plain
+      SQL/psycopg rather than the pgvector-haystack retrievers (Appendix A's shared-chunks +
+      per-config emb tables don't fit the store's single-table model; review §6.2 noted the
+      hybrid SQL is DIY either way): pgvector cosine + `websearch_to_tsquery` FTS → RRF →
+      (reranker slot pending E2) → per-document diversification cap. ACL = mandatory
+      retriever-level arg with class predicates (verified: non-admin loses premium chunks).
+- [x] Retrieval is `retrieve(query, filters, config_id, acl, k)` — the bake-off entry point.
+- [x] **Golden set v1** (`experiments/golden/v1.yaml`) — 45 questions (36 gradable + 9
+      web-required for E3) across all planned categories, grounded in real corpus entities,
+      hard negatives included (Accelium AG vs GmbH, duplicate people). Answer-side judge
+      grading lands with Phase 3/E4.
+- [x] Harness CLI: `python -m experiments.run --config <id> --golden v1` → JSONL manifest +
+      metrics (recall@k, MRR, latency, cost).
+- **Exit criteria: MET 2026-07-08** — baseline on `te3s_1536_ck1` (RRF only, no reranker):
+  **recall@10 0.778, MRR 0.727**, 25/36 full recall; failures characterized in DECISIONS.md
+  (aggregates await Phase-4 `structured_query`; that's by design).
 
 ### Phase 3 — Bake-offs *(≈3–5 days, parallelizable; each ends with a DECISIONS.md entry)*
 
@@ -181,6 +215,9 @@ Candidates: **none** (RRF only — genuinely plausible at this corpus size), Voy
 serializable expression. Metrics: nDCG@5/answer groundedness delta vs "none", latency, $/query.
 
 **E3 — Web search** *(independent of E1/E2; uses the web-question golden subset)*
+*Working default while the bake-off pends (2026-07-08, DECISIONS.md): OpenAI server-side
+`web_search` — company-paid. DeepSeek is candidate #2 and fully wired, but runs on David's
+personal key today → opt-in only until a company DeepSeek key exists.*
 Candidates, all behind the `SearchProvider` interface:
   1. **Anthropic server-side `web_search` + `web_fetch`** ($10/1k + tokens; enforced
      citations; dynamic filtering on newer tool versions).
