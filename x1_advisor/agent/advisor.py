@@ -56,7 +56,12 @@ Style: lead with the answer, keep it tight, use the reader's vocabulary — they
 not seen your tool calls. Do not pad; do not repeat the evidence verbatim when a
 summary sentence and a citation will do. Keep answers under roughly 400 words unless
 the user asks for a full report. Web evidence from web_research lists sources as
-(ref, url, title) — cite those refs exactly like corpus refs.\
+(ref, url, title) — cite those refs exactly like corpus refs.
+
+You have a hard budget of 8 tool steps per turn — plan multi-part questions before
+acting and spend steps where they buy the most. If a search comes back empty, do not
+re-search with variations more than once: conclude the material is not in the corpus,
+say so in the answer, and move on to the next part.\
 """
 
 
@@ -99,9 +104,26 @@ def run_turn(conn, question: str, *, acl: Any = "admin",
                 tool_calls.append({"tool": tc.tool_name, "arguments": tc.arguments})
 
     raw_answer = messages[-1].text or ""
+    if not raw_answer.strip():
+        # step cap hit mid-research: synthesize from gathered evidence rather than
+        # returning nothing for the money spent (honest degradation, §9)
+        wrap = ChatMessage.from_user(
+            "You have reached the tool-step limit. Write your final answer NOW from "
+            "the evidence already gathered: cite refs you have, state plainly which "
+            "parts you could not verify or complete, and do not call any more tools.")
+        reply = OpenAIChatGenerator(model=AGENT_MODEL).run(
+            [ChatMessage.from_system(SYSTEM_PROMPT), *messages, wrap])["replies"][0]
+        u = Usage.from_haystack_meta("openai", reply.meta)
+        rec = tracker.log(provider="openai", model=AGENT_MODEL,
+                          stage="agent.wrapup", usage=u)
+        steps.append({"step": len(steps) + 1, "input_tokens": u.input_tokens,
+                      "cached_tokens": u.cache_read_tokens,
+                      "output_tokens": u.output_tokens,
+                      "cost_usd": round(rec.cost_usd, 6), "tool_calls": ["(wrapup)"]})
+        raw_answer = reply.text or ""
     validated = validate_citations(raw_answer, registry)
 
-    return {
+    result = {
         "question": question,
         "answer": validated["answer"],
         "citations": validated["citations"],
@@ -115,6 +137,10 @@ def run_turn(conn, question: str, *, acl: Any = "admin",
         "cost_usd": round(tracker.run_total, 6),
         "over_soft_cap": tracker.over_per_run_soft_cap(),
     }
+    from x1_advisor.telemetry import emit_turn_trace
+
+    result["trace_id"] = emit_turn_trace(result, model=AGENT_MODEL)
+    return result
 
 
 def save_turn(conn, result: dict, *, user_id: int = 0,
