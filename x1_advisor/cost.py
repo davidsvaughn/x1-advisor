@@ -93,6 +93,12 @@ PRICING: dict[str, dict[str, dict[str, float]]] = {
     "deepseek": {
         "deepseek-v4-pro":   {"input": 0.435, "cache_read": 0.003625, "output": 0.87},
         "deepseek-v4-flash": {"input": 0.14,  "cache_read": 0.0028,   "output": 0.28},
+        # Server-side web search (Anthropic-compatible endpoint only) bills TOKENS ONLY:
+        # verified 2026-07-07 via live call (usage reported server_tool_use.web_search_requests=1,
+        # search results injected as ~5.5k input tokens, no fee field) and the official pricing
+        # page (token prices only, no per-search line item). Explicit $0 row so the tool-call
+        # accounting path stays visible rather than silently unpriced.
+        "_tool_web_search":  {"per_call": 0.0},
     },
 }
 
@@ -142,6 +148,16 @@ class Usage:
                               usage.get("cache_write_input_tokens", 0))
                 ),
             )
+
+        # Some providers speak the Anthropic wire shape even though they're priced as
+        # themselves — DeepSeek's Anthropic-compatible endpoint (the only one with its
+        # server-side web_search; verified 2026-07-07) returns input_tokens +
+        # cache_read/cache_creation_input_tokens. Without this, cache tokens would be
+        # silently dropped from the OpenAI-shape branch below.
+        if "prompt_tokens" not in usage and (
+            "cache_read_input_tokens" in usage or "cache_creation_input_tokens" in usage
+        ):
+            return cls.from_haystack_meta("anthropic", usage)
 
         # OpenAI-compatible shape (openai, azure, gemini, grok, deepseek, ...)
         prompt = int(usage.get("prompt_tokens", usage.get("input_tokens", 0)))
