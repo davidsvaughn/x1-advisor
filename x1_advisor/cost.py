@@ -41,7 +41,7 @@ import json
 from dataclasses import asdict, dataclass, field
 from typing import Any, Iterable, Literal, Protocol
 
-ProviderName = Literal["anthropic", "openai", "gemini", "grok", "deepseek"]
+ProviderName = Literal["anthropic", "openai", "gemini", "grok", "deepseek", "jina"]
 
 
 # ---------------------------------------------------------------------------
@@ -89,6 +89,11 @@ PRICING: dict[str, dict[str, dict[str, float]]] = {
         "grok-4.3":          {"input": 1.25, "cache_read": 0.20, "output": 2.50},
         "_tool_web_search":  {"per_call": 0.005},
         "_tool_x_search":    {"per_call": 0.005},
+    },
+    "jina": {
+        # Reranker API bills tokens from the same pack as embeddings; v2 was $0.02/1M and
+        # the v3 page advertises the shared token-pack pricing (exact v3 rate: verify).
+        "jina-reranker-v3": {"_embed": 0.02},  # verify
     },
     "deepseek": {
         "deepseek-v4-pro":   {"input": 0.435, "cache_read": 0.003625, "output": 0.87},

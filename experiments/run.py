@@ -65,16 +65,76 @@ def git_sha() -> str:
         return "unknown"
 
 
+def run_agent_mode(questions: list[dict], limit: int) -> None:
+    """Phase-4 exit measurement: agent end-to-end over golden questions.
+
+    Grades the CITATION contract mechanically (resolved/emitted refs — the >=95%
+    bar) plus cost/latency distribution. Includes a couple of web questions;
+    answer-content judging is E4's job, not tonight's.
+    """
+    from x1_advisor.agent.advisor import run_turn
+
+    non_web = [q for q in questions if not q.get("web_required")]
+    web = [q for q in questions if q.get("web_required")]
+    subset = (non_web + web[:2])[:limit]
+
+    run_id = f"{dt.date.today()}_agent_v1"
+    RUNS_DIR.mkdir(parents=True, exist_ok=True)
+    manifest_path = RUNS_DIR / f"{run_id}.jsonl"
+    emitted = resolved = 0
+    costs, latencies, no_citation = [], [], []
+    with connect() as conn, open(manifest_path, "w") as manifest:
+        for q in subset:
+            r = run_turn(conn, q["question"], acl="admin")
+            cs = r["citation_stats"]
+            emitted += cs["emitted"]
+            resolved += cs["resolved"]
+            costs.append(r["cost_usd"])
+            latencies.append(r["latency_ms"])
+            if cs["resolved"] == 0:
+                no_citation.append(q["id"])
+            manifest.write(json.dumps({
+                "run_id": run_id, "experiment": "phase4-agent",
+                "git_sha": git_sha(), "question_id": q["id"],
+                "category": q["category"], **r,
+            }, default=str) + "\n")
+            print(f"  {q['id']} {q['category']:13s} cite {cs['resolved']}/{cs['emitted']}"
+                  f"{' DROPPED:' + ','.join(cs['dropped']) if cs['dropped'] else ''}"
+                  f" ${r['cost_usd']:.4f} {r['latency_ms']}ms"
+                  f" steps={len(r['steps'])}"
+                  f"{' ⚠CAP' if r['over_soft_cap'] else ''}")
+
+    n = len(subset)
+    costs.sort(); latencies.sort()
+    print(f"\n== {run_id} ==")
+    print(f"questions: {n} | citation resolvability: {resolved}/{emitted} "
+          f"({100 * resolved / emitted if emitted else 0:.1f}%) — bar is >=95%")
+    print(f"zero-citation answers: {no_citation or 'none'}")
+    print(f"cost/turn: mean ${sum(costs)/n:.4f}, p50 ${costs[n//2]:.4f}, "
+          f"max ${costs[-1]:.4f}, total ${sum(costs):.4f}")
+    print(f"latency: p50 {latencies[n//2]}ms, max {latencies[-1]}ms")
+    print(f"manifest: {manifest_path}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--config", default=None, help="index config id (default: active)")
     ap.add_argument("--golden", default="v1")
     ap.add_argument("--k", type=int, default=10)
+    ap.add_argument("--agent", action="store_true",
+                    help="run the full agent per question (Phase-4 exit measurement)")
+    ap.add_argument("--limit", type=int, default=20, help="agent mode: max questions")
+    ap.add_argument("--rerank", action="store_true",
+                    help="E2: Jina rerank blend over the fused candidate pool")
     args = ap.parse_args()
 
     golden = yaml.safe_load((GOLDEN_DIR / f"{args.golden}.yaml").read_text())
     questions = golden["questions"]
-    run_id = f"{dt.date.today()}_{args.config or 'active'}_{args.golden}"
+    if args.agent:
+        run_agent_mode(questions, args.limit)
+        return
+    run_id = (f"{dt.date.today()}_{args.config or 'active'}_{args.golden}"
+              + ("_rerank" if args.rerank else ""))
     RUNS_DIR.mkdir(parents=True, exist_ok=True)
     manifest_path = RUNS_DIR / f"{run_id}.jsonl"
     tracker = Tracker(run_id=run_id)
@@ -88,7 +148,7 @@ def main() -> None:
             t0 = time.monotonic()
             hits = retrieve(conn, q["question"], acl="admin",
                             filters=q.get("filters"), config_id=args.config,
-                            k=args.k, tracker=tracker)
+                            k=args.k, rerank=args.rerank, tracker=tracker)
             latency_ms = int((time.monotonic() - t0) * 1000)
             g = grade(hits, q["expected"])
             recalls.append(g["recall"])

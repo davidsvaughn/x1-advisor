@@ -27,6 +27,10 @@ RRF_K = 60
 LEG_DEPTH = 50          # candidates fetched per leg before fusion
 PER_DOC_CAP = 3         # diversification: max chunks per document in final top-k
 
+RERANK_MODEL = "jina-reranker-v3"
+RERANK_DEPTH = 40       # fused candidates sent to the reranker
+RERANK_BLEND = 0.7      # final = 0.3·rrf_norm + 0.7·rerank_norm (pipeshub starting point)
+
 
 @dataclass
 class Hit:
@@ -102,6 +106,50 @@ _BASE_FROM = """
 """
 
 
+def _rerank_jina(query: str, candidates: list["Hit"],
+                 tracker: Tracker | None) -> list["Hit"]:
+    """E2 slot: Jina rerank over the fused candidate pool, blended with RRF
+    (0.3·rrf + 0.7·rerank, both min-max normalized within the pool)."""
+    if not candidates:
+        return candidates
+    import time
+
+    import httpx
+
+    for attempt in range(5):
+        resp = httpx.post(
+            "https://api.jina.ai/v1/rerank",
+            headers={"Authorization": f"Bearer {os.environ['JINA_API_KEY']}",
+                     "Content-Type": "application/json"},
+            json={"model": RERANK_MODEL, "query": query,
+                  "documents": [h.text[:4096] for h in candidates],
+                  "top_n": len(candidates)},
+            timeout=60,
+        )
+        if resp.status_code != 429:
+            break
+        # free-tier RPM limit: honor Retry-After, else exponential backoff
+        wait = float(resp.headers.get("retry-after") or 15 * (attempt + 1))
+        time.sleep(min(wait, 90))
+    resp.raise_for_status()
+    data = resp.json()
+    if tracker:
+        tracker.log(provider="jina", model=RERANK_MODEL, stage="retrieve.rerank",
+                    usage=Usage(embed_tokens=(data.get("usage") or {}).get("total_tokens", 0)))
+    scores = {r["index"]: r["relevance_score"] for r in data["results"]}
+    lo, hi = min(scores.values()), max(scores.values())
+    rrfs = [h.rrf_score for h in candidates]
+    rlo, rhi = min(rrfs), max(rrfs)
+
+    def blended(i: int, h: "Hit") -> float:
+        rr = (scores.get(i, lo) - lo) / (hi - lo) if hi > lo else 0.0
+        rf = (h.rrf_score - rlo) / (rhi - rlo) if rhi > rlo else 0.0
+        return (1 - RERANK_BLEND) * rf + RERANK_BLEND * rr
+
+    order = sorted(range(len(candidates)), key=lambda i: -blended(i, candidates[i]))
+    return [candidates[i] for i in order]
+
+
 def retrieve(
     conn,
     query: str,
@@ -110,6 +158,7 @@ def retrieve(
     filters: dict[str, Any] | None = None,
     config_id: str | None = None,
     k: int = 10,
+    rerank: bool = False,
     tracker: Tracker | None = None,
 ) -> list[Hit]:
     cfg: IndexConfig = CONFIGS[config_id] if config_id else active_config(conn)
@@ -166,6 +215,8 @@ def retrieve(
                           for rank in (h.dense_rank, h.lex_rank) if rank)
 
     ranked = sorted(hits.values(), key=lambda h: -h.rrf_score)
+    if rerank:
+        ranked = _rerank_jina(query, ranked[:RERANK_DEPTH], tracker) + ranked[RERANK_DEPTH:]
     out: list[Hit] = []
     per_doc: dict[int, int] = {}
     seen_text: set[int] = set()
