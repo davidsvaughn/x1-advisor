@@ -38,7 +38,18 @@ def _clip(text: str, limit: int) -> tuple[str, bool]:
 
 def build_tools(conn, *, acl: Any, registry: EvidenceRegistry,
                 tracker: Tracker) -> list[Tool]:
+    _ENTITY_TYPES = {"startup_company", "investor", "cv", "investment_company",
+                     "investment_fund", "organization"}
+    _ENTITY_ALIASES = {"startup": "startup_company", "company": "startup_company",
+                       "person": "cv", "fund": "investment_fund", "org": "organization"}
+
     def search_corpus(query: str, filters: dict | None = None) -> str:
+        if filters and "entity_type" in filters:
+            et = _ENTITY_ALIASES.get(str(filters["entity_type"]), filters["entity_type"])
+            if et not in _ENTITY_TYPES:
+                return json.dumps({"error": f"invalid entity_type {filters['entity_type']!r};"
+                                            f" valid: {sorted(_ENTITY_TYPES)}"})
+            filters = {**filters, "entity_type": et}
         hits = retrieve(conn, query, acl=acl, filters=filters, k=SEARCH_K,
                         tracker=tracker)
         items = []
@@ -130,7 +141,10 @@ def build_tools(conn, *, acl: Any, registry: EvidenceRegistry,
                  "reports and sections, pitch-deck extracts, website content). "
                  "Returns ranked snippets with citation refs. Optional filters: "
                  "source_type (profile|eval_section|eval_premium|eval_basic|"
-                 "deck_extract|website), company_name, section_key, entity_type."),
+                 "deck_extract|website), company_name, section_key, entity_type "
+                 "(startup_company|investor|cv|investment_company|investment_fund|"
+                 "organization). Prefer NO filters for broad discovery questions; "
+                 "add filters only to narrow a specific document class."),
              parameters={"type": "object",
                          "properties": {
                              "query": {"type": "string"},
