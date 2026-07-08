@@ -66,9 +66,42 @@ say so in the answer, and move on to the next part.\
 """
 
 
+HISTORY_VERBATIM_TURNS = 5   # §9: last-5 user/assistant exchanges verbatim
+CONDENSE_MODEL = "gpt-5-mini"
+
+
+def _history_messages(history: list[dict] | None,
+                      tracker: Tracker) -> list[ChatMessage]:
+    """§9 history discipline: older turns condensed (cheap model), recent verbatim."""
+    if not history:
+        return []
+    verbatim = history[-2 * HISTORY_VERBATIM_TURNS:]
+    older = history[: len(history) - len(verbatim)]
+    out: list[ChatMessage] = []
+    if older:
+        transcript = "\n".join(f"{t['role']}: {t['content'][:800]}" for t in older)
+        reply = OpenAIChatGenerator(model=CONDENSE_MODEL).run([ChatMessage.from_user(
+            "Condense this earlier conversation into <=150 words of context a "
+            "research agent needs to continue it (entities discussed, conclusions "
+            "reached, open questions):\n\n" + transcript)])["replies"][0]
+        tracker.log(provider="openai", model=CONDENSE_MODEL, stage="agent.condense",
+                    usage=Usage.from_haystack_meta("openai", reply.meta))
+        out.append(ChatMessage.from_user(
+            f"[Summary of earlier conversation]\n{reply.text}"))
+    for t in verbatim:
+        maker = ChatMessage.from_user if t["role"] == "user" else ChatMessage.from_assistant
+        out.append(maker(t["content"]))
+    return out
+
+
 def run_turn(conn, question: str, *, acl: Any = "admin",
+             history: list[dict] | None = None,
              tracker: Tracker | None = None) -> dict[str, Any]:
-    """One user question → grounded, citation-validated answer + usage table."""
+    """One user question → grounded, citation-validated answer + usage table.
+
+    `history` = prior turns [{"role": "user"|"assistant", "content": str}, ...];
+    the last 5 exchanges ride verbatim, anything older is condensed once per call
+    (cheap model) — tool results from prior turns are never replayed."""
     # cost ledger is default-ON (no-silent-spend); ADVISOR_COST_LEDGER overrides path
     ledger = os.environ.get("ADVISOR_COST_LEDGER", "cost_ledger.jsonl")
     tracker = tracker or Tracker(run_id=f"turn:{int(time.time())}",
@@ -85,7 +118,9 @@ def run_turn(conn, question: str, *, acl: Any = "admin",
     agent.warm_up()
 
     t0 = time.monotonic()
-    messages = agent.run(messages=[ChatMessage.from_user(question)])["messages"]
+    messages = agent.run(
+        messages=[*_history_messages(history, tracker),
+                  ChatMessage.from_user(question)])["messages"]
     latency_ms = int((time.monotonic() - t0) * 1000)
 
     steps = []
