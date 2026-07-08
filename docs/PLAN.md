@@ -20,11 +20,23 @@ list (see Phase 3):
 
 1. **Citations are page-level in v1.** `(document_id, block_index, page_number)` is the
    citation primitive; no `bounding_box` column. Deck citation UX = slide thumbnail.
-2. **ACL metadata is indexed from day one.** Every document/chunk carries `visibility`,
-   `is_published`, `eval_is_visible`, owning entity refs. **v1 audience = platform admins**
-   (filter ≈ everything), so ACL enforcement is a filter change later, not a re-index.
-   ⚠️ *Open product decision (David): when/whether founders and investors get access, and to
-   what slice. Blocks nothing in this plan.*
+2. **Access model: open cross-user research with class-based guardrails (David, 2026-07-07).**
+   Founders and investors researching *other* startups/investors/companies **is the whole
+   point of the feature** — the agent must have cross-user reach over entity data, evals, and
+   documents. **Never build identity-based walls** ("you can only see your own data") into
+   retrieval; guardrails gate *classes of sensitive content*, not other users' existence:
+   - **Default-open:** published entity profiles, eval scores + visible summaries,
+     `public`/`x1` documents, website content, web evidence — researchable by any
+     authenticated user, about anyone.
+   - **Class guardrails (the only gates):** unpublished/draft profiles (owner-only — they're
+     drafts); `private`-visibility documents (uploader chose privacy — treatment below);
+     premium eval report full text (a paid product — purchase-gated via `report_purchases`);
+     and a never-index list (contact emails, invite/claim/share tokens, anything
+     credential-shaped).
+   - Mechanism unchanged from the review: ACL-class metadata on every chunk + a query-time
+     filter — so all of the above are **policy dials, not re-indexes**.
+   ⚠️ *Open sub-decisions (David), §5:* treatment of `private` decks in cross-user answers,
+   and premium purchase-gating strictness.
 3. **Eval harness before tuning.** No bake-off runs before the golden set exists (Phase 2).
 4. **Haystack for the Tier-1 slice, used shallow** (pipelines-as-tools + one `Agent`), with
    the three §6.4 integration spikes as a go/no-go gate in Phase 0, and the thin direct-SDK
@@ -217,10 +229,12 @@ Ladder per review §4.4: tuned FTS → BGE-M3 sparse in `sparsevec` → app-laye
       evidence block shown to the model; "omit rather than guess" prompt rule; post-validator
       that repairs/dedupes/resolves/renumbers and **drops non-resolving refs**; internal
       citations resolve to `(document_id, block_index, page_number)`, web to `{url}`.
-- [ ] **ACL filter**: requesting-user → accessible-set resolver (SQL over memberships/
-      ownership/purchases/`is_admin`), applied as mandatory retriever filter. v1: admin-only
-      service auth, but the resolver runs on every query anyway (so opening access later is
-      config).
+- [ ] **Access filter**: requesting-user → *guardrail-class* resolver (SQL over
+      `is_published`, doc `visibility`, `report_purchases`, ownership for draft/private
+      carve-outs, `is_admin`), applied as mandatory retriever filter. Default is OPEN
+      cross-user research (§0.2) — the filter removes gated *classes*, it never scopes
+      results to the requester's own entities. Smoke-test with admin auth first, then open
+      to founders/investors with the same policy (config, not code).
 - [ ] Context discipline per §9: compact tool results (keep ids/URLs, truncate bodies, flag
       `_truncated`, never drop items), last-5-turns verbatim + summary, stable prompt prefix
       (+ CI assertion of prefix stability), token budget.
@@ -281,15 +295,22 @@ candidate), sparse-vector lexical leg, founder/investor audience rollout (ACL is
 |---|---|
 | Haystack integration gaps bite late | Phase-0 spikes as gate; framework-independent core (§1); named thin-stack exit ramp |
 | DeepSeek web-search API contract ≠ chat product | Spike D before E3; candidate degrades to "DeepSeek + Serper results in-context" or drops out |
-| ACL mistakes leak private docs | ACL metadata from day 1; mandatory filter (not prompt-level); seeded probe set in Phase-4 exit criteria; admin-only v1 |
+| Guardrail mistakes leak gated classes (private docs, unpurchased premium text, PII) | ACL-class metadata from day 1; mandatory filter (not prompt-level); seeded probe set in Phase-4 exit criteria; never-index list applied at ingest |
+| Over-restriction kills the product (walls around other users' data) | §0.2 is explicit: default-open cross-user research; guardrails are class-based only; golden set includes cross-user research questions that MUST pass |
 | Golden set too easy → bake-offs can't discriminate | Include hard negatives (similar startups), filtered + web questions; grow set from real usage (threads/turns) |
 | Model/pricing drift during experiments | `cost.py` raises on unknown models; manifests pin model ids + git SHA |
 | Prod app-table load from sweeps | Read-only role, off-peak cron, row-count-bounded queries |
 
 ## 5. Open items needing David
 
-1. v1 audience confirmation (plan assumes **admins only**) and the founder/investor rollout
-   shape (§0.2).
+1. Guardrail-class treatments (§0.2 — audience itself is DECIDED: founders + investors,
+   cross-user, default-open):
+   a. **`private`-visibility documents** in cross-user answers: (i) fully excluded,
+      (ii) *recommended:* verbatim deck content excluded but platform-authored eval-derived
+      findings about that startup remain researchable, or (iii) fully researchable.
+   b. **Premium eval report full text**: keep purchase-gated per requester (recommended —
+      it's revenue; scores + basic summaries open to all), or open it.
+   c. Confirm the never-index list (contact emails, invite/claim/share tokens, lat/long?).
 2. Confirm drop/truncate of `advisor_obs` + `advisor_evidence` leftovers (Phase 0).
 3. Who runs `CREATE EXTENSION vector` on prod, and when (Phase 0 / Phase 6 cutover).
 4. Budget comfort: per-turn soft cap default (proposal: $0.50) and daily cap (proposal: $20

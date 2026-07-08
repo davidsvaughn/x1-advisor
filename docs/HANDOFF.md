@@ -37,9 +37,14 @@ search) is already resolved — see the plan; port the reference implementation 
   the shared Cloud SQL instance, `advisor` schema.
 - **Page-level citations v1** (extraction has no bboxes — only `# Page N` delimiters);
   block-index + tiny-ref + server-side validator mechanism per design §8.
-- **ACL metadata indexed from day one; v1 audience = admins.** 87% of prod docs are
-  `private`; `is_published`/`visibility`/`is_visible`+purchases are real gates. Mandatory
-  retriever-level filter, never prompt-level.
+- **Access model: OPEN cross-user research with class-based guardrails (David, 2026-07-07).**
+  Founders/investors researching *other* startups & investors is **the whole point of the
+  feature** — never build identity-based walls into retrieval ("only your own data" would
+  kill the product). Guardrails gate content *classes* only: draft/unpublished profiles
+  (owner-only), `private`-visibility docs (treatment = open sub-decision), premium report
+  full text (purchase-gated), and a never-index PII/token list. ACL-class metadata on every
+  chunk + mandatory retriever-level filter (never prompt-level) makes all of this a policy
+  dial. See PLAN.md §0.2.
 - **Eval harness before tuning.** Golden set (Phase 2) gates every bake-off (Phase 3).
 - **Deferred:** Tier-2 deep mode (converged single-loop shape when built, not plan→critic),
   auto-router, sentence granularity, block-diff indexing, bboxes, sparse vectors.
@@ -79,7 +84,9 @@ GCS buckets: `x1-app-www-{test,prod}` (prod object versioning is suspended — b
 
 ## Open decisions David must confirm (PLAN.md §5)
 
-1. v1 audience (plan assumes admins-only) + later founder/investor rollout shape.
+1. Guardrail-class treatments (audience is decided: founders + investors, cross-user,
+   default-open): private-doc handling in cross-user answers, premium purchase-gating
+   strictness, never-index list. PLAN.md §5.1.
 2. Drop/truncate the leftover `advisor_obs`/`advisor_evidence` schemas.
 3. Who runs `CREATE EXTENSION vector` on prod, and when.
 4. Budget caps (proposal: $0.50/turn soft, $20/day during dev).
