@@ -1,0 +1,21 @@
+# Cloud Build for x1-advisor (Phase 5) — same pattern as the rest of the platform.
+# NOT yet wired to a trigger; prod cutover happens in Phase 6 with David.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args: ["build", "-t", "us-east1-docker.pkg.dev/$PROJECT_ID/x1/x1-advisor:$SHORT_SHA", "."]
+  - name: gcr.io/cloud-builders/docker
+    args: ["push", "us-east1-docker.pkg.dev/$PROJECT_ID/x1/x1-advisor:$SHORT_SHA"]
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - x1-advisor-test               # test service only; prod is a Phase-6 decision
+      - --image=us-east1-docker.pkg.dev/$PROJECT_ID/x1/x1-advisor:$SHORT_SHA
+      - --region=us-east1
+      - --no-allow-unauthenticated
+      - --add-cloudsql-instances=$PROJECT_ID:us-east1:x1-sql-test
+      - --set-env-vars=ADVISOR_PGHOST=/cloudsql/$PROJECT_ID:us-east1:x1-sql-test,DB_NAME=x1-db-test,GCS_BUCKET=x1-app-www-test
+      - --set-secrets=DB_PASS=x1-db-pass:latest,OPENAI_API_KEY=openai-api-key:latest,LANGFUSE_PUBLIC_KEY=langfuse-public:latest,LANGFUSE_SECRET_KEY=langfuse-secret:latest
+images:
+  - us-east1-docker.pkg.dev/$PROJECT_ID/x1/x1-advisor:$SHORT_SHA
