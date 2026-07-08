@@ -4,6 +4,49 @@
 > engineering choices land here, newest first. Each entry names its evidence (spike
 > output, manifest path, or doc reference) and the revisit trigger if one exists.
 
+## 2026-07-08 — E2 reranker bake-off: RRF-only WINS (reranker adds nothing at this scale)
+
+First Phase-3 bake-off decided. Candidate `jina-reranker-v3` (blend 0.3·rrf + 0.7·rerank
+over the fused top-40) vs the RRF-only baseline, golden v1, config `te3s_1536_ck1`:
+
+| metric | RRF-only | + jina-reranker-v3 |
+|---|---|---|
+| recall@10 | 0.778 | 0.792 |
+| MRR | 0.727 | 0.718 |
+| full recall | 25/36 | 26/36 |
+| zero recall | 5/36 | **same 5** |
+
+Manifests: `experiments/runs/2026-07-08_active_v1{,_rerank}.jsonl`. A wash — exactly the
+outcome the plan flagged as "genuinely plausible at this corpus size". The five failures
+are unchanged (they're tool-selection/data problems, not ranking problems), and the
+reranker adds a dependency, latency, and free-tier 429 rate limits.
+
+**Decision: v1 ships RRF-only.** Runner-up/fallback: `jina-reranker-v3` blend — the slot
+is implemented (`retrieve(rerank=True)`, harness `--rerank`), so re-evaluating after the
+prod cutover (~2× corpus) or after golden v2 grows harder is one flag. Voyage rerank
+candidates join when `VOYAGE_API_KEY` lands.
+
+## 2026-07-08 — Phase-4 exit measurements: citations 100%, ACL probes PASS
+
+**Agent-mode golden run** (`experiments.run --agent`, 20 questions, manifest
+`experiments/runs/2026-07-08_agent_v1.jsonl`): **63/63 citations resolvable (100% —
+bar was ≥95%)**, zero dropped refs; cost mean **$0.011/turn**, p50 $0.0096, max $0.05
+(total $0.23 for the run); latency p50 10s, max 42s.
+
+**Seeded ACL probes** (`experiments/acl_probes.py`): adversarial queries per gated
+class under a no-rights persona and a purchaser persona → **zero violations**, and the
+positive control (purchaser sees their purchased premium doc) passes.
+
+**Instrumentation catch #5:** all four "filtered" list questions returned false
+"nothing found" answers — the model passed `entity_type: "startup"` but the metadata
+enum is `startup_company`, so every search matched nothing. Fixed in the tool contract
+(values enumerated + common aliases normalized); re-test returns a cited 8-source list
+at $0.009. Lesson reinforced: enum-valued tool params must enumerate their values in
+the description.
+
+Remaining for Phase-4 close-out: Langfuse tracing, multi-turn history discipline,
+record-summary blocks (gpt-5-mini), "gated vs absent" messaging distinction.
+
 ## 2026-07-08 — Phase 4 first slice: agent runs end-to-end; context discipline verified live
 
 **Shipped** (`x1_advisor/agent/`): citation layer (`evidence.py` — tiny refs, post-
