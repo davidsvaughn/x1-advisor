@@ -1,11 +1,12 @@
 # X1 Advisor — Handoff
 
-> For an agent picking up this project. Last updated **2026-07-07** (supersedes the 06-14
-> version; the review + implementation plan now exist).
-> Read order: this file → [`PLAN.md`](PLAN.md) (the working plan — **start here for what to
-> do**) → [`ARCHITECTURE.md`](ARCHITECTURE.md) (design rationale) →
-> [`ARCHITECTURE-REVIEW.md`](ARCHITECTURE-REVIEW.md) (ground-truth findings + amendments;
-> §1, §5, §6.4 are the load-bearing parts).
+> ⚠️ **STALE SNAPSHOT (2026-07-07).** The state table below predates the entire
+> build-out (ingestion, retrieval, agent, service all now exist on test) and the
+> 2026-07-30 reviews. **Current truth: [`PLAN.md`](PLAN.md) §R** (readiness
+> matrix + gate sequence + active proposal docs). Read order for a new agent:
+> `PLAN.md` §R → the three active proposals it lists → `DECISIONS.md` →
+> [`ARCHITECTURE.md`](ARCHITECTURE.md) / [`ARCHITECTURE-REVIEW.md`](ARCHITECTURE-REVIEW.md)
+> for base design rationale. The rest of this file is kept as historical record.
 
 ## What this project is
 

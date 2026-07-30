@@ -1,9 +1,82 @@
 # X1 Advisor — Implementation Plan
 
-> Status: **working plan** (2026-07-07). Operationalizes [`ARCHITECTURE.md`](ARCHITECTURE.md)
+> Status: **working plan** (2026-07-07, **revised 2026-07-30** — see §R below).
+> Operationalizes [`ARCHITECTURE.md`](ARCHITECTURE.md)
 > (the design) as amended by [`ARCHITECTURE-REVIEW.md`](ARCHITECTURE-REVIEW.md) (the review).
 > Where the two disagree, this plan follows the review. Supersedes the "Suggested next step"
 > section of [`HANDOFF.md`](HANDOFF.md).
+
+---
+
+## §R. Revision — 2026-07-30 (supersedes the phase-exit shorthand below)
+
+Two independent design reviews
+([`DESIGN-REVIEW-2026-07-30.md`](DESIGN-REVIEW-2026-07-30.md) self-audit,
+[`ARCHITECTURE-PLAN-REVIEW-2026-07-30.md`](ARCHITECTURE-PLAN-REVIEW-2026-07-30.md)
+second-agent) converged on: the architecture is sound, but the project is a
+**validated admin prototype**, not "Phases 0–4 complete" — the phase exit
+criteria were met as written but were too weak to support the conclusions drawn
+from them. The §2 phase checklists below stand as **historical record**;
+current truth is this readiness matrix and the gate sequence that follows.
+
+### Readiness matrix (2026-07-30)
+
+| Area | State |
+|---|---|
+| Test-corpus ingestion | Prototype validated |
+| Retrieval | Prototype validated; **evidence-boundary correction required** (record summaries are citable — must become retrieval-only) |
+| Answer quality | **Not yet adequately measured** (citation resolvability ≠ faithfulness; no judge) |
+| ACL | Retrieval-level filter validated; **end-to-end boundary incomplete** (structured_query unfiltered, filter-key SQL injection, thread ownership) |
+| Service runtime | Skeleton only; **not concurrency-safe** (shared connection/transaction) |
+| Production data coverage & freshness | Not established (Phase 6 not started) |
+| Admin pilot / non-admin exposure | Not ready (gates 3 / 6) |
+
+### Scope decision (David, 2026-07-30)
+
+The advisor is a **research agent, not an actor**. No app-mutating or
+UI-driving capabilities; out-of-scope action requests get a graceful decline.
+Page context flows **into** the advisor only (see context-snapshot design).
+
+### Active proposals (docs adopted into this plan)
+
+- [`QA-LOOP-DESIGN-2026-07-30.md`](QA-LOOP-DESIGN-2026-07-30.md) — teacher-QA
+  observability: turn bundles, retrieval explain, funnel classification,
+  replay/compare. *Pending second-agent review.*
+- [`QUESTION-BANK.md`](QUESTION-BANK.md) — master test-question corpus
+  (13 recovered sources); seed for golden v2; 7 architecture implications.
+  *Pending second-agent review.*
+- [`CONTEXT-SNAPSHOT-DESIGN-2026-07-30.md`](CONTEXT-SNAPSHOT-DESIGN-2026-07-30.md)
+  — page-context/working-set architecture (app → advisor only).
+  *Pending second-agent review.*
+
+### Revised execution sequence (merges the independent review's Gates 1–6)
+
+- **Step 0 — immediate fixes (no gate, do first):** `evaluations_for_company`
+  visibility predicates (live leak); filter-key whitelist → typed filter layer
+  (SQL injection, F1); in-process psycopg pool (transaction safety, F2);
+  manifest no-clobber; persist `raw_answer`.
+- **Gate 1 — evidence correctness** + **QA-loop v1 alongside:** record
+  summaries retrieval-only with source-block expansion (head-slice fixed);
+  calibrated claim/citation faithfulness judge; rerun full agent suite on the
+  current corpus; turn bundles + retrieval explain + funnel labels + replay +
+  compare.
+- **Gate 2 — security boundary end-to-end:** one request-auth context consumed
+  by every data-bearing tool/endpoint; ACL-aware structured queries; thread
+  ownership; injection tests; per-probe admin-scope positive controls.
+- **Gate 3 — production-safe admin pilot** + **context-snapshot slices 1–3:**
+  server-owned history; request limits/timeouts/backpressure; enforceable cost
+  budgets; SSE protocol (with citation post-validation semantics); minimal prod
+  backfill rehearsal + coverage registry; snapshot schema, scope handles,
+  harness fixtures.
+- **Gate 4 — golden v2:** QUESTION-BANK curation (~80–100 cases + multi-turn
+  scripts, `expected_route` + `context_fixture` fields, held-out slice) ∪
+  golden v1 ∪ real-thread harvest.
+- **Gate 5 — provider/model experiments:** generator/embedding/search seams
+  (D1/D2 + SearchProvider), then E1/E3/E4 via immutable paired manifests.
+  RRF-only and current models stay provisional until then.
+- **Gate 6 — non-admin exposure:** policy finalization (private docs, premium,
+  existence disclosure), persona suite, audience opens only after every path
+  consumes the same verified auth context.
 >
 > **Prime directive of this plan:** model choices (LLM, embeddings, reranker, web search) are
 > **experiments, not commitments**. Every seam where a model/provider plugs in is built
