@@ -1,6 +1,10 @@
 # Question Bank — master test-question corpus for X1 Advisor
 
-> Date: 2026-07-30. Synthesized from **13+ places** where David wrote example/test
+> Date: 2026-07-30, **revised same day** per
+> [`QA-BANK-CONTEXT-REVIEW-2026-07-30.md`](QA-BANK-CONTEXT-REVIEW-2026-07-30.md)
+> §7 (orthogonal readiness dimensions; SCAN split into SCAN-T/SCAN-A;
+> tool-not-ready reclassifications; curation weighting; tiered golden-v2 plan).
+> Synthesized from **13+ places** where David wrote example/test
 > questions across x1-link (three checkouts + git history), deepagents-poc, and
 > x1-backend, recovered 2026-07-30 (none of it had carried into this repo's docs
 > or golden set). This document is the **designated seed for golden v2** (Gate 4
@@ -29,10 +33,31 @@
 | GV1 | Golden v1 (agent-authored, 2026-07-08) | 45 | `experiments/golden/v1.yaml` |
 | RUB | Eval-pipeline rubric banks (different purpose — see §4) | ~70 | `~/code/x1/x1-backend/sdk/docs/tmp/questions.json` + `investor_test_template*.json` |
 
-Status legend: **✅** answerable with current corpus+tools · **WS** needs
-working-set/page context (§3.1, design: `CONTEXT-SNAPSHOT-DESIGN-2026-07-30.md`) ·
-**SCAN** needs exhaustive-scan tool (§3.2) · **NOTES** needs notes/XRM ingestion
-(Phase 6+) · **WEB** needs web tool (have it).
+**Readiness model** (revised per `QA-BANK-CONTEXT-REVIEW-2026-07-30.md` §4.2 —
+the earlier single ✅ conflated "the data exists" with "the current agent can
+answer correctly"). Each question is scored on orthogonal dimensions, carried
+in full in the golden-v2 YAML (`source_available`, `tool_ready`, `scope`,
+`operation`, `context_required`, `golden_priority`); the tables below show a
+compact display status:
+
+- **✅** — source *and* tools ready today (corpus content + an existing
+  tool/query path).
+- **🔧** — source exists but the tool/query path doesn't (missing registry
+  query, coverage query, or relationship/aggregate support).
+- **WS** — needs working-set/page context
+  (`CONTEXT-SNAPSHOT-DESIGN-2026-07-30.md`).
+- **SCAN-T** — needs the exhaustive **text scan** tool (`scan_text`, §3.2A:
+  deterministic phrase/FTS over a bounded scope with per-entity coverage).
+- **SCAN-A** — needs **bounded semantic analysis** (`analyze_scope`, §3.2B:
+  budgeted per-entity judgment + synthesis; heavier machinery, sequenced
+  later).
+- **NOTES** — needs notes/XRM ingestion (Phase 6+).
+- Tags combine (e.g. WS+SCAN-T).
+
+Curation weighting (review §4.1): real captured user turns (LFT) outrank
+speculative design examples; repeated copies of one historical list count as
+one source, not independent demand; copilot-era questions were re-curated for
+research-agent scope.
 
 > Scope note (David, 2026-07-30): the advisor is a **research agent, not an
 > actor**. Action-style commands from the earlier copilot-era lists (move cards,
@@ -71,34 +96,37 @@ Deduplicated; each entry keeps its best verbatim phrasing. Route abbreviations:
 | 18 | Compare the traction analysis to the market analysis. | RAG | ✅* |
 | 19 | What did the evaluation say about their moat? | CAP | ✅* |
 | 20 | What risks did the research identify for VeraAI? | CAP | ✅ |
-| 21 | How has this startup improved since last evaluation? | EDS | ✅ |
+| 21 | How has this startup improved since last evaluation? | EDS | 🔧 (cross-version comparison; latest/prior-eval semantics §3.5) |
 | 22 | Were there any red flags in the traction analysis? | EDS | ✅* |
 
 \* "this startup" phrasing assumes a selected-entity context (WS-lite): in chat
 today, substitute a company name; from the UI (Phase 5), the working set
 supplies it.
 
-### 1.2 Corpus-wide mention enumeration (route: search/SCAN; the "which evaluations mention X" class)
+### 1.2 Corpus-wide enumeration — split into exact scan vs semantic analysis (§3.2)
 
 David's signature test — appears in **five** independent sources (KS, SCR, RSA,
-SKL, LFT). Top-k retrieval alone cannot answer these honestly (see §3.2).
+SKL, LFT). Top-k retrieval alone cannot answer these honestly. Per review
+§4.3 the class splits: "mentions X" is a deterministic **text scan** (SCAN-T);
+"has strong/weak Y" is bounded **semantic analysis** (SCAN-A). Never report a
+lexical no-match as a semantic negative.
 
 | # | Question | Src | Status |
 |---|---|---|---|
-| 23 | Which startup evaluations in the database mention regulatory risk? | KS+SCR+SKL+LFT | SCAN |
-| 24 | Which startup evaluations mention FDA, CE mark, or reimbursement complexity? | KS | SCAN |
-| 25 | Which startup evaluations explicitly mention weak go-to-market execution? | KS | SCAN |
-| 26 | Which startups have repeated concerns about capital intensity across multiple evaluations? | KS | SCAN |
-| 27 | Which startups have strong technical differentiation but weak commercialization plans, according to their evaluations? | KS | SCAN |
-| 28 | Which startup evaluations mention clinical validation risk in the raw evaluation artifacts? | KS | SCAN |
-| 29 | Which startups are described as platform businesses rather than single-product companies? | KS | SCAN |
-| 30 | Which startup evaluations have evidence of patent defensibility? | KS | SCAN |
-| 31 | Which startup evaluations mention payer adoption or hospital procurement friction? | KS | SCAN |
-| 32 | Which visible startups have artifact language suggesting execution risk even when the DB summary is vague? | KS | SCAN |
-| 33 | Which of these startups has at least one founder with a PhD? | SCR | SCAN/hybrid |
-| 34 | Compare the strongest GTM concerns across these 12 startups. | RSA | SCAN+WS |
-| 35 | Find evidence of FDA/compliance mentions, then summarize by startup. | RSA | SCAN |
-| 36 | Do any of these CVs mention FDA, HIPAA, or reimbursement experience? | SKL | SCAN |
+| 23 | Which startup evaluations in the database mention regulatory risk? | KS+SCR+SKL+LFT | SCAN-T |
+| 24 | Which startup evaluations mention FDA, CE mark, or reimbursement complexity? | KS | SCAN-T |
+| 25 | Which startup evaluations explicitly mention weak go-to-market execution? | KS | SCAN-T |
+| 26 | Which startups have repeated concerns about capital intensity across multiple evaluations? | KS | SCAN-A |
+| 27 | Which startups have strong technical differentiation but weak commercialization plans, according to their evaluations? | KS | SCAN-A |
+| 28 | Which startup evaluations mention clinical validation risk in the raw evaluation artifacts? | KS | SCAN-T |
+| 29 | Which startups are described as platform businesses rather than single-product companies? | KS | SCAN-A |
+| 30 | Which startup evaluations have evidence of patent defensibility? | KS | SCAN-A |
+| 31 | Which startup evaluations mention payer adoption or hospital procurement friction? | KS | SCAN-T |
+| 32 | Which visible startups have artifact language suggesting execution risk even when the DB summary is vague? | KS | SCAN-A |
+| 33 | Which of these startups has at least one founder with a PhD? | SCR | SCAN-T/hybrid |
+| 34 | Compare the strongest GTM concerns across these 12 startups. | RSA | SCAN-A+WS |
+| 35 | Find evidence of FDA/compliance mentions, then summarize by startup. | RSA | SCAN-T |
+| 36 | Do any of these CVs mention FDA, HIPAA, or reimbursement experience? | SKL | SCAN-T |
 
 ### 1.3 Working-set scoped (route: hybrid; status all **WS** until Phase-5 UI context lands)
 
@@ -127,70 +155,70 @@ SKL, LFT). Top-k retrieval alone cannot answer these honestly (see §3.2).
 | 52 | What is the current X1 score for this startup? | P4 | ✅ |
 | 53 | What's the market score for StartupX? | EDS | ✅ |
 | 54 | Which startups scored above 70 overall? | EDS+SCR ("score over 77") | ✅ |
-| 55 | How many startups in the current results have uploaded pitch decks? | P4 | WS |
-| 56 | What investors are associated with this startup? | P4 | ✅ |
+| 55 | How many startups in the current results have uploaded pitch decks? | P4 | WS+🔧 (doc-inventory query) |
+| 56 | What investors are associated with this startup? | P4 | 🔧 (relationship query not in registry) |
 | 57 | How many startups are in the database? | e2e smoke | ✅ |
 | 58 | Which startups currently on screen were created in the last 12 months? | P4 | WS |
 | 59 | Which currently filtered startups are based in Switzerland? | P4 | WS |
-| 60 | What's the average market score? | BP | ✅ (needs avg query) |
-| 61 | How does VeraAI compare to the average market score? | CAP | ✅ (hybrid sql) |
-| 62 | Which fund has the largest committed capital? / Compare fund durations | SKL | ✅ |
-| 63 | How many CVs are open to work? / Who has the most skills? | SKL | ✅ |
+| 60 | What's the average market score? | BP | 🔧 (no avg query in registry) |
+| 61 | How does VeraAI compare to the average market score? | CAP | 🔧 (depends on #60) |
+| 62 | Which fund has the largest committed capital? / Compare fund durations | SKL | 🔧 (no fund queries in registry) |
+| 63 | How many CVs are open to work? / Who has the most skills? | SKL | 🔧 (no CV queries in registry) |
 
 ### 1.5 Inventory / coverage (route: sql/coverage registry — see §3.3)
 
 | # | Question | Src | Status |
 |---|---|---|---|
-| 64 | What documents are available for this startup? | P4 (compact #3) | ✅ |
-| 65 | Do we have a pitch deck for this startup? | P4 (compact #4) | ✅ |
-| 66 | What evaluation bundles exist for this startup? | P4 | ✅ |
-| 67 | Which document types are searchable for this startup? | P4 | ✅ |
-| 68 | Across the startups currently on screen, which ones have pitch decks? | P4 | WS |
-| 69 | Which startups passing the current filters have any searchable documents at all? | P4 | WS |
-| 70 | For the current working set, which startups have both evaluation bundles and uploaded documents? | P4 | WS |
+| 64 | What documents are available for this startup? | P4 (compact #3) | 🔧 (coverage query — §3.3) |
+| 65 | Do we have a pitch deck for this startup? | P4 (compact #4) | 🔧 (coverage query) |
+| 66 | What evaluation bundles exist for this startup? | P4 | 🔧 (coverage query) |
+| 67 | Which document types are searchable for this startup? | P4 | 🔧 (coverage query) |
+| 68 | Across the startups currently on screen, which ones have pitch decks? | P4 | WS+🔧 |
+| 69 | Which startups passing the current filters have any searchable documents at all? | P4 | WS+🔧 |
+| 70 | For the current working set, which startups have both evaluation bundles and uploaded documents? | P4 | WS+🔧 |
 
 ### 1.6 Investor / fund / organization (route: search + sql)
 
 | # | Question | Src | Status |
 |---|---|---|---|
-| 71 | Which investors mention biotech, medtech, or diagnostics focus in their descriptions? | KS | SCAN |
-| 72 | Which funds seem most aligned with capital-intensive deep-tech deals? | KS | ✅ |
-| 73 | Which organizations in the database mention acceleration programs for climate startups? | KS | SCAN |
-| 74 | Which investor profiles mention board involvement or operating support? | KS | SCAN |
-| 75 | Which investment companies describe late-stage, growth, or crossover behavior? | KS | SCAN |
-| 76 | Which organizations mention university spinout support? | KS | SCAN |
+| 71 | Which investors mention biotech, medtech, or diagnostics focus in their descriptions? | KS | SCAN-T |
+| 72 | Which funds seem most aligned with capital-intensive deep-tech deals? | KS | SCAN-A |
+| 73 | Which organizations in the database mention acceleration programs for climate startups? | KS | SCAN-T |
+| 74 | Which investor profiles mention board involvement or operating support? | KS | SCAN-T |
+| 75 | Which investment companies describe late-stage, growth, or crossover behavior? | KS | SCAN-A |
+| 76 | Which organizations mention university spinout support? | KS | SCAN-T |
 | 77 | Which of these investors emphasize climate or hard-tech themes in their notes? | SKL | NOTES |
-| 78 | Which investors in our network focus on climate seed and move fast? | BRN | ✅/NOTES |
-| 79 | Which of these are angel investors? / Who has the fastest response time? | SKL | ✅/NOTES |
+| 78 | Which investors in our network focus on climate seed and move fast? | BRN | SCAN-A/NOTES ("move fast" needs notes) |
+| 79 | Which of these are angel investors? / Who has the fastest response time? | SKL | 🔧/NOTES |
 
 ### 1.7 People / CV / team (route: search + sql)
 
 | # | Question | Src | Status |
 |---|---|---|---|
-| 80 | Which visible startups have founders with prior exits? | KS | SCAN |
-| 81 | Which team members mention regulatory or clinical backgrounds? | KS | SCAN |
-| 82 | Which CVs mention McKinsey, BCG, Bain, or consulting backgrounds? | KS | SCAN |
-| 83 | Which founders mention synthetic biology, drug discovery, or semiconductor expertise? | KS | SCAN |
-| 84 | Which startups appear to have teams with unusually strong operator experience? | KS | SCAN |
-| 85 | Which candidate profiles mention fund formation, LP relations, or investment committee work? | KS | SCAN |
-| 86 | Which founders have PhDs? | BP+SCR | SCAN/hybrid |
+| 80 | Which visible startups have founders with prior exits? | KS | SCAN-T/hybrid |
+| 81 | Which team members mention regulatory or clinical backgrounds? | KS | SCAN-T |
+| 82 | Which CVs mention McKinsey, BCG, Bain, or consulting backgrounds? | KS | SCAN-T |
+| 83 | Which founders mention synthetic biology, drug discovery, or semiconductor expertise? | KS | SCAN-T |
+| 84 | Which startups appear to have teams with unusually strong operator experience? | KS | SCAN-A |
+| 85 | Which candidate profiles mention fund formation, LP relations, or investment committee work? | KS | SCAN-T |
+| 86 | Which founders have PhDs? | BP+SCR | SCAN-T/hybrid |
 
 ### 1.8 Cross-entity / comparative / discovery (route: multi-hop)
 
 | # | Question | Src | Status |
 |---|---|---|---|
-| 87 | Compare how investors and startup evaluations talk about regulatory risk in medtech. | KS | SCAN |
+| 87 | Compare how investors and startup evaluations talk about regulatory risk in medtech. | KS | SCAN-A |
 | 88 | Which startups look strong in evaluations but weak in internal notes? | KS | NOTES |
 | 89 | Which companies appear in both positive investor-fit notes and negative execution-risk evaluations? | KS | NOTES |
-| 90 | What patterns show up repeatedly in successful vs unsuccessful climate startups? | KS | ✅ |
-| 91 | Which fund descriptions overlap most with the themes in our highest-rated startup evaluations? | KS | ✅ |
-| 92 | What are the most common failure modes across our recent startup evaluations? | KS | SCAN |
-| 93 | What themes recur in promising AI infrastructure companies? | KS | ✅ |
-| 94 | What differentiates the top-scoring biotech evaluations from the rest? | KS | ✅ |
-| 95 | Across all available evidence, what concerns come up most often for first-time founders? | KS | SCAN |
-| 96 | What evidence suggests strong distribution advantage across portfolio companies? | KS | ✅ |
-| 97 | What patterns do you see across our portfolio? | EDS | ✅ |
-| 98 | Which recommendations had the biggest impact for similar startups? | EDS | ✅ |
+| 90 | What patterns show up repeatedly in successful vs unsuccessful climate startups? | KS | SCAN-A |
+| 91 | Which fund descriptions overlap most with the themes in our highest-rated startup evaluations? | KS | SCAN-A |
+| 92 | What are the most common failure modes across our recent startup evaluations? | KS | SCAN-A |
+| 93 | What themes recur in promising AI infrastructure companies? | KS | SCAN-A |
+| 94 | What differentiates the top-scoring biotech evaluations from the rest? | KS | SCAN-A |
+| 95 | Across all available evidence, what concerns come up most often for first-time founders? | KS | SCAN-A |
+| 96 | What evidence suggests strong distribution advantage across portfolio companies? | KS | SCAN-A |
+| 97 | What patterns do you see across our portfolio? | EDS | SCAN-A (top-k search gives a *sampled* answer today — must say so) |
+| 98 | Which recommendations had the biggest impact for similar startups? | EDS | 🔧 (underlying data contract unclear) |
 
 ### 1.9 Internal notes / XRM (all **NOTES** — content not yet ingested; these become coverage-model cases today)
 
@@ -218,7 +246,7 @@ SKL, LFT). Top-k retrieval alone cannot answer these honestly (see §3.2).
 | 112 | Show me the most relevant excerpts, not just a summary. | KS | ✅ |
 | 113 | Search all available evidence, not just the current page. | KS | WS |
 | 114 | Search only full artifact content, not DB summaries. | KS | ✅ |
-| 115 | Use the latest evaluation per startup only. | KS | ✅ (needs latest-eval filter semantic) |
+| 115 | Use the latest evaluation per startup only. | KS | 🔧 (latest-eval filter semantic, §3.5) |
 | 116 | Compare current page results with the broader database. | KS | WS |
 | 117 | Summarize the strongest evidence for and against the startups currently visible on screen. | KS | WS |
 
@@ -297,16 +325,33 @@ entity-set filter. Without it, roughly a third of the bank is untestable and the
 product misses its most natural usage mode. (Also needed for directive #113/116
 "current page vs broader database".)
 
-### 3.2 Top-k retrieval cannot answer mention-enumeration; a bounded exhaustive scan tool is needed
-"Which of these 50 mention X?" requires examining *all 50* with a per-document
-verdict, not the top-8 chunks. KS already specified the contract: bounded scope
-(explicit entity set), lexical/FTS scan, and **coverage-aware synthesis** — report
-which documents matched *and which did not*, "in the evidence contract, not as
-prompt fluff." This is a new tool (`scan_corpus(entity_set, pattern/query)` →
-per-entity matched/not-matched/not-indexed + evidence refs), distinct from
-`search_corpus`. It also resolves the independent review's enumeration-matcher
-critique from the product side, and it's what makes follow-ups #118-119
-answerable honestly.
+### 3.2 Top-k retrieval cannot answer bounded enumeration — and the fix is TWO capabilities, not one
+
+"Which of these 50 mention X?" requires examining *all 50* with a per-entity
+verdict, not the top-8 chunks. KS already specified the coverage requirement:
+report which documents matched *and which did not*, "in the evidence contract,
+not as prompt fluff." Per review §4.3 the original single `scan_corpus` idea
+conflated two different operations:
+
+**A. `scan_text(scope, query_or_phrases)`** — deterministic exhaustive text
+scan (FTS/phrase) over a bounded scope →
+per-entity `matched | no_match | not_indexed | restricted`, exact matching
+passages with citations, and eligible/scanned/matched coverage counts. Cheap
+(mostly SQL); answers the SCAN-T class and makes follow-ups #118-119 honestly
+answerable. **Disclosure note:** the per-entity `restricted` status reveals
+that gated material *exists* for that entity — it must follow the same
+class-disclosure policy as the gated-vs-absent note (recommendation:
+premium-class existence only; never private-doc existence).
+
+**B. `analyze_scope(scope, question_or_rubric, limits)`** — bounded semantic
+map/reduce: per-entity evidence gathering, per-entity verdict with citations,
+aggregate synthesis, eligible/analyzed/insufficient-evidence counts, under
+explicit entity/document/token/latency/cost budgets. Answers the SCAN-A class.
+Real machinery — sequence it after `scan_text`, on demonstrated demand.
+
+**Honesty rule (both):** never translate a lexical no-match into a semantic
+negative. "No matching phrase was found in the indexed eligible text" is the
+correct claim; "they have no regulatory risk" is not.
 
 ### 3.3 The coverage model gets a product surface
 P4's inventory questions (#64-70) are user-facing queries over exactly the
@@ -314,11 +359,14 @@ coverage registry proposed in review point S3 (indexed / gated / stale /
 not-indexed / doesn't-exist). That registry is not just internal bookkeeping —
 it needs a query path (structured_query or dedicated tool).
 
-### 3.4 Evidence-fidelity mode
+### 3.4 Evidence-fidelity mode (answer contract, per review §4.4)
 "Pull the exact quotes" / "excerpts, not a summary" (#109-112) is a stable
-answer-contract semantic: when asked for quotes, return verbatim spans via
-get_source with block-level citations, never paraphrase. Belongs in the system
-prompt contract as a durable product rule (with a golden case guarding it).
+answer-contract semantic. When invoked: use **original source blocks only —
+never record-summary chunks**; return verbatim spans via get_source; cite
+every quote; state the searched scope and coverage; and distinguish
+unavailable vs restricted vs no-match sources. Belongs in the system prompt
+contract as a durable product rule, guarded by a golden case and the
+`answer_contract_error` funnel label.
 
 ### 3.5 Latest-eval-only semantics (#115)
 Version-and-append handles document supersession, but "latest evaluation per
@@ -343,9 +391,24 @@ answers (#90-98), not test inputs.
 
 Golden v1 (GV1) covers entity-lookup, cross-doc, filtered, and person classes
 well, with real hard negatives — keep all 45. Its gaps are exactly this bank's
-strengths: mention-enumeration (§1.2), working-set (§1.3), inventory (§1.5),
-wrong-tool temptation, directives (§1.10), coverage challenges (§1.11), and
-multi-turn scripts (§1.12). Golden v2 = GV1 ∪ curated bank entries, each with
-`expected_route`, entity-slot parameterization, and (for scripts) sequence
-grading — sized realistically at ~80-100 single-turn cases + 3-5 scripts, with
-the P4 compact set as the CI smoke tier.
+strengths: exact-scan + semantic enumeration (§1.2), working-set (§1.3),
+inventory (§1.5), wrong-tool temptation, directives (§1.10), coverage
+challenges (§1.11), and multi-turn scripts (§1.12).
+
+Golden v2 **curates** the bank — it does not copy it (review §4.5/§6.5). Three
+tiers:
+
+1. **Smoke** (~12, deterministic, every CI run) — seeded from the P4 compact
+   set.
+2. **Core** (~40–60 + 3–5 scripts, decision-grade) — each case precise before
+   any expensive agent run: required facts/behaviors, acceptable evidence
+   groups, allowed/required routes (`expected_route`) and scopes
+   (`expected_scope`), context fixtures, ACL persona where relevant, and a
+   deterministic-vs-stochastic grading rule.
+3. **Extended** (~80–100 + real-thread replay corpus) — breadth, paraphrase
+   variants (entity-slot parameterization), exact-scan vs semantic-analysis
+   cases kept separate.
+
+Real captured threads (LFT) weight above speculative design examples; a
+question repeated across historical copies counts once. Do not jump from the
+bank straight to a 100-case agent run — precision in the core tier first.

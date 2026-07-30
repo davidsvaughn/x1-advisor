@@ -1,8 +1,10 @@
 # Context Snapshot — carrying "what's on screen" into the advisor
 
-> Date: 2026-07-30. Status: **proposal, for review** (same contract as the other
-> 2026-07-30 design docs: verify claims, challenge decisions; reviewer questions
-> in §9).
+> Date: 2026-07-30. Status: **proposal, revised same day** per
+> [`QA-BANK-CONTEXT-REVIEW-2026-07-30.md`](QA-BANK-CONTEXT-REVIEW-2026-07-30.md)
+> §7 (all requested changes adopted — headline: v1 scopes are **extensional**;
+> the original intensional re-materialization contradicted replayability).
+> §9 records the resolutions.
 >
 > Motivation: the recovered question bank (`QUESTION-BANK.md`) shows the single
 > most common phrasing across every era of David's test questions is
@@ -72,7 +74,13 @@ tokens, not ~2,000.
 with standardized payloads. Unknown page types degrade to "no context" plus a
 log line — never an error.
 
-## 3. Wire shape
+## 3. Wire shape — extensional v1
+
+**Both scopes are extensional (explicit id lists).** The app already resolved
+the filtered set to paginate it; it sends those ids. The advisor never
+re-implements the app's filter semantics — if app and advisor each interpreted
+`score_gte`/industry/publication, "passing the current filters" would
+eventually mean different things on the page and in the answer.
 
 ```jsonc
 POST /ask
@@ -88,56 +96,82 @@ POST /ask
     },
     "working_set": {
       "entity_type": "startup_company",
-      "filter_spec": {"score_gte": 77, "industry": "healthcare"},  // intensional definition
-      "total": 47,                              // full filtered-set size
-      "visible_ids": [3, 17, 42, 88, …],        // the page actually rendered (≤ page size)
+      "visible_ids": [3, 17, 42],               // the page actually rendered
+      "matching_ids": [3, 17, 42, 88, 91],      // FULL filtered set — the immutable turn scope
+      "filter_spec": {"score_gte": 77, "industry": "healthcare"},
+      "filter_contract_version": 1,
+      "total": 5,
       "sort": "score desc"
     }
   }
 }
 ```
 
-Two deliberate representations, because David's own phrasings distinguish them
-(P4 smoke suite §9 lists both):
-
-- **"currently on screen"** → `visible_ids` (extensional, small, exact).
-- **"passing the current filters"** → `filter_spec` + `total` (intensional).
-  The server re-materializes the full id set from the spec at resolution time —
-  so "all 47", not just the visible 20. `filter_spec` vocabulary is a
-  server-defined whitelist (same registry the F1 filter-key fix introduces);
-  unknown keys are rejected loudly at request validation, not silently dropped.
+- **"currently on screen"** → `visible_ids`.
+- **"passing the current filters"** → `matching_ids` — resolved by the app at
+  snapshot time, persisted verbatim in the turn bundle, and used as the replay
+  primitive. Never re-materialized later: a spec re-run against changed data is
+  a different set, which would break replay (review §3.1).
+- **`filter_spec` is provenance only** — display, debugging, and app/advisor
+  filter-semantics drift checks. It is validated against a server-defined
+  whitelist (the same typed-filter registry the F1 fix introduces — one filter
+  contract, not two SQL paths) but is never the source of scope truth.
+- Ids cost no prompt tokens (P4) and at X1 scale hundreds of refs per request
+  are trivial. If scopes ever outgrow the request, the escape hatch is a
+  server-minted materialized `scope_snapshot_id` — never a live query
+  definition standing in for a historical snapshot.
 
 An `entity_detail` page needs only `page.selected`; a board page's working set
 is the card entity list (read-only). Board/notes content itself remains
-NOTES-status until Phase-6 ingestion — context can scope a search to board
-entities today even though note text isn't searchable yet.
+not-yet-ingested until Phase 6 — context can scope a search to board entities
+today even though note text isn't searchable yet.
+
+### 3.1 Context resolution status
+
+Context resolution is explicit, never silent:
+
+```text
+context_status = resolved | absent | unsupported | invalid | stale
+```
+
+An unknown page type or failed validation degrades to `unsupported`/`invalid`
+— **visibly**. If the question is deictic ("these", "on screen") and context
+is anything but `resolved`, the agent must say the page scope was unavailable
+rather than silently answering corpus-wide (that would be a self-inflicted
+scope error). `absent` + non-deictic question = normal corpus-wide chat.
 
 ## 4. How the agent consumes it
 
-1. **Context line** — `run_turn` renders the snapshot to one compact line
-   appended to the turn's user message (volatile tail, never the cached prefix):
-   `[Context: search page · 20 of 47 startups visible (filters: score≥77,
-   industry=healthcare) · none selected]`. That plus tool descriptions is all
-   the model needs for deixis ("these" = the working set; "this startup" =
-   selected).
-2. **Scope handles on tools** — `search_corpus`, `scan_corpus` (when built),
+1. **Context block — server-authored, delimited, spoof-proof.** `run_turn`
+   renders the snapshot to one compact line placed after the stable
+   system/tool prefix (so the cache prefix is untouched). A separate
+   server-controlled context message is the clean form; if the Haystack message
+   path makes that awkward, an explicitly delimited server-authored tail on the
+   user message is acceptable **provided**: the client cannot write the
+   authoritative context block, the model is told which block is
+   server-resolved, and user text mimicking `[Context: …]` cannot override it
+   (the server strips/escapes look-alikes from user input). Example:
+   `[Context (server-resolved): search page · 3 of 5 matching startups visible
+   (filters: score≥77, industry=healthcare) · none selected]`.
+2. **Scope handles on tools** — `search_corpus`, `scan_text` (when built),
    and `structured_query` gain an optional `scope` parameter:
-   `"visible" | "working_set" | "all"` (default `all`). The server resolves the
-   handle to an entity-set predicate. The model never enumerates ids.
-3. **Selected-entity default** — on an `entity_detail` page, "this startup"
-   questions resolve `selected` into an entity filter automatically when the
-   model scopes to it; bare searches stay corpus-wide.
-4. **Coverage reporting** — a `working_set`-scoped answer states its scope
-   ("searched all 47 matching startups" / "the 20 on screen"), which is exactly
-   the honesty users demanded in the captured threads ("did you search all
-   20?", "why did you only search their summaries?"). The scan-tool coverage
-   contract (QUESTION-BANK §3.2) and this compose naturally.
+   `"selected" | "visible" | "working_set" | "all"` (default `all`). The server
+   resolves the handle to an entity-set predicate. The model never enumerates
+   ids. `selected` is an explicit scope, not a hidden filter default inside
+   tools — "this startup" maps to `scope: "selected"`.
+3. **Coverage reporting** — a scoped answer states its scope ("searched all 5
+   matching startups" / "the 3 on screen"), which is exactly the honesty users
+   demanded in the captured threads ("did you search all 20?", "why did you
+   only search their summaries?"). The scan-tool coverage contract
+   (QUESTION-BANK §3.2) and this compose naturally.
 
 ## 5. Multi-turn semantics (deixis rules)
 
 - Each request MAY carry a fresh snapshot; the newest snapshot supersedes.
 - A turn with no snapshot inherits the thread's most recent snapshot (persisted
-  server-side with the thread once server-owned history lands — F6).
+  server-side with the thread once server-owned history lands — F6). Stored
+  thread context is **user-owned thread state** — it belongs to the requesting
+  user's thread and is never shared or readable across users.
 - **Two kinds of "these"**: the UI working set, and the *answer set* (the list
   the assistant just presented — e.g. after "which of these mention regulatory
   risk?" returned 6 companies, "pull the exact quotes for each" means those 6).
@@ -157,26 +191,31 @@ headlessly today:
 - id: g2-041
   question: "Across the startups currently on screen, what risks are mentioned most often?"
   context_fixture: {page: {type: search}, working_set: {entity_type: startup_company,
-                    visible_ids: [<10 fixture ids>], filter_spec: null, total: 10}}
-  expected_route: search(scope=visible)
+                    visible_ids: [<10 fixture ids>], matching_ids: [<10 fixture ids>],
+                    total: 10}}
+  expected_scope: {required: visible}
 ```
 
-Golden v2 gains a `context_fixture` field; the funnel classifier checks scope
-resolution (a new mechanical failure label: `scope_error` — answered corpus-wide
-when the question was working-set-scoped, or vice versa). Multi-turn scripts
-(bank §1.12) carry snapshots on turn 1 and test carryover on later turns.
+Golden v2 gains `context_fixture` and `expected_scope` fields. **`scope_error`
+is graded only against explicit golden expectations** — `required: <scope>` or
+`allowed: [<scopes>]` for questions that legitimately admit more than one
+reading — never inferred mechanically from arbitrary question wording (review
+§3.6). Multi-turn scripts (bank §1.12) test the deixis rules directly: UI scope
+on turn 1, a narrowed answer set on turn 2, "pull exact quotes for each" on
+turn 3, and a fresh snapshot superseding prior scope on turn 4.
 
 ## 7. Implementation slices (all small; ordered)
 
 1. **Schema + plumbing** (~½ day): `context` on AskRequest, validation +
-   filter_spec whitelist, context line rendering, persistence into
-   `research_record`. No tool changes yet — "this startup" via selected-entity
-   already improves entity_detail asks.
-2. **Scope handles** (~½–1 day): entity-set resolver, `scope` param on
-   search_corpus + structured_query, `_filter_sql` entity-set predicate (rides
-   the F1 whitelist work).
-3. **Harness fixtures** (~½ day): `context_fixture` in golden, `scope_error`
-   funnel label, WS questions activated in golden v2.
+   `context_status`, filter_spec whitelist (shared typed-filter contract from
+   the F1 fix — one filter layer, not a second SQL path), server-authored
+   context block, persistence of the resolved extensional scope into
+   `research_record`.
+2. **Scope handles** (~½–1 day): entity-set resolver (`selected`/`visible`/
+   `working_set`), `scope` param on search_corpus + structured_query,
+   `_filter_sql` entity-set predicate.
+3. **Harness fixtures** (~½ day): `context_fixture` + `expected_scope` in
+   golden, `scope_error` grading, WS questions activated in golden v2.
 4. **UI wiring** (Phase 5, with the chat page): the app builds real snapshots.
    By then the contract is proven headlessly.
 
@@ -190,21 +229,23 @@ when the question was working-set-scoped, or vice versa). Multi-turn scripts
 - No cross-user context: a snapshot is scoped to the requesting user's session;
   it is never shared thread state.
 
-## 9. Questions for the reviewing agent
+## 9. Review resolutions (QA-BANK-CONTEXT-REVIEW-2026-07-30 §3/§7)
 
-1. Is the extensional/intensional split (visible_ids vs filter_spec+total) the
-   right cut, or should v1 ship extensional-only (ids, capped) for simplicity
-   and add specs later? (My view: specs are needed for "all 47 passing
-   filters", which the question corpus demands — but challenge it.)
-2. `filter_spec` re-materialization runs app-table queries per request — same
-   read-only role as structured_query. Any injection/perf concern beyond the
-   whitelist treatment?
-3. Deixis v1 rule (§5): is conversational answer-set resolution good enough, or
-   does the multi-turn script corpus already argue for tracked answer sets?
-4. Should the context line live in the user message (proposed) or a separate
-   system-adjacent message? Cache implications favor the user-message tail —
-   verify.
-5. `scope_error` funnel-label mechanics: detectable purely from
-   retrieval_explain + tool args? Any question class where scope is genuinely
-   ambiguous and the label would misfire?
-6. Does anything here quietly recreate an actor channel? (It must not.)
+1. ~~Extensional vs intensional~~ → **Resolved: extensional v1** for both
+   visible and full working sets (`matching_ids`); the original intensional
+   re-materialization contradicted replay immutability and would have forked
+   filter semantics between Laravel and Python. `filter_spec` demoted to
+   provenance. §3 rewritten accordingly.
+2. ~~Re-materialization injection/perf~~ → moot (no re-materialization);
+   `filter_spec` validation still rides the shared typed-filter whitelist.
+3. Answer-set deixis → **conversational resolution stands for v1**; promote to
+   tracked state only if the multi-turn scripts show a recurring failure class.
+4. Context placement → after the cached prefix; server-controlled message
+   preferred, delimited server-authored tail acceptable with the three
+   anti-spoof conditions in §4.1.
+5. `scope_error` → graded only against explicit `expected_scope`
+   (required/allowed) golden declarations; never inferred from arbitrary
+   wording.
+6. Actor channel → reviewer confirmed none exists; the hard rule stands: no
+   tool result may become a page command, navigation request, filter mutation,
+   or app write.

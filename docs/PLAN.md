@@ -47,7 +47,13 @@ Page context flows **into** the advisor only (see context-snapshot design).
   *Pending second-agent review.*
 - [`CONTEXT-SNAPSHOT-DESIGN-2026-07-30.md`](CONTEXT-SNAPSHOT-DESIGN-2026-07-30.md)
   — page-context/working-set architecture (app → advisor only).
-  *Pending second-agent review.*
+
+All three were reviewed same-day
+([`QA-BANK-CONTEXT-REVIEW-2026-07-30.md`](QA-BANK-CONTEXT-REVIEW-2026-07-30.md):
+coherent bet, no fatal problems) and **revised per its §7** — headline
+corrections: extensional snapshots (replayability), `scan_text` vs
+`analyze_scope` split (two future capabilities, not one), three replay modes,
+acceptable-evidence groups, replay never trusts stored ACLs.
 
 ### Revised execution sequence (merges the independent review's Gates 1–6)
 
@@ -55,22 +61,34 @@ Page context flows **into** the advisor only (see context-snapshot design).
   visibility predicates (live leak); filter-key whitelist → typed filter layer
   (SQL injection, F1); in-process psycopg pool (transaction safety, F2);
   manifest no-clobber; persist `raw_answer`.
-- **Gate 1 — evidence correctness** + **QA-loop v1 alongside:** record
-  summaries retrieval-only with source-block expansion (head-slice fixed);
-  calibrated claim/citation faithfulness judge; rerun full agent suite on the
-  current corpus; turn bundles + retrieval explain + funnel labels + replay +
-  compare.
+- **Gate 1 — evidence correctness + QA loop, in internal order** (review
+  §6.2): **1A observability foundation** (turn bundles + fingerprints,
+  retrieval explain, manifest immutability) → **1B evidence correction**
+  (record summaries retrieval-only with source-block expansion, whole-document
+  summary fix, calibrated claim/citation judge, full agent-suite rerun on the
+  current corpus) → **1C loop completion** (funnel classifier, three replay
+  modes, run comparator, teacher runbook). The small evidence-boundary fix is
+  never delayed by the full QA package.
 - **Gate 2 — security boundary end-to-end:** one request-auth context consumed
   by every data-bearing tool/endpoint; ACL-aware structured queries; thread
-  ownership; injection tests; per-probe admin-scope positive controls.
-- **Gate 3 — production-safe admin pilot** + **context-snapshot slices 1–3:**
-  server-owned history; request limits/timeouts/backpressure; enforceable cost
+  ownership; **bundle-read + replay authorization and stale-ACL handling**;
+  persisted citation/source endpoint; context-scope∩ACL tests; admin-shadow QA
+  artifact isolation; injection tests; per-probe admin-scope positive controls.
+- **Gate 3A — production-safe admin pilot:** server-owned history; request
+  limits/timeouts/backpressure; bounded DB/model concurrency; enforceable cost
   budgets; SSE protocol (with citation post-validation semantics); minimal prod
-  backfill rehearsal + coverage registry; snapshot schema, scope handles,
-  harness fixtures.
-- **Gate 4 — golden v2:** QUESTION-BANK curation (~80–100 cases + multi-turn
-  scripts, `expected_route` + `context_fixture` fields, held-out slice) ∪
-  golden v1 ∪ real-thread harvest.
+  backfill rehearsal + coverage registry.
+- **Gate 3B — context-snapshot support** (before golden v2; not blocking the
+  plain-chat pilot): context schema + `context_status`, selected/visible/
+  working-set scope handles, extensional resolved-scope persistence, context
+  fixtures + scope grading.
+- **Gate 4 — golden v2:** curate (not copy) QUESTION-BANK — smoke ~12 /
+  core ~40–60 + scripts / extended ~80–100 tiers; acceptable evidence groups;
+  `expected_route` + `expected_scope` + `context_fixture`; genuinely-blind
+  held-out cases; real-thread weighting; exact-scan vs semantic-analysis cases
+  separated. Future capabilities named by the bank: **`scan_text`**
+  (deterministic bounded text scan — build first) and **`analyze_scope`**
+  (budgeted semantic map/reduce — on demonstrated demand).
 - **Gate 5 — provider/model experiments:** generator/embedding/search seams
   (D1/D2 + SearchProvider), then E1/E3/E4 via immutable paired manifests.
   RRF-only and current models stay provisional until then.
