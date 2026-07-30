@@ -30,10 +30,14 @@
 | RUB | Eval-pipeline rubric banks (different purpose — see §4) | ~70 | `~/code/x1/x1-backend/sdk/docs/tmp/questions.json` + `investor_test_template*.json` |
 
 Status legend: **✅** answerable with current corpus+tools · **WS** needs
-working-set/page context (§3.1) · **SCAN** needs exhaustive-scan tool (§3.2) ·
-**NOTES** needs notes/XRM ingestion (Phase 6+) · **ACT** action command — out of
-scope for the read-only research agent (copilot layer, later) · **WEB** needs
-web tool (have it).
+working-set/page context (§3.1, design: `CONTEXT-SNAPSHOT-DESIGN-2026-07-30.md`) ·
+**SCAN** needs exhaustive-scan tool (§3.2) · **NOTES** needs notes/XRM ingestion
+(Phase 6+) · **WEB** needs web tool (have it).
+
+> Scope note (David, 2026-07-30): the advisor is a **research agent, not an
+> actor**. Action-style commands from the earlier copilot-era lists (move cards,
+> assign, tag, apply filters to the UI) are deliberately **excluded** from this
+> bank.
 
 ---
 
@@ -111,7 +115,7 @@ SKL, LFT). Top-k retrieval alone cannot answer these honestly (see §3.2).
 | 45 | Which ones are based in Europe? (follow-up narrowing) | CAP |
 | 46 | Which of these has the best traction? / How many of these have been evaluated? | CAP+SKL |
 | 47 | What is the average market score among these? | CAP |
-| 48 | Which of these seem the most promising? Then filter to just those. | CAP |
+| 48 | Which of these seem the most promising? | CAP |
 | 49 | Which would a deep-tech investor care about? | CAP |
 | 50 | Stay strictly within the current working set and explain your evidence. | KS (directive) |
 
@@ -203,11 +207,6 @@ SKL, LFT). Top-k retrieval alone cannot answer these honestly (see §3.2).
 | 107 | Compare the entities in Due Diligence — who's strongest? | XRM |
 | 108 | Which boards have applications waiting for review? | BRN |
 
-XRM **action** commands (ACT — read-only advisor must decline gracefully; future
-copilot layer): "Move all startups with a score above 80 to Shortlisted", "Assign
-all unassigned cards in New to me", "Tag the top 3 by evaluation score as
-'priority'", "Which cards in Screening have been there the longest? Move the
-oldest to Decision."
 
 ### 1.10 Evidence-fidelity and scope directives (answer-contract tests)
 
@@ -327,10 +326,12 @@ startup" is a *query-time* semantic across sibling eval documents. Needs an
 explicit filter (e.g. `latest_eval_only: true`) rather than hoping dedup
 approximates it.
 
-### 3.6 Read-only boundary confirmed
-XRM action commands (ACT) confirm the research agent's read-only contract needs
-a graceful-decline behavior ("I can analyze; I can't move cards") — a golden
-behavior case, and a future copilot-layer seam, not scope creep for v1.
+### 3.6 Out-of-scope requests get a graceful decline
+The advisor is a research agent, not an actor (scope decision, 2026-07-30).
+Users habituated to copilot UIs will still occasionally ask it to change things
+in the app; the durable behavior is a graceful decline plus the analysis that
+would inform the action — never a hallucinated "done." One golden behavior case
+guards this; no action capabilities are in scope.
 
 ### 3.7 The rubric banks (RUB) are judge vocabulary, not test questions
 `questions.json` / `investor_test_template*.json` (~10 investigative questions ×
