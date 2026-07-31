@@ -472,13 +472,21 @@ ways, `compare` decides: if hiding the text cuts `synthesis_error` without costi
 quality, routing-only becomes the default and the instruction-based boundary retires. Entangled
 with E6 the same way summaries are: if E6's contextual chunks win outright, E7 is moot.
 
-**E8 — Agent model** *(closed 2026-07-31: switched to `gpt-5.6-terra` on cost and latency)*
-Result first: `compare` PASS, 2 questions fixed / 1 broken, labels net −3, but **quality is a
-wash** — faithfulness +0.014 and coverage +0.045 both sit at or under the 0.07 noise floor
-and are not claimed as improvements. What is real: mean latency **20.3s → 8.7s** and
-cost/turn **$0.0196 → $0.0163**, cheaper despite higher per-token prices because terra
-reaches an answer in fewer, shorter steps. Both arms ran on the Responses transport and
-were graded by the same judge, so the model was the only variable.
+**E8 — Agent model** *(closed 2026-07-31: switched to `gpt-5.6-terra`)*
+Both arms ran on the Responses transport, and both were graded twice — once by
+`gpt-5.6-terra` and again by `gpt-5.6-luna`, a judge that wrote neither arm. The neutral
+regrade is the one that counts, because terra grading its own answers is the confound this
+comparison could not afford.
+
+Under the neutral judge: faithfulness 0.7226 → 0.7258 (**+0.003 — a dead tie**), citation
+coverage 0.8271 → 0.9326 (**+0.106**), 0 broken / 1 fixed, labels net −7, `compare` PASS.
+**Coverage is the only quality claim that survives**: it clears the ~0.04 judge-only swing
+measured for that metric by roughly 2.5×. Faithfulness does not move and is not claimed.
+Judge-independent: mean latency **20.3s → 8.7s**, cost/turn **$0.0196 → $0.0163**.
+
+Self-preference was measurable and small, in the predicted direction: judged by terra,
+terra's faithfulness edge read +0.014; judged neutrally, +0.003. Both inside noise — but it
+is why agent and judge are now deliberately different models.
 
 Two larger effects showed up alongside, and both dwarf the model change:
 *judge* (gpt-5.1 → terra on identical answers) moved faithfulness **+0.185**, and
