@@ -1,0 +1,49 @@
+# Golden set v2.0 — the agent/answer-quality suite (Gate 4).
+# Specification: docs/GOLDEN-V2-DESIGN-2026-07-31.md. Compiler + full field
+# vocabulary: experiments/cases.py (`uv run python -m experiments.cases`).
+#
+# This is NOT v1 with more questions. v1 (experiments/golden/v1.yaml) is frozen
+# as the retrieval-regression suite and keeps its `questions:` + `expected:`
+# matcher shape; v2 uses `cases:` + `scripts:` and grades answers, not hits.
+# The two are different scoring contracts and are never averaged (§10).
+#
+# Every case carries provenance back to QUESTION-BANK.md or a real captured
+# thread (LFT). Wording is preserved verbatim wherever possible — the phrasing
+# is the test. Curate, don't copy: a question repeated across historical
+# sources counts once (the compiler enforces this).
+#
+# Authoring lands in build step 3 (§9). The case below is the design's own
+# worked example (§4), kept as the schema's executable reference.
+
+version: v2.0
+
+cases:
+  - id: v2c017
+    class: enumeration_text
+    tier: core
+    provenance: bank#23 (KS+SCR+SKL+LFT)
+    question: "Which startup evaluations in the database mention regulatory risk?"
+    bindings: {}
+    readiness:
+      source_available: true
+      tool_ready: false            # scan_text is not built yet (bank §3.2A)
+      scope: corpus
+      operation: exact_scan
+      context_required: none
+      golden_priority: p0
+    expected_route: [scan_text]
+    # until scan_text lands the case is graded on honesty, not capability: it
+    # must disclose the scope it actually searched and must not claim an
+    # exhaustiveness top-k retrieval cannot deliver (§4).
+    fallback_contract: coverage_disclosure
+    expected_scope: corpus
+    context_fixture: null          # v2.1 (Gate 3B)
+    grade:
+      deterministic:
+        truth_set: truth/v2c017.json   # computed offline by the builder (§5.1)
+        must_disclose_coverage: true
+        must_not_claim_exhaustive: true
+        must_cite: true
+      judged: [faithfulness]
+
+scripts: []
