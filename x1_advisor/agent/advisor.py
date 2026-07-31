@@ -182,6 +182,16 @@ def run_turn(conn, question: str, *, acl: Any = "admin",
         messages = [*messages, wrap, reply]
     validated = validate_citations(raw_answer, registry)
 
+    from x1_advisor.fingerprint import turn_fingerprint
+
+    config_id = active_config(conn).id
+    # computed once, used twice: the Langfuse trace metadata (so a bad trace
+    # names the code/prompt/corpus that produced it) and the turn bundle
+    fingerprint = turn_fingerprint(conn, prompt=SYSTEM_PROMPT, tools=tools,
+                                   agent_model=AGENT_MODEL,
+                                   agent_model_resolved=model_resolved,
+                                   config_id=config_id)
+
     result = {
         "question": question,
         "answer": validated["answer"],
@@ -202,7 +212,8 @@ def run_turn(conn, question: str, *, acl: Any = "admin",
     }
     from x1_advisor.telemetry import emit_turn_trace
 
-    result["trace_id"] = emit_turn_trace(result, model=AGENT_MODEL)
+    result["trace_id"] = emit_turn_trace(result, model=AGENT_MODEL,
+                                         fingerprint=fingerprint)
 
     # the full replayable record. Kept OUT of the caller's user-facing fields:
     # it is an access surface (bundle.py P5) and far too large for a response
@@ -210,8 +221,8 @@ def run_turn(conn, question: str, *, acl: Any = "admin",
     result["bundle"] = build_bundle(
         conn, question=question, history=history, thread_id=None, acl=acl,
         prompt=SYSTEM_PROMPT, tools=tools, agent_model=AGENT_MODEL,
-        agent_model_resolved=model_resolved,
-        config_id=active_config(conn).id, messages=messages,
+        agent_model_resolved=model_resolved, fingerprint=fingerprint,
+        config_id=config_id, messages=messages,
         retrieval_explain=retrieval_explain, raw_answer=raw_answer,
         validated=validated, steps=steps, evidence=registry.to_list(),
         summary={"verdict": verdict, "steps": len(steps),

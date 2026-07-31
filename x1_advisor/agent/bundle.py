@@ -62,7 +62,8 @@ def build_bundle(conn, *, question: str, history: list[dict] | None,
                  messages: Sequence[Any], retrieval_explain: list[dict],
                  raw_answer: str, validated: dict, steps: list[dict],
                  summary: dict, evidence: list[dict] | None = None,
-                 agent_model_resolved: str | None = None) -> dict[str, Any]:
+                 agent_model_resolved: str | None = None,
+                 fingerprint: dict[str, Any] | None = None) -> dict[str, Any]:
     principal = ({"user_id": None, "role": "admin"} if acl == "admin"
                  else {"user_id": acl.get("user_id"), "role": "user"})
     return {
@@ -76,10 +77,11 @@ def build_bundle(conn, *, question: str, history: list[dict] | None,
             # back into live tools on replay (§4.4).
             "acl_resolved": acl if acl == "admin" else dict(acl),
         },
-        "fingerprint": turn_fingerprint(conn, prompt=prompt, tools=tools,
-                                        agent_model=agent_model,
-                                        agent_model_resolved=agent_model_resolved,
-                                        config_id=config_id),
+        # callers that already computed the fingerprint (run_turn stamps it on
+        # the Langfuse trace too) pass it in rather than paying twice
+        "fingerprint": fingerprint or turn_fingerprint(
+            conn, prompt=prompt, tools=tools, agent_model=agent_model,
+            agent_model_resolved=agent_model_resolved, config_id=config_id),
         "summary": summary,
         "steps": steps,
         "messages": serialize_messages(messages),
@@ -157,9 +159,19 @@ def manifest_record(bundle: dict) -> dict[str, Any]:
                    ("step", "input_tokens", "cached_tokens", "output_tokens",
                     "cost_usd", "tool_calls") if k in s}
                   for s in bundle.get("steps", [])],
-        "citations": [{k: c.get(k) for k in
-                       ("type", "document_id", "block_index", "page_number",
-                        "url", "n")}
+        # per-type identity so a committed record can actually be compared and
+        # linked back to a replay. platform_data citations used to be projected
+        # through the internal-citation keys and came out all-null (1D-6):
+        # query/params/digest are caller-supplied identities, not restricted-
+        # existence metadata, so they are safe under the manifest contract.
+        "citations": [{"type": c.get("type"), "ref": c.get("ref"), "n": c.get("n"),
+                       **{k: c.get(k) for k in {
+                           "internal": ("document_id", "block_index", "page_number"),
+                           "web": ("url",),
+                           "platform_data": ("query", "params", "row_count",
+                                             "result_digest",
+                                             "acl_policy_version", "as_of"),
+                       }.get(c.get("type"), ()) if k in c}}
                       for c in val.get("citations", [])],
         "citation_stats": {k: val.get(k) for k in ("emitted", "resolved", "dropped")},
         # judge verdict, body-free: labels/counts/state only — never the claim

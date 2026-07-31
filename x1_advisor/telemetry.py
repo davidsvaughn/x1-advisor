@@ -22,25 +22,52 @@ def _client():
     if not os.environ.get("LANGFUSE_PUBLIC_KEY"):
         return None
     os.environ.setdefault("LANGFUSE_HOST", os.environ.get("LANGFUSE_BASE_URL", ""))
+    # every trace carries the code identity that produced it (1D-6, David's
+    # ask): `release` is the SDK's first-class field for exactly this, read
+    # at client init — `71b13c0` or `71b13c0+dirty`
+    from x1_advisor.fingerprint import code_fingerprint
+
+    os.environ.setdefault("LANGFUSE_RELEASE", code_fingerprint())
     from langfuse import get_client
 
     return get_client()
 
 
-def emit_turn_trace(result: dict[str, Any], *, model: str) -> str | None:
-    """Emit one Langfuse trace for a completed turn. Returns trace_id or None."""
+def emit_turn_trace(result: dict[str, Any], *, model: str,
+                    fingerprint: dict[str, Any] | None = None) -> str | None:
+    """Emit one Langfuse trace for a completed turn. Returns trace_id or None.
+
+    `fingerprint` is the turn fingerprint (fingerprint.py): the trace metadata
+    carries enough of it to answer "what version of everything produced this
+    trace" from the Langfuse UI alone — git sha rides separately as the
+    trace's `release`. Bundles remain the complete record.
+    """
     try:
         langfuse = _client()
         if langfuse is None:
             return None
         from langfuse import propagate_attributes
 
+        fp = fingerprint or {}
+        corpus = fp.get("corpus_watermark") or {}
+        fp_meta = {k: str(v) for k, v in {
+            "git_sha": fp.get("git_sha"),
+            "worktree_dirty": fp.get("worktree_dirty"),
+            "prompt_sha": (fp.get("prompt_sha256") or "")[:12] or None,
+            "tool_schema_sha": (fp.get("tool_schema_sha256") or "")[:12] or None,
+            "agent_model_resolved": fp.get("agent_model_resolved"),
+            "config_id": fp.get("config_id"),
+            "corpus_chunk_digest": (corpus.get("chunk_digest") or "")[:12] or None,
+            "corpus_embedding_digest": (corpus.get("embedding_digest") or "")[:12] or None,
+        }.items() if v is not None}
+
         cs = result["citation_stats"]
         with propagate_attributes(
             trace_name="advisor.turn", tags=["advisor", "tier1"],
             metadata={"latency_ms": str(result["latency_ms"]),
                       "over_soft_cap": str(result["over_soft_cap"]),
-                      "citations_resolved": f"{cs['resolved']}/{cs['emitted']}"},
+                      "citations_resolved": f"{cs['resolved']}/{cs['emitted']}",
+                      **fp_meta},
         ):
             with langfuse.start_as_current_observation(
                 as_type="span", name="advisor.turn",
