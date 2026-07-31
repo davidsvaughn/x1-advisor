@@ -2,6 +2,8 @@
 
 > Date: 2026-07-31. Status: **adopted** (David, 2026-07-31: all three adoption
 > paths approved — "I like all 3 ideas and want to implement all").
+> Second-agent review same day: **approved with five acceptance criteria**
+> (§9), folded into the sections below — build authorized for v2.0 + H1.
 > Origin: the helm pattern in alpha-claw
 > (`~/code/davidsvaughn/cedar/alpha-claw/docs/meta/helm/README.md`, §"the debate
 > roles become full headless Claude Code agents") — `claude -p` stream-json
@@ -76,20 +78,33 @@ loop *enforceable in code*. That is the product's spine; it stays.
 Formalizes what already happens ad hoc (the teacher loop *is* Claude Code) into
 scheduled, sandboxed, journaled jobs on David's subscription seat.
 
-**Jobs (initial set):**
-- **Nightly golden run + triage:** smoke (+ core, once v2.0 lands) → funnel →
-  comparator vs the last accepted baseline → a morning triage report (md, in
-  `.qa-artifacts/reports/`). Failures arrive pre-classified, not discovered
-  mid-session.
-- **Truth-set rebuild** on corpus content-hash change
-  (GOLDEN-V2-DESIGN §5.1) — a stale truth set fails loudly.
-- **Calibration batch prep:** fresh blind pairs staged for the labeling UI
-  when label count drops below target.
-- **Held-out batch execution.** Gate 4 requires held-out case bodies never
-  mounted in the teacher's context. A *separate* headless CC session with its
-  own context executes `.qa-artifacts/heldout/`, reporting only aggregate
-  metrics + funnel labels back. **H1 is the concrete near-term form of Gate
-  4's "separately authorized CI/evaluation service."**
+**Split architecture (review acceptance criterion 1): deterministic execution,
+agent triage.** The sandbox denies interpreters by design, so a CC agent
+structurally cannot run the Python QA jobs — and should not: jobs must be
+reproducible, exit-coded, and identical whether cron, a human, or an agent
+triggers them.
+
+**Deterministic runner** (cron-scheduled, plain Python, no agent in the loop;
+artifacts to `.qa-artifacts/`):
+- **Nightly golden run:** smoke (+ core once v2.0 lands) → funnel → comparator
+  vs the last accepted baseline; exit codes carry the verdict.
+- **Truth-set rebuild** on corpus content-hash change (GOLDEN-V2-DESIGN §5.1)
+  — deterministic and versioned; a stale truth set fails loudly. **No agent
+  authors or edits an oracle** (criterion 5); rebuild diffs are surfaced for
+  review.
+- **Calibration batch prep** when the label count drops below target.
+- **Held-out batch execution:** the runner executes `.qa-artifacts/heldout/`
+  cases and emits aggregate metrics + funnel labels only — case bodies never
+  reach the teacher's context. This is Gate 4's "separately authorized
+  CI/evaluation service" in near-term form (the review accepts this isolation
+  level for this stage).
+
+**CC triage agent** (subscription, helm sandbox, analysis and prose only):
+- Reads the runner's artifacts — manifests, funnel labels, comparator
+  verdicts, judge output — and writes the morning triage report
+  (`.qa-artifacts/reports/`), failures pre-classified with suspected cause.
+- Reviews truth-set rebuild diffs (flags suspicious oracle drift; cannot edit
+  the oracle).
 - **Second-agent review passes** on milestone commits (the review loop David
   currently runs by hand).
 
@@ -104,7 +119,8 @@ transcripted WebSearch/WebFetch; bounded max-turns and timeout per job.
 touch prod. Artifacts land in `.qa-artifacts/`; reports are for David + the
 teacher session.
 
-Effort: ~1 day (runner script + settings profiles + first cron).
+Effort: ~1 day (deterministic runner + settings profiles + first cron +
+triage-agent prompt).
 
 ## 5. H2 — the research-note flywheel (first product-facing use)
 
@@ -126,6 +142,14 @@ no chat turn can afford, and the results ingest as `source_type=
 
 **Design constraints (the load-bearing part):**
 
+- **Evidence adapter first — a build precondition (review criterion 2).**
+  Headless CC citations do not automatically enter the advisor's per-turn
+  evidence registry. Before the first note ingests, build the adapter that
+  persists: stable source identities for every cited item, evidence snapshots
+  (what the agent actually saw), citation→evidence mappings, and a judgeable
+  generation bundle in the same shape the judge consumes for turns. Without
+  it, cite-through is prose, not enforcement. Shared with H3's turn-bundle
+  adapter — one build, two consumers.
 - **Cite-through, or no ingest.** Research notes are generated text — the
   same class Gate 1B spent itself making non-citable when record summaries
   were being cited. The difference in kind: a research note is a first-class
@@ -168,7 +192,9 @@ multi-user product:
 - **Same output contract.** Draft report with tiny refs → the same citation
   post-validator → the same evidence store. A turn-bundle adapter captures
   the MCP tool calls so deep turns stay judgeable/replayable — this adapter
-  is the main QA-machinery work item when H3 builds.
+  is the main QA-machinery work item when H3 builds, and it is the same
+  adapter class H2 requires before ingestion (whichever builds first
+  carries it).
 - **Billing:** admin-only pilot may run on the David-seat subscription
   (single user by definition); production runs Agent SDK + API key through
   `cost.py`.
@@ -195,3 +221,24 @@ demand. Nothing here blocks Gates 2/3A.
 3. Confirm the H2 job list / cadence (nightly vs on-ingest).
 4. When H2 promotes beyond pilot: company API key decision (Anthropic key
    still missing per PLAN Phase 0).
+
+## 9. Acceptance criteria (second-agent review, 2026-07-31)
+
+Approved with five engineering requirements, folded into the sections above.
+These are acceptance criteria for the build, not a further design cycle:
+
+1. **H1 splits deterministic execution from agent triage** — a trusted runner
+   executes golden runs, truth-set rebuilds, and calibration prep; the CC
+   agent inspects artifacts and produces triage (§4).
+2. **H2 builds the evidence adapter before any note ingests** — stable source
+   identities, evidence snapshots, citation mappings, judgeable generation
+   bundle (§5).
+3. **Golden v2 results preserve comparison identity** — grading contract,
+   resolved entity bindings, suite digest, truth-set digest recorded on every
+   result; paired runs reuse identical bindings
+   (GOLDEN-V2-DESIGN §4/§10).
+4. **Deterministic checkers ship as diagnostics** — each check promotes to a
+   gate only after a false-positive audit (GOLDEN-V2-DESIGN §5.2).
+5. **Truth generation stays separate from evaluation judgment** — the builder
+   is deterministic and versioned; agents schedule/review rebuilds, never
+   author the oracle (GOLDEN-V2-DESIGN §5.1; §4 above).

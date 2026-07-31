@@ -1,7 +1,11 @@
 # Golden v2 — design (Gate 4 specification)
 
-> Date: 2026-07-31. Status: **proposal** (David requested the write-up; not yet
-> approved as a build order).
+> Date: 2026-07-31. Status: **approved** (David + second-agent review,
+> 2026-07-31, with acceptance criteria folded in: run identity §4,
+> diagnostics-first checkers §5.2, deterministic versioned truth sets §5.1,
+> execution/triage split per
+> [`CC-AGENTS-DESIGN-2026-07-31.md`](CC-AGENTS-DESIGN-2026-07-31.md) §9).
+> **Build start paused by David 2026-07-31 pending his go-ahead.**
 > This is the specification the PLAN's Gate 4 bullet only sketches. Inputs:
 > [`QUESTION-BANK.md`](QUESTION-BANK.md) (the designated seed; provenance,
 > readiness model, curation weighting), [`PLAN.md`](PLAN.md) §R Gate 4,
@@ -143,6 +147,12 @@ Notes:
   comparable via the scoring-contract mechanism (contract string changes, so
   the comparator correctly refuses cross-contract gating).
 - `bindings` are entity-slot templates resolved at run time (§7).
+- **Run identity (review criterion 3):** every result row records the active
+  grading-contract string, the resolved entity bindings (slot → entity id),
+  the compiled-suite digest, and the truth-set digest it was graded against.
+  Paired/comparison runs MUST resolve identical bindings (the binding seed is
+  pinned per comparison); the comparator refuses pairs whose digests or
+  bindings differ, exactly as it refuses differing scoring contracts.
 
 ## 5. Deterministic grading first; the judge only where judgment is needed
 
@@ -171,6 +181,13 @@ with the truth sets already in place as the oracle.
 Truth sets are rebuilt whenever the corpus changes (content-hash keyed, like
 everything else) — a stale truth set must fail loudly, not grade quietly.
 
+The builder is **deterministic and versioned** (review criterion 5): every
+truth set records the builder version, the corpus content-hash, and the scope
+definition; the suite digest pins which truth sets a run was graded against.
+Rebuild diffs are surfaced for review (H1 triage), but **no agent authors or
+edits an oracle** — truth generation stays strictly separate from evaluation
+judgment.
+
 ### 5.2 Global deterministic checkers (harness-level, all cases)
 
 - **Numeric grounding** — every numeral in an answer must appear in the cited
@@ -187,6 +204,14 @@ everything else) — a stale truth set must fail loudly, not grade quietly.
 The judge remains for what genuinely needs judgment: faithfulness of prose
 claims, synthesis quality on SCAN-A cases (using the RUB rubric vocabulary as
 dimension language, per bank §3.7). Everything else moves off the judge.
+
+**Diagnostics before gates (review criterion 4).** All global checkers ship
+as diagnostics — recorded per answer, surfaced in the funnel, gating nothing.
+Each individual check is promoted to a comparator gate only after a
+false-positive audit shows it does not reject legitimate answers. Numeric
+grounding especially: legitimate answers *derive* numbers (counts of listed
+items, date arithmetic), so tolerance rules are decided by the audit, not
+assumed.
 
 ## 6. New classes beyond the bank (truth-robustness + behavior contracts)
 

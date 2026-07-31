@@ -159,9 +159,11 @@ acceptable-evidence groups, replay never trusts stored ACLs.
   persistence, app-side complete-membership projection using the page's exact
   query builder (inline refs or a user-bound materialized snapshot above the
   configured limit), context fixtures + scope grading.
-- **Gate 4 — golden v2:** full specification proposed in
-  [`GOLDEN-V2-DESIGN-2026-07-31.md`](GOLDEN-V2-DESIGN-2026-07-31.md) (status:
-  proposal, awaiting David) — headline: two waves (v2.0 context-free now,
+- **Gate 4 — golden v2:** full specification in
+  [`GOLDEN-V2-DESIGN-2026-07-31.md`](GOLDEN-V2-DESIGN-2026-07-31.md)
+  (**approved 2026-07-31** — David + second-agent review; five acceptance
+  criteria folded into the docs; build start paused by David pending
+  go-ahead) — headline: two waves (v2.0 context-free now,
   v2.1 after Gate 3B), deterministic truth sets for the enumeration class
   (doubles as the `scan_text` prototype), truth-robustness classes, David-
   authored held-out batch. Motivated by the 2026-07-31 provenance finding:
@@ -194,9 +196,11 @@ acceptable-evidence groups, replay never trusts stored ACLs.
   [`CC-AGENTS-DESIGN-2026-07-31.md`](CC-AGENTS-DESIGN-2026-07-31.md)). The
   Tier-1 loop stays Haystack-owned — that is what keeps citations, ACL, and
   the QA machinery enforceable in code. Headless Claude Code adopts at the
-  edges: **H1 QA-side agents** (now, David-seat subscription, helm sandbox
-  recipe): nightly golden runs + funnel triage, truth-set rebuilds,
-  calibration prep, held-out batch execution — the concrete near-term form of
+  edges: **H1 QA-side agents** (now; split per the 2026-07-31 review — a
+  deterministic runner executes golden runs, truth-set rebuilds, calibration
+  prep, and held-out batches; the CC triage agent, David-seat subscription in
+  the helm sandbox, reads artifacts and writes triage/reviews only).
+  Runner-executed held-out batches are the concrete near-term form of
   Gate 4's "separately authorized evaluation service". **H2 research-note
   flywheel** (after the golden v2.0 baseline, so note quality is
   judge-measurable): scheduled deep sweeps ingested as `research_note`
