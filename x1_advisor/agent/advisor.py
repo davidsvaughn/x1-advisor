@@ -165,6 +165,10 @@ def run_turn(conn, question: str, *, acl: Any = "admin",
     result = {
         "question": question,
         "answer": validated["answer"],
+        # the model's output BEFORE validate_citations dropped unresolvable refs
+        # and renumbered the rest. Kept and persisted so "why was ref3 dropped"
+        # stays answerable after the fact (no-silent-data-loss rule; F5)
+        "raw_answer": raw_answer,
         "citations": validated["citations"],
         "citation_stats": {"emitted": validated["emitted"],
                            "resolved": validated["resolved"],
@@ -190,8 +194,11 @@ def save_turn(conn, result: dict, *, user_id: int = 0,
             "INSERT INTO advisor.threads (user_id, title) VALUES (%s, %s) RETURNING id",
             (user_id, result["question"][:120]),
         ).fetchone()["id"]
+    # `content` holds the validated answer; `raw_answer` preserves what the
+    # model actually wrote, so a dropped ref can still be explained later (F5)
     record = {k: result[k] for k in
-              ("citations", "citation_stats", "steps", "tool_calls", "latency_ms")}
+              ("raw_answer", "citations", "citation_stats", "steps", "tool_calls",
+               "latency_ms")}
     conn.execute(
         """INSERT INTO advisor.turns (thread_id, role, content) VALUES (%s,'user',%s)""",
         (thread_id, result["question"]),
