@@ -24,6 +24,12 @@ still judgeable via DB reconstruction, but every such score carries
 `evidence_provenance: "reconstructed-legacy"` so it can never be quoted as if
 it measured synthesis.
 
+Known limitation — web evidence is CALL-level, not URL-level: the web tool
+returns one findings text per call plus URL annotations, and no per-URL page
+text exists to snapshot. Two URLs from the same call therefore share a
+snapshot, and a claim citing one may be judged supported by text the other
+contributed. Bounded by what the API returns; fixing it means fetching pages.
+
 **The judge is itself unverified until calibrated.** The second review was
 explicit: do not turn the judge's score into another unverified proxy. So every
 score carries the calibration state it was produced under, and
@@ -52,8 +58,13 @@ JUDGE_MODEL = os.environ.get("ADVISOR_JUDGE_MODEL", "gpt-5.1")
 # v2 (Gate 1D-1): claims are judged against per-ref snapshots of what the model
 # saw, not against the current database; scores from v1 are not comparable
 SCHEMA_VERSION = 2
-# guard on judge input size; snapshots are bounded by construction (tools.py)
-EVIDENCE_CHARS = 8000
+# Opt-in cap on judge evidence input (a cost knob, NEVER a default): unset or
+# 0 means UNLIMITED. The 8,000-char default this replaces silently cut an
+# 11,106-char structured snapshot mid-payload, so claims about entities past
+# the cutoff were judged against evidence that omitted them (1E review). Chunk
+# and web snapshots are bounded by tool output contracts; structured payloads
+# are bounded only by MAX_ROWS × row width, which can exceed any fixed guess.
+EVIDENCE_CHARS = int(os.environ.get("ADVISOR_JUDGE_EVIDENCE_CHARS", "0")) or None
 
 # The judge owns the answer to "how far should you trust me". The labelled set
 # is data and the agreement measurement is a harness

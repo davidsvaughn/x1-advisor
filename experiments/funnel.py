@@ -142,18 +142,26 @@ def classify(conn, bundle: dict, question: dict) -> dict[str, Any]:
     if any(e.get("filter_notes") for e in explains):
         labels.append("routing_error")          # filters matched no known value
     if any(m["in_R"] == 0 for m in per_matcher):
-        # expected corpus evidence never surfaced. Whether that is a FAILURE
-        # depends on the other routes: cited structured/web evidence is a
-        # legitimate substitute golden v1 just cannot express (route-awareness,
-        # Gate 1D-2 — g020 was called a retrieval_miss for correctly using
-        # structured_query).
-        if structured_ok or web_cited:
-            notes.append("route_substituted:"
-                         + ("structured" if structured_ok else "web"))
-        elif not explains:
-            labels.append("no_evidence_gathered")   # never even searched
+        # Expected corpus evidence never surfaced. Cited structured/web
+        # evidence substitutes ONLY when the golden case consents via
+        # acceptable_routes (1E-2): the classifier guessing route equivalence
+        # mislabeled in both directions — g020 called a miss for correctly
+        # using structured_query, then g017's healthcare classification
+        # "substituted" by a names/rounds listing that establishes nothing
+        # about healthcare.
+        accepted = set(question.get("acceptable_routes") or ["corpus"])
+        substitute = ("structured" if structured_ok and "structured" in accepted
+                      else "web" if web_cited and "web" in accepted else None)
+        if substitute:
+            notes.append(f"route_substituted:{substitute}")
         else:
-            labels.append("retrieval_miss")
+            if structured_ok or web_cited:
+                # a route DID produce cited evidence, the golden case just
+                # does not accept it as equivalent — say so next to the miss
+                notes.append("route_not_accepted:"
+                             + ("structured" if structured_ok else "web"))
+            labels.append("retrieval_miss" if explains
+                          else "no_evidence_gathered")
     if any(m["in_R"] > 0 and m["in_S"] == 0 for m in per_matcher):
         labels.append("ranking_drop")
     if any(m["in_S"] > 0 and m["in_C"] == 0 for m in per_matcher):

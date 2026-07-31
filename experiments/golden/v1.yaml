@@ -11,6 +11,14 @@
 #   recall@k  = matched expected / total expected (within top-k)
 #   MRR       = 1 / rank of first matching hit
 #   web_required: true → skipped by the retrieval harness (E3 grades these later).
+#   acceptable_routes — CLASSIFIER metadata (funnel route consent, 1E-2), never
+#     grading: which evidence routes can legitimately satisfy this question's
+#     evidence need. Absent = [corpus]. The funnel credits a route substitution
+#     (cited structured/web evidence standing in for missed corpus evidence)
+#     ONLY when the route is listed here — the classifier guessing equivalence
+#     mislabeled in both directions (g020 as a miss, then g017's healthcare
+#     classification as "substituted" by a name/round listing). Anticipates
+#     golden v2's expected_route; question text and expected stay untouched.
 #
 # Hard negatives built in: "Accelium Partners AG" (test startup) vs
 # "AcceliumPartnersAG"/"Accelium Partners GmbH" (prod fixtures); two Matt Young CVs;
@@ -135,6 +143,8 @@ questions:
     filters: {source_type: profile, fundraising_round: Seed}
     expected:
       - {source_type: profile, entity_type: startup_company}
+    # round/raising status: the platform DB is the authority, not prose
+    acceptable_routes: [corpus, structured]
   - id: g021
     category: filtered
     question: Which profiles mention AI or machine learning products?
@@ -155,17 +165,22 @@ questions:
     question: How many startups in the corpus have been evaluated by X1?
     expected:
       - {source_type: eval_basic}
+    # exact counts: never estimated from search — structured is the RIGHT route
+    acceptable_routes: [corpus, structured]
   - id: g024
     category: aggregate
     question: What are the highest-scoring evaluations in the corpus?
     expected:
       - {source_type: eval_basic}
+    acceptable_routes: [corpus, structured]
   - id: g025
     category: aggregate
     question: Which companies have both a pitch deck and website content indexed?
     expected:
       - {source_type: deck_extract}
       - {source_type: website}
+    # document-coverage inventory lives in the platform DB
+    acceptable_routes: [corpus, structured]
   - id: g026
     category: aggregate
     question: What are the common weaknesses evaluators found across traction sections?

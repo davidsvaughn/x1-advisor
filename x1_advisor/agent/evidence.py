@@ -65,6 +65,9 @@ class Evidence:
     # This is what the claim/citation judge must judge against: the current
     # database row is a different document than the one the model read, and
     # judging against it made scores drift with corpus changes (Gate 1D-1).
+    # Web caveat: the snapshot is CALL-level (the call's findings text) —
+    # per-URL page text does not exist to capture, so URLs from one call
+    # share a snapshot and per-URL attribution is approximate.
     snapshot: str | None = None
 
     def resolvable(self) -> bool:
