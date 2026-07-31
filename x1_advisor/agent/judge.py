@@ -54,21 +54,33 @@ from pydantic import BaseModel
 from x1_advisor.agent.evidence import canonical_params
 from x1_advisor.cost import Tracker, Usage
 
-# gpt-5.6-terra since 2026-07-31, chosen by `experiments.judge_bakeoff` over
-# 42 identical pairs: all four candidates pass the synthetic known-answer set
-# (9-10/10, so none is broken), but they disagree on real text ~20% of the time
-# (pairwise 0.74-0.86), so the choice is load-bearing. gpt-5.1 was the strict
-# outlier — 16 `unsupported` where the 5.6 tiers each said 11 — which is the
-# direction that deflates faithfulness. luna is excluded despite being cheapest:
-# it degrades badly on long context (published 41.3% vs terra 72.5%) and this
-# judge is deliberately unclipped (1E-3), so it routinely reads 8k-char
-# evidence. sol matches terra (0.86 agreement) at 2.9x the price with no
-# measured advantage on this task.
+# gpt-5.6-luna since 2026-07-31. It briefly ran on gpt-5.6-terra; that call was
+# wrong twice over and the correction is worth recording.
 #
-# PROVISIONAL: no human labels exist yet, so this is "best supported by what we
-# can measure", not "correct". Rerun the bake-off once the 32 labels land — it
-# scores every candidate against them and can overturn this in one command.
-JUDGE_MODEL = os.environ.get("ADVISOR_JUDGE_MODEL", "gpt-5.6-terra")
+# 1. The exclusion of luna rested on long-context degradation (published 41.3%
+#    vs terra's 72.5%) — but the judge reads ONE claim's cited sources, not a
+#    bundle: median 932 chars, p90 2,527, only 3 of 42 items over 3k. The
+#    regime that hurts luna is not the regime this judge runs in.
+# 2. Terra was picked for agreeing best with an assistant's blind labels (23/32
+#    vs luna's 21/32 — two items, inside noise). But those labels skew lenient
+#    and terra is the most generous judge of the four (21 `supported` vs luna's
+#    14), so "agrees with the assistant" partly measured a shared bias. That is
+#    the exact trap `judge_bakeoff`'s own docstring warns about.
+#
+# What the measurements actually support: luna is the only candidate that scored
+# 10/10 on the synthetic known-answer set (the other three all missed the same
+# item, `syn07`, by calling a `partial` claim `unsupported` — a strictness
+# error), it gives zero false clean bills like the rest, and it costs ~1/10th of
+# terra. Strictness is also the safer error direction for a QA judge: a lenient
+# one hides the synthesis errors this suite exists to catch.
+#
+# It must also not be the agent's model. With the agent on gpt-5.6-terra, a
+# terra judge grades its own answers, and self-preference would then ride
+# silently in every comparison.
+#
+# STILL PROVISIONAL: no human labels exist yet. `judge_bakeoff` scores every
+# candidate against them the moment they land and can overturn this.
+JUDGE_MODEL = os.environ.get("ADVISOR_JUDGE_MODEL", "gpt-5.6-luna")
 # v2 (Gate 1D-1): claims are judged against per-ref snapshots of what the model
 # saw, not against the current database; scores from v1 are not comparable
 SCHEMA_VERSION = 2
