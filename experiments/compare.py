@@ -79,12 +79,21 @@ def flatten(fp: dict, prefix: str = "") -> dict[str, Any]:
 
 def contract_of(records: list[dict]) -> str:
     """The scoring contract a RUN was graded under — decided per run, never per
-    record, so a mixed manifest cannot flip definitions mid-comparison."""
+    record, so a mixed manifest cannot flip definitions mid-comparison.
+
+    Evidence provenance is PART of the judged contract: a legacy-judged run
+    (judge read the live DB) and a snapshot-judged run (judge read what the
+    model saw) measure different things, and runbook rule 5 forbids comparing
+    them. Records with no provenance field predate snapshots — legacy."""
     if all(r.get("experiment") == "phase2-baseline" for r in records):
         return "retrieval"
-    if any(r.get("judge") or (r.get("scores") or {}).get("faithfulness") is not None
-           for r in records):
-        return "judged"
+    judged = [r for r in records
+              if r.get("judge")
+              or (r.get("scores") or {}).get("faithfulness") is not None]
+    if judged:
+        prov = {(r.get("judge") or {}).get("evidence_provenance")
+                or "reconstructed-legacy" for r in judged}
+        return f"judged/{prov.pop() if len(prov) == 1 else 'mixed-provenance'}"
     return "citation-liveness"
 
 
@@ -93,7 +102,7 @@ def passed(rec: dict, contract: str) -> bool | None:
     cannot say — an ungraded record is reported, never guessed at."""
     if contract == "retrieval":
         return rec.get("recall") == 1.0
-    if contract == "judged":
+    if contract.startswith("judged"):
         j = rec.get("judge") or {}
         if j.get("labels") is not None:
             return not j["labels"]

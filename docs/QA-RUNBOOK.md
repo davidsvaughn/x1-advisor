@@ -112,7 +112,9 @@ citation-liveness / judged). "Pass" means a different thing under each, so
 comparing across contracts reports NOT COMPARABLE (exit 2) and shows shared
 metrics only — the alternative was 17 phantom regressions when the judge
 column appeared (1D-3). To gate a fix made after the judge existed, re-run the
-*before* side with `--judge` too.
+*before* side with `--judge` too. Evidence provenance is part of the judged
+contract: `judged/reconstructed-legacy` and `judged/turn-snapshot` never gate
+against each other (rule 5 in machine-enforced form).
 
 Gating is suite-aware, not uniformly zero:
 

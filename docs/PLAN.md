@@ -106,10 +106,20 @@ acceptable-evidence groups, replay never trusts stored ACLs.
   `get_source` and compares structured digests then→now, and frozen mode
   refuses pre-registry bundles; platform citations keep their identity in
   manifests; every Langfuse trace carries the git sha as its `release`.
-  ⚠️ The 1B/1C judged numbers (faithfulness 0.584, coverage 0.813, and the
-  judge-derived funnel labels) were produced by the **legacy** judge against
-  the live DB — treated as void; re-established under snapshot judging by the
-  1D-8 rerun. **Gate 1 closes when the 1D-8 rerun lands.**
+  The 1B/1C judged numbers (faithfulness 0.584, coverage 0.813) were produced
+  by the **legacy** judge against the live DB — void, superseded by the
+  **1D-8 snapshot-judged rerun — ✅ DONE 2026-07-31**
+  (`2026-07-31_agent_v1_bbb6e7f_r1`): resolvability 90/90, **faithfulness
+  0.569, coverage 0.825** — the first numbers measured against what the model
+  actually saw (`turn-snapshot`; the comparator refuses to gate them against
+  legacy scores, verified exit 2). Funnel: `synthesis_error` 19,
+  `citation_coverage_error` 15, `ranking_drop` 3, `evidence_unused` 1,
+  `retrieval_miss` 0 — the 1C conclusion stands and sharpens: mechanical
+  stages are clean, the loss is synthesis and citation discipline. 32 fresh
+  **blind** calibration pairs drawn from this run sit in
+  `.qa-artifacts/calibration/pending.jsonl` awaiting David's labels
+  (RUNBOOK §7). **Gate 1 is closed**; both numbers stay `synthetic-only`
+  until ≥30 human labels land.
 - **Gate 2 — security boundary end-to-end:** one request-auth context consumed
   by every data-bearing tool/endpoint; ACL-aware structured queries; thread
   ownership; **bundle-read + replay authorization and stale-ACL handling**;
