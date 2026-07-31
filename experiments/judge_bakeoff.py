@@ -84,10 +84,16 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--models", default=",".join(CANDIDATES))
     ap.add_argument("--limit", type=int, default=0, help="first N items (smoke test)")
+    ap.add_argument("--labeled-only", action="store_true",
+                    help="score only items that already carry a label (unlabeled "
+                         "items cost money and add nothing to the decision)")
     args = ap.parse_args()
     models = [m.strip() for m in args.models.split(",") if m.strip()]
 
     items = _load_jsonl(ITEMS_PATH)
+    if args.labeled_only:
+        have = {i["id"] for i in load() if i.get("label") in LABELS}
+        items = [i for i in items if i["id"] in have]
     if args.limit:
         items = items[:args.limit]
     if not items:

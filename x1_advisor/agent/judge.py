@@ -54,33 +54,29 @@ from pydantic import BaseModel
 from x1_advisor.agent.evidence import canonical_params
 from x1_advisor.cost import Tracker, Usage
 
-# gpt-5.6-luna since 2026-07-31. It briefly ran on gpt-5.6-terra; that call was
-# wrong twice over and the correction is worth recording.
+# gpt-5.6-sol since 2026-07-31, picked by `judge_bakeoff --labeled-only`
+# against 32 human labels — the first time this choice rested on human ground
+# truth rather than on inference about the models.
 #
-# 1. The exclusion of luna rested on long-context degradation (published 41.3%
-#    vs terra's 72.5%) — but the judge reads ONE claim's cited sources, not a
-#    bundle: median 932 chars, p90 2,527, only 3 of 42 items over 3k. The
-#    regime that hurts luna is not the regime this judge runs in.
-# 2. Terra was picked for agreeing best with an assistant's blind labels (23/32
-#    vs luna's 21/32 — two items, inside noise). But those labels skew lenient
-#    and terra is the most generous judge of the four (21 `supported` vs luna's
-#    14), so "agrees with the assistant" partly measured a shared bias. That is
-#    the exact trap `judge_bakeoff`'s own docstring warns about.
+#   terra 25/32 (kappa 0.63) · sol 24/32 (0.58) · luna 21/32 (0.45) · 5.1 20/32 (0.44)
+#   false clean bills: 0 for all four.
 #
-# What the measurements actually support: luna is the only candidate that scored
-# 10/10 on the synthetic known-answer set (the other three all missed the same
-# item, `syn07`, by calling a `partial` claim `unsupported` — a strictness
-# error), it gives zero false clean bills like the rest, and it costs ~1/10th of
-# terra. Strictness is also the safer error direction for a QA judge: a lenient
-# one hides the synthesis errors this suite exists to catch.
+# terra and sol are one item apart — a tie. luna and gpt-5.1 are a genuine step
+# down, which retired two earlier guesses: that luna's synthetic 10/10 predicted
+# real-text agreement (it did not), and that gpt-5.1's strictness was closer to
+# a careful reader (it was not — it is the furthest from one).
 #
-# It must also not be the agent's model. With the agent on gpt-5.6-terra, a
-# terra judge grades its own answers, and self-preference would then ride
-# silently in every comparison.
+# sol over terra on the tie-break that does not depend on the numbers: the agent
+# runs gpt-5.6-terra, so a terra judge would grade its own answers. Measured at
+# +0.011 faithfulness in E8 — small, inside noise, and pointing exactly the way
+# self-preference predicts. Not worth carrying into every future comparison for
+# a one-item edge.
 #
-# STILL PROVISIONAL: no human labels exist yet. `judge_bakeoff` scores every
-# candidate against them the moment they land and can overturn this.
-JUDGE_MODEL = os.environ.get("ADVISOR_JUDGE_MODEL", "gpt-5.6-luna")
+# Caveat on the labels themselves, recorded so it is not lost: all 32 were
+# produced with a second opinion visible and matched it 32/32, so they are
+# flagged `assist_shown` in the set. A fresh unassisted draw is pending and can
+# revise this.
+JUDGE_MODEL = os.environ.get("ADVISOR_JUDGE_MODEL", "gpt-5.6-sol")
 # v2 (Gate 1D-1): claims are judged against per-ref snapshots of what the model
 # saw, not against the current database; scores from v1 are not comparable
 SCHEMA_VERSION = 2
