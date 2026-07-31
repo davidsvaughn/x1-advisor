@@ -1,6 +1,10 @@
 # Teacher-QA loop — observability design for agent-driven improvement
 
-> Date: 2026-07-30. Status: **proposal, revised same day** per
+> Date: 2026-07-30. Status: **adopted design — largely implemented** (Gate 1,
+> closed 2026-07-31: turn bundles, funnel classifier, comparator, three replay
+> modes, and snapshot judging are all live; [`QA-RUNBOOK.md`](QA-RUNBOOK.md) is
+> the operating manual, this document is the design rationale).
+> Originally: proposal, revised same day per
 > [`QA-BANK-CONTEXT-REVIEW-2026-07-30.md`](QA-BANK-CONTEXT-REVIEW-2026-07-30.md)
 > §7 (all 13 requested changes adopted — headline: three replay modes, evidence
 > groups instead of one mandatory set, replay never trusts a stored ACL,

@@ -330,11 +330,9 @@ Steps 1–4 ≈ 3–4 working days. Nothing blocks on Gates 2/3A.
 
 ## 11. Open items (David)
 
-1. Approve this design as the Gate 4 spec (or amend).
+1. ~~Approve this design as the Gate 4 spec~~ — **done 2026-07-31** (David +
+   second-agent review, acceptance criteria folded in). The two-wave split and
+   honesty-first SCAN-A grading were part of the approved design. **Build
+   start remains paused** pending David's go-ahead.
 2. Author the held-out batch (~10–15 questions, ~30 min) once the runner
    exists.
-3. Confirm the two-wave split (v2.0 before Gate 3B) — it reorders the PLAN §R
-   gate sequence for Gate 4's context-free portion.
-4. SCAN-A semantic enumeration: confirm honesty-grading now is acceptable
-   (capability grading waits for `analyze_scope`, which stays
-   demand-sequenced).

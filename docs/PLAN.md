@@ -19,15 +19,18 @@ criteria were met as written but were too weak to support the conclusions drawn
 from them. The §2 phase checklists below stand as **historical record**;
 current truth is this readiness matrix and the gate sequence that follows.
 
-### Readiness matrix (2026-07-30)
+### Readiness matrix (2026-07-30, **refreshed 2026-07-31** after Step 0 + Gate 1 closed)
 
-| Area | State |
+This table is refreshed as gates close; the original 2026-07-30 snapshot is in
+git history. Details and evidence: the gate entries below + DECISIONS.
+
+| Area | State (2026-07-31) |
 |---|---|
 | Test-corpus ingestion | Prototype validated |
-| Retrieval | Prototype validated; **evidence-boundary correction required** (record summaries are citable — must become retrieval-only) |
-| Answer quality | **Not yet adequately measured** (citation resolvability ≠ faithfulness; no judge) |
-| ACL | Retrieval-level filter validated; **end-to-end boundary incomplete** (structured_query unfiltered, filter-key SQL injection, thread ownership) |
-| Service runtime | Skeleton only; **not concurrency-safe** (shared connection/transaction) |
+| Retrieval | Prototype validated; evidence-boundary correction **done** (Gate 1B: record summaries retrieval-only; citations on generated text 38% → 0) |
+| Answer quality | **Measured** (Gate 1: snapshot judge + funnel — faithfulness ≈ 0.5 synthetic-only calibrated, coverage ≈ 0.83–0.88, ±0.05–0.07 at n=20) — but measured on golden v1, which is **agent-authored**; validity gated on **Gate 4** (golden v2) |
+| ACL | Retrieval-level filter + structured-query class predicates fixed (Step 0: `evaluations_for_company` leak class, typed filter layer); **single verified request-auth context end-to-end, thread ownership, bundle/replay authz still open** (Gate 2) |
+| Service runtime | In-process psycopg pool landed (Step 0/F2); **limits, backpressure, SSE, enforceable budgets still open** (Gate 3A) |
 | Production data coverage & freshness | Not established (historical ingestion Phase 6 not started; distinct from revised Gate 6) |
 | Admin pilot / non-admin exposure | Not ready (gates 3 / 6) |
 

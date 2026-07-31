@@ -1,7 +1,16 @@
 # X1 Advisor — Research Agent Architecture
 
-> Status: **design draft** (2026-06-12). This is the agreed target design, not a record of
-> existing code. Decisions marked **[DECIDED]** are settled; **[OPEN]** still needs a call.
+> Status: **historical design draft (2026-06-12) — superseded in specifics.** The base
+> rationale stands, but several **[DECIDED]** items below were overturned by evidence during
+> the build: the LLM is `gpt-5.6-terra` via the OpenAI Responses API (not Claude); retrieval
+> is a hand-rolled SQL hybrid (not the pgvector-haystack retrievers); record summaries are
+> **retrieval-only, never citable** (Gate 1B); re-indexing is version-and-append (not
+> block-diff); Tier-2's shape converged to single loop + plan artifact (PLAN §0.5) and its
+> harness is named in Track H3. **Do not treat [DECIDED]/[OPEN] markers here as current
+> truth** — current truth is [`PLAN.md`](PLAN.md) §R/§0 + [`DECISIONS.md`](DECISIONS.md),
+> and [`ARCHITECTURE-REVIEW.md`](ARCHITECTURE-REVIEW.md) where it amends this document.
+> *(Original status note: design draft, the agreed target design, not a record of existing
+> code.)*
 >
 > Several sections below are informed by reference mining of two external codebases —
 > see [`docs/refs/pipeshub-ai.md`](refs/pipeshub-ai.md) (a close sibling system: hybrid
