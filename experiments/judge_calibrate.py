@@ -1,4 +1,4 @@
-"""Calibrate the claim/citation judge (Gate 1B-3).
+"""Calibrate the claim/citation judge (Gate 1B-3; blind flow since Gate 1D-4).
 
 "An LLM judge is appropriate for scale, but calibrate it against a small
 human-labeled claim/citation set. Do not turn the judge's own score into another
@@ -14,12 +14,23 @@ Two label provenances, and the distinction is the whole point:
 * **human** — real (claim, evidence) pairs sampled from actual turns and labeled
   by a person. Only these support a claim of agreement on the real distribution.
 
-So the reported state is deliberately conservative: `synthetic-only` until enough
-human labels exist, and every judged turn carries that state next to its score.
+Storage split (Gate 1D-4 — the review caught both halves done wrong):
 
-Add human labels:
-  uv run python -m experiments.judge_calibrate --sample 20   # emit unlabeled pairs
-  # fill in "label" on each line, set provenance to "human"
+* `experiments/judge_calibration.jsonl` (tracked) — labels ONLY: id, label,
+  provenance, stratum, note. Evidence bodies are never committed; the first
+  version shipped 72k chars of entitled corpus text to the repo.
+* `.qa-artifacts/calibration/items.jsonl` (untracked, owner-only) — the bodies:
+  id → claim, evidence, stratum, locator. What the scorer joins against.
+* `.qa-artifacts/calibration/pending.jsonl` (untracked) — the labeling view:
+  id, claim, evidence, label. **Nothing else.** The first version wrote
+  `"stratum": <the judge's verdict>` into the file it claimed was blind —
+  handing the labeler the answer being withheld. Strata now stay in
+  items.jsonl and are joined back by id at ingest, after the label exists.
+
+Workflow:
+  uv run python -m experiments.judge_calibrate --sample 32 --run <run_id>
+  # edit .qa-artifacts/calibration/pending.jsonl: set "label" on each line
+  uv run python -m experiments.judge_calibrate --ingest
   uv run python -m experiments.judge_calibrate                # score agreement
 """
 
@@ -36,15 +47,35 @@ from pathlib import Path
 from openai import OpenAI
 
 from x1_advisor.agent.judge import (CALIBRATION_SET, ENTAILMENT_PROMPT,
-                                    JUDGE_MODEL, LABELS, MIN_HUMAN_LABELS,
-                                    Entailment, _ask, calibration_state,
-                                    load_calibration_set)
+                                    EVIDENCE_CHARS, JUDGE_MODEL, LABELS,
+                                    MIN_HUMAN_LABELS, Entailment, _ask,
+                                    calibration_state, load_calibration_set)
 from x1_advisor.agent.bundle import QA_ARTIFACTS_DIR
 from x1_advisor.cost import Tracker
 
 # the judge owns the set path and the trust rules; this module only measures
 SET_PATH = CALIBRATION_SET
 load = load_calibration_set
+
+CALIBRATION_DIR = QA_ARTIFACTS_DIR.parent / "calibration"
+ITEMS_PATH = CALIBRATION_DIR / "items.jsonl"      # bodies + strata (machine)
+PENDING_PATH = CALIBRATION_DIR / "pending.jsonl"  # blind labeling view (human)
+
+
+def _load_jsonl(path: Path) -> list[dict]:
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text().splitlines()
+            if line.strip()]
+
+
+def _append_jsonl(path: Path, records: list[dict]) -> None:
+    CALIBRATION_DIR.mkdir(parents=True, exist_ok=True)
+    os.chmod(CALIBRATION_DIR, 0o700)
+    with path.open("a") as fh:
+        for rec in records:
+            fh.write(json.dumps(rec) + "\n")
+    os.chmod(path, 0o600)
 
 
 def cohens_kappa(pairs: list[tuple[str, str]]) -> float | None:
@@ -59,23 +90,24 @@ def cohens_kappa(pairs: list[tuple[str, str]]) -> float | None:
 
 
 def sample_pairs(limit: int, run: str | None = None) -> int:
-    """Append unlabeled real (claim, evidence) pairs for a human labelling pass.
+    """Draw unlabeled real (claim, evidence) pairs for a human labelling pass.
 
-    Claims come from the judge's own inventory in exported bundles, so a labeller
-    reads a real claim against the real evidence and only has to supply a
-    verdict — no hand-extraction of sentences.
+    Claims come from the judge's own inventory in exported bundles, and the
+    evidence shown to the labeler is built EXACTLY the way the judge's
+    entailment prompt builds its SOURCE — same per-citation clipping, same
+    joining — so human and judge grade the same text.
 
-    **Stratified across the judge's verdicts, and blind.** Random sampling would
-    be almost all `supported`, which makes kappa unstable and teaches nothing
-    about the boundary that actually matters. Each item therefore records the
-    `stratum` it was drawn from so agreement can be reweighted to the population
-    later — and the judge's verdict is deliberately NOT written to the file, so
-    labelling is not anchored by it.
+    **Stratified across the judge's verdicts, and blind.** Random sampling
+    would be almost all `supported`, which makes kappa unstable and teaches
+    nothing about the boundary that actually matters. The stratum is recorded
+    in items.jsonl (machine side) and joined back at --ingest; the pending
+    file the human reads carries no verdict-derived field at all.
     """
     from x1_advisor.agent.judge import evidence_texts
     from x1_advisor.db import connect
 
-    existing = {i["id"] for i in load()}
+    existing = ({i["id"] for i in load()}
+                | {i["id"] for i in _load_jsonl(ITEMS_PATH)})
     runs_dir = QA_ARTIFACTS_DIR / run if run else QA_ARTIFACTS_DIR
     buckets: dict[str, list[dict]] = {"supported": [], "partial": [],
                                       "unsupported": [], "unverifiable": []}
@@ -88,16 +120,16 @@ def sample_pairs(limit: int, run: str | None = None) -> int:
             sources = evidence_texts(conn, bundle)
             for k, v in enumerate(verdicts):
                 text = "\n\n".join(
-                    sources[n]["text"] for n in v["citations"]
+                    f"[{n}] {sources[n]['text'][:EVIDENCE_CHARS]}"
+                    for n in v["citations"]
                     if sources.get(n) and sources[n]["text"])
                 item_id = f"{path.stem}_v{k}"
                 if not text or item_id in existing:
                     continue
                 buckets.setdefault(v["verdict"], []).append({
-                    "id": item_id, "provenance": "unlabeled", "label": None,
-                    "stratum": v["verdict"],       # NOT the answer — the bucket
-                    "claim": v["claim"], "evidence": text[:3000],
-                    "note": ", ".join(v["locators"]) or path.stem,
+                    "id": item_id, "claim": v["claim"], "evidence": text,
+                    "stratum": v["verdict"],
+                    "locator": ", ".join(v["locators"]) or path.stem,
                 })
 
     # round-robin across strata so the set is balanced rather than
@@ -108,35 +140,93 @@ def sample_pairs(limit: int, run: str | None = None) -> int:
         for b in order:
             if buckets[b] and len(picked) < limit:
                 picked.append(buckets[b].pop(0))
-    with SET_PATH.open("a") as fh:
-        for item in picked:
-            fh.write(json.dumps(item) + "\n")
+
+    _append_jsonl(ITEMS_PATH, picked)
+    # the human-facing file: claim + evidence + an empty label. Deliberately
+    # NOTHING derived from the judge's verdict — that is the blindness.
+    _append_jsonl(PENDING_PATH, [{"id": p["id"], "claim": p["claim"],
+                                  "evidence": p["evidence"], "label": None}
+                                 for p in picked])
     return len(picked)
+
+
+def ingest() -> None:
+    """Fold labeled pending items into the tracked set — labels only, strata
+    joined back by id, bodies stay in the untracked store."""
+    pending = _load_jsonl(PENDING_PATH)
+    items = {i["id"]: i for i in _load_jsonl(ITEMS_PATH)}
+    existing = {i["id"] for i in load()}
+    done = [p for p in pending if p.get("label") in LABELS]
+    rest = [p for p in pending if p.get("label") not in LABELS]
+    bad = [p["id"] for p in rest if p.get("label")]
+    if bad:
+        sys.exit(f"labels must be one of {LABELS}; fix and re-run: {bad}")
+
+    added = 0
+    with SET_PATH.open("a") as fh:
+        for p in done:
+            if p["id"] in existing:
+                continue
+            meta = items.get(p["id"], {})
+            fh.write(json.dumps({
+                "id": p["id"], "provenance": "human", "label": p["label"],
+                "stratum": meta.get("stratum"),
+                "note": meta.get("locator", ""),
+            }) + "\n")
+            added += 1
+    PENDING_PATH.write_text("".join(json.dumps(p) + "\n" for p in rest))
+    print(f"ingested {added} human label(s) into {SET_PATH.name}; "
+          f"{len(rest)} still pending")
+    state = calibration_state()
+    print(f"calibration state: {state['state']} ({state['human_labels']} human; "
+          f"{MIN_HUMAN_LABELS} needed for 'human-calibrated')")
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--sample", type=int, default=0,
-                    help="append N unlabeled real pairs for a human pass")
+                    help="draw N unlabeled real pairs for a human pass")
     ap.add_argument("--run", default=None,
                     help="sample from one .qa-artifacts run directory")
+    ap.add_argument("--ingest", action="store_true",
+                    help="fold labeled pending.jsonl items into the tracked set")
     args = ap.parse_args()
 
     if args.sample:
         n = sample_pairs(args.sample, run=args.run)
-        counts = Counter(i["stratum"] for i in load() if i.get("provenance") == "unlabeled")
-        print(f"appended {n} unlabeled pairs to {SET_PATH}")
-        print(f"strata: {dict(counts)}  (balanced on purpose — reweight before "
-              "reading accuracy as a population estimate)")
-        print("For each: read `claim` against `evidence`, set `label` to "
-              "supported | partial | unsupported, and change `provenance` to "
-              '"human". The judge\'s own verdict is deliberately absent so the '
-              "labelling is not anchored by it.")
+        counts = Counter(i["stratum"] for i in _load_jsonl(ITEMS_PATH))
+        print(f"sampled {n} pair(s) → {PENDING_PATH}")
+        print(f"strata so far: {dict(counts)}  (balanced on purpose — reweight "
+              "before reading accuracy as a population estimate; the labeler "
+              "never sees these)")
+        print("For each line: read `claim` against `evidence`, set `label` to "
+              "supported | partial | unsupported. Then run --ingest.")
+        return
+    if args.ingest:
+        ingest()
         return
 
-    items = [i for i in load() if i.get("label") in LABELS]
-    if not items:
+    labeled = [i for i in load() if i.get("label") in LABELS]
+    if not labeled:
         sys.exit(f"no labeled items in {SET_PATH}")
+    bodies = {i["id"]: i for i in _load_jsonl(ITEMS_PATH)}
+    runnable, missing = [], []
+    for i in labeled:
+        if i.get("claim") and i.get("evidence"):     # pre-1D inline bodies
+            runnable.append(i)
+        elif i["id"] in bodies:
+            runnable.append({**i, "claim": bodies[i["id"]]["claim"],
+                             "evidence": bodies[i["id"]]["evidence"]})
+        else:
+            missing.append(i["id"])
+    if missing:
+        print(f"⚠ {len(missing)} labeled item(s) have no local evidence bodies "
+              f"(bodies are never committed; they live only in "
+              f"{ITEMS_PATH}): {', '.join(missing)}\n  These are EXCLUDED from "
+              "agreement — the number below covers the rest.")
+    if not runnable:
+        sys.exit("no runnable items (all bodies missing)")
+
     client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
     tracker = Tracker(run_id="judge-calibration")
 
@@ -147,13 +237,13 @@ def main() -> None:
         return item, (v.verdict if v else "unverifiable")
 
     with ThreadPoolExecutor(max_workers=6) as pool:
-        results = list(pool.map(run, items))
+        results = list(pool.map(run, runnable))
 
     pairs = [(i["label"], got) for i, got in results]
     accuracy = sum(1 for a, b in pairs if a == b) / len(pairs)
     kappa = cohens_kappa(pairs)
 
-    print(f"judge: {JUDGE_MODEL}   items: {len(items)}")
+    print(f"judge: {JUDGE_MODEL}   items: {len(runnable)}")
     for prov in ("synthetic", "human"):
         subset = [(i, g) for i, g in results if i.get("provenance") == prov]
         if subset:
@@ -169,7 +259,8 @@ def main() -> None:
     print(f"unsupported judged supported (false clean bill): {len(missed)}")
     for i, g in results:
         if i["label"] != g:
-            print(f"  ! {i['id']:<14} expected {i['label']:<12} got {g:<12} {i['note']}")
+            print(f"  ! {i['id']:<14} expected {i['label']:<12} got {g:<12} "
+                  f"{i.get('note', '')}")
 
     state = calibration_state()
     print(f"\ncalibration state: {state['state']} "
