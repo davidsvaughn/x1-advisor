@@ -8,3 +8,35 @@
 {"id": "syn08", "provenance": "synthetic", "label": "unsupported", "stratum": null, "note": "plausible fact absent from the source; tests outside-knowledge leakage"}
 {"id": "syn09", "provenance": "synthetic", "label": "supported", "stratum": null, "note": "straightforward entailment"}
 {"id": "syn10", "provenance": "synthetic", "label": "unsupported", "stratum": null, "note": "numeric contradiction stated vaguely rather than exactly"}
+{"id": "g006_v6", "provenance": "human", "label": "partial", "stratum": "partial", "assist_shown": true, "assist_label": "partial", "note": "doc 379 block 1"}
+{"id": "g014_v7", "provenance": "human", "label": "partial", "stratum": "partial", "assist_shown": true, "assist_label": "partial", "note": "doc 560 block 0"}
+{"id": "g012_v0", "provenance": "human", "label": "unsupported", "stratum": "unsupported", "assist_shown": true, "assist_label": "unsupported", "note": "doc 433 block 0"}
+{"id": "g011_v0", "provenance": "human", "label": "unsupported", "stratum": "unsupported", "assist_shown": true, "assist_label": "unsupported", "note": "doc 21 block 18, doc 10 block 18"}
+{"id": "g015_v2", "provenance": "human", "label": "supported", "stratum": "unsupported", "assist_shown": true, "assist_label": "supported", "note": "doc 467 block 6"}
+{"id": "g017_v0", "provenance": "human", "label": "supported", "stratum": "supported", "assist_shown": true, "assist_label": "supported", "note": "doc 397 block 1"}
+{"id": "g003_v0", "provenance": "human", "label": "supported", "stratum": "partial", "assist_shown": true, "assist_label": "supported", "note": "doc 388 block 0, doc 388 block 1"}
+{"id": "g017_v3", "provenance": "human", "label": "supported", "stratum": "partial", "assist_shown": true, "assist_label": "supported", "note": "doc 371 block 1"}
+{"id": "g016_v8", "provenance": "human", "label": "partial", "stratum": "unsupported", "assist_shown": true, "assist_label": "partial", "note": "doc 507 block 0, doc 513 block 5"}
+{"id": "g013_v0", "provenance": "human", "label": "partial", "stratum": "supported", "assist_shown": true, "assist_label": "partial", "note": "doc 24 block 0, doc 4 block 25"}
+{"id": "g007_v1", "provenance": "human", "label": "partial", "stratum": "partial", "assist_shown": true, "assist_label": "partial", "note": "doc 593 block 0"}
+{"id": "g003_v1", "provenance": "human", "label": "supported", "stratum": "supported", "assist_shown": true, "assist_label": "supported", "note": "doc 388 block 1"}
+{"id": "g015_v0", "provenance": "human", "label": "supported", "stratum": "supported", "assist_shown": true, "assist_label": "supported", "note": "doc 467 block 1"}
+{"id": "g007_v2", "provenance": "human", "label": "supported", "stratum": "supported", "assist_shown": true, "assist_label": "supported", "note": "doc 387 block 1, doc 593 block 0"}
+{"id": "g019_v0", "provenance": "human", "label": "supported", "stratum": "supported", "assist_shown": true, "assist_label": "supported", "note": "doc 377 block 0, doc 377 block 1"}
+{"id": "g005_v0", "provenance": "human", "label": "partial", "stratum": "partial", "assist_shown": true, "assist_label": "partial", "note": "doc 536 block 0, doc 371 block 1"}
+{"id": "g016_v0", "provenance": "human", "label": "supported", "stratum": "partial", "assist_shown": true, "assist_label": "supported", "note": "doc 506 block 1, doc 507 block 0"}
+{"id": "g008_v14", "provenance": "human", "label": "partial", "stratum": "unsupported", "assist_shown": true, "assist_label": "partial", "note": "doc 467 block 13, doc 461 block 0"}
+{"id": "g001_v19", "provenance": "human", "label": "partial", "stratum": "unsupported", "assist_shown": true, "assist_label": "partial", "note": "doc 34 block 0, doc 43 block 0"}
+{"id": "g012_v6", "provenance": "human", "label": "supported", "stratum": "partial", "assist_shown": true, "assist_label": "supported", "note": "doc 432 block 7, doc 422 block 15, doc 422 block 0"}
+{"id": "g009_v2", "provenance": "human", "label": "supported", "stratum": "supported", "assist_shown": true, "assist_label": "supported", "note": "doc 361 block 1, doc 361 block 0"}
+{"id": "g019_v12", "provenance": "human", "label": "unsupported", "stratum": "unsupported", "assist_shown": true, "assist_label": "unsupported", "note": "doc 627 block 9, doc 622 block 34, doc 622 block 26, doc 626 block 3"}
+{"id": "g005_v1", "provenance": "human", "label": "partial", "stratum": "unsupported", "assist_shown": true, "assist_label": "partial", "note": "doc 536 block 0, doc 371 block 1, doc 540 block 19"}
+{"id": "g008_v3", "provenance": "human", "label": "supported", "stratum": "partial", "assist_shown": true, "assist_label": "supported", "note": "doc 461 block 0, doc 463 block 11"}
+{"id": "g014_v5", "provenance": "human", "label": "partial", "stratum": "unsupported", "assist_shown": true, "assist_label": "partial", "note": "doc 560 block 0, doc 558 block 0"}
+{"id": "g004_v2", "provenance": "human", "label": "supported", "stratum": "supported", "assist_shown": true, "assist_label": "supported", "note": "doc 369 block 1"}
+{"id": "g018_v0", "provenance": "human", "label": "unsupported", "stratum": "unsupported", "assist_shown": true, "assist_label": "unsupported", "note": "doc 401 block 1, doc 401 block 0"}
+{"id": "g020_v0", "provenance": "human", "label": "supported", "stratum": "supported", "assist_shown": true, "assist_label": "supported", "note": "list_startups({\"fundraising_round\":\"Seed\",\"limit\":50})"}
+{"id": "g018_v3", "provenance": "human", "label": "supported", "stratum": "partial", "assist_shown": true, "assist_label": "supported", "note": "doc 401 block 1"}
+{"id": "g010_v2", "provenance": "human", "label": "supported", "stratum": "supported", "assist_shown": true, "assist_label": "supported", "note": "doc 364 block 1"}
+{"id": "g006_v10", "provenance": "human", "label": "partial", "stratum": "unsupported", "assist_shown": true, "assist_label": "partial", "note": "doc 379 block 0, doc 379 block 1"}
+{"id": "g002_v0", "provenance": "human", "label": "partial", "stratum": "partial", "assist_shown": true, "assist_label": "partial", "note": "doc 415 block 0, doc 425 block 0, doc 425 block 2"}

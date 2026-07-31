@@ -226,10 +226,19 @@ def sample_pairs(limit: int, run: str | None = None) -> int:
 
 def ingest() -> None:
     """Fold labeled pending items into the tracked set — labels only, strata
-    joined back by id, bodies stay in the untracked store."""
+    joined back by id, bodies stay in the untracked store.
+
+    Records `assist_shown` per label: whether a second opinion existed for that
+    item when it was labeled. A label formed with a suggestion on screen is not
+    independent of that suggestion, and a calibration set exists precisely to be
+    independent — so the condition travels with the data instead of living in
+    someone's memory of how the session went.
+    """
     pending = _load_jsonl(PENDING_PATH)
     items = {i["id"]: i for i in _load_jsonl(ITEMS_PATH)}
     existing = {i["id"] for i in load()}
+    assist = {r["id"]: r.get("label")
+              for r in _load_jsonl(CALIBRATION_DIR / "assist.jsonl")}
     done = [p for p in pending if p.get("label") in LABELS]
     rest = [p for p in pending if p.get("label") not in LABELS]
     bad = [p["id"] for p in rest if p.get("label")]
@@ -245,12 +254,27 @@ def ingest() -> None:
             fh.write(json.dumps({
                 "id": p["id"], "provenance": "human", "label": p["label"],
                 "stratum": meta.get("stratum"),
+                "assist_shown": p["id"] in assist,
+                "assist_label": assist.get(p["id"]),
                 "note": meta.get("locator", ""),
             }) + "\n")
             added += 1
     PENDING_PATH.write_text("".join(json.dumps(p) + "\n" for p in rest))
     print(f"ingested {added} human label(s) into {SET_PATH.name}; "
           f"{len(rest)} still pending")
+
+    shown = [p for p in done if p["id"] in assist]
+    if shown:
+        matched = sum(1 for p in shown if p["label"] == assist[p["id"]])
+        print(f"independence: {len(shown)} of {added} label(s) were made with a "
+              f"second opinion visible; {matched} match it "
+              f"({matched / len(shown):.0%})")
+        if matched == len(shown) and len(shown) >= 10:
+            print("  ⚠ EVERY such label matches the suggestion. Treat these as "
+                  "assisted, not independent: agreement measured against them "
+                  "is partly agreement with the assistant, so they cannot by "
+                  "themselves settle which judge is right. Draw a fresh sample "
+                  "with no second opinion to get an unanchored read.")
     state = calibration_state()
     print(f"calibration state: {state['state']} ({state['human_labels']} human; "
           f"{MIN_HUMAN_LABELS} needed for 'human-calibrated')")
@@ -322,11 +346,25 @@ def main() -> None:
     kappa = cohens_kappa(pairs)
 
     print(f"judge: {JUDGE_MODEL}   items: {len(runnable)}")
-    for prov in ("synthetic", "human"):
-        subset = [(i, g) for i, g in results if i.get("provenance") == prov]
+    # `human` splits by whether a second opinion was on screen. Agreement with an
+    # assisted label is partly agreement with whatever made the suggestion, so
+    # the two never get averaged into one number.
+    buckets = [("synthetic", lambda i: i.get("provenance") == "synthetic"),
+               ("human/independent", lambda i: i.get("provenance") == "human"
+                and not i.get("assist_shown")),
+               ("human/assisted", lambda i: i.get("provenance") == "human"
+                and i.get("assist_shown"))]
+    for name, pred in buckets:
+        subset = [(i, g) for i, g in results if pred(i)]
         if subset:
             acc = sum(1 for i, g in subset if i["label"] == g) / len(subset)
-            print(f"  {prov:<10} n={len(subset):<4} accuracy {acc:.2f}")
+            k = cohens_kappa([(i["label"], g) for i, g in subset])
+            note = ("  <- the one that can settle a judge choice"
+                    if name == "human/independent" else
+                    "  <- assisted: not independent evidence"
+                    if name == "human/assisted" else "")
+            print(f"  {name:<19} n={len(subset):<4} accuracy {acc:.2f}  "
+                  f"kappa {'n/a' if k is None else format(k, '.2f')}{note}")
     print(f"overall accuracy {accuracy:.2f}   Cohen's kappa "
           f"{'n/a' if kappa is None else format(kappa, '.2f')}")
 
