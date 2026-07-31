@@ -108,13 +108,24 @@ uv run python -m experiments.compare <before>.jsonl <after>.jsonl
 ```
 
 Both runs must be graded under the same **scoring contract** (retrieval /
-citation-liveness / judged). "Pass" means a different thing under each, so
-comparing across contracts reports NOT COMPARABLE (exit 2) and shows shared
-metrics only — the alternative was 17 phantom regressions when the judge
-column appeared (1D-3). To gate a fix made after the judge existed, re-run the
-*before* side with `--judge` too. Evidence provenance is part of the judged
-contract: `judged/reconstructed-legacy` and `judged/turn-snapshot` never gate
-against each other (rule 5 in machine-enforced form).
+citation-liveness / `judged/<provenance>/<judge-model>`). "Pass" means a
+different thing under each, so comparing across contracts reports NOT
+COMPARABLE (exit 2) and shows shared metrics only — the alternative was 17
+phantom regressions when the judge column appeared (1D-3). To gate a fix made
+after the judge existed, re-run the *before* side with `--judge` too.
+
+Two things are part of the judged contract, for the same reason:
+
+- **evidence provenance** — `judged/reconstructed-legacy` and
+  `judged/turn-snapshot` never gate against each other (rule 5, machine-
+  enforced).
+- **judge model** — a faithfulness number is *that model's* reading of the
+  rubric. Candidates disagree on ~20% of real pairs (measured, see §8), so
+  swapping judges moves the scale and would read as the agent changing
+  overnight. Manifests written before this was recorded say `unknown-judge`,
+  which is deliberately not comparable to a named judge: nothing in them
+  proves which model graded. Re-judge the baseline (`experiments.rejudge`) to
+  bring an old run onto the current contract.
 
 Gating is suite-aware, not uniformly zero:
 
@@ -224,3 +235,45 @@ committed. The sampler itself enforces snapshot-judged sources, a
 per-question cap, and unique evidence payloads (1E-5: the first draw took
 23 of 32 items from one question — thirty labels from one marketing page
 would have "calibrated" nothing).
+
+## 8. Choosing the judge model
+
+```bash
+uv run python -m experiments.judge_bakeoff          # ~$0.33 over 42 pairs
+uv run python -m experiments.judge_bakeoff --models gpt-5.1,gpt-5.6-terra
+```
+
+Every candidate sees byte-identical prompts; the only variable is the model.
+Each is scored against **human** labels (the only ground truth on real,
+ambiguous text), the **synthetic** known-answer set (catches a broken judge,
+proves nothing about agreement with a person), and optionally an assistant's
+blind read (indicative only — picking the judge that best matches another
+model selects for shared bias).
+
+Measured 2026-07-31, 42 pairs, no human labels yet:
+
+| model | cost | vs synthetic | pairwise vs others |
+|---|---|---|---|
+| gpt-5.1 | $0.052 | 9/10 | 0.74–0.79 (the outlier) |
+| gpt-5.6-luna | $0.007 | 10/10 | 0.79–0.83 |
+| gpt-5.6-terra | $0.070 | 9/10 | 0.74–0.86 |
+| gpt-5.6-sol | $0.203 | 9/10 | 0.76–0.86 |
+
+Read it this way: **all four pass the synthetic set, so none is broken, and
+none of that says which is right.** What the run does establish is that the
+candidates disagree on about one real pair in five — so the judge is a real
+variable, not a detail. gpt-5.1 was the strict outlier (16 `unsupported`
+against 11 for each 5.6 tier), which is the direction that deflates
+faithfulness; the default moved to `gpt-5.6-terra` on that basis, *provisionally*.
+
+Two rules learned here:
+
+1. **A bigger model is not automatically a better judge.** The job is applying
+   the rubric the way a careful person does. `gpt-5.6-luna` is the cheapest
+   *and* the budget tier — it is excluded for a task-specific reason (poor
+   long-context performance, and the judge is deliberately unclipped since
+   1E-3), not because it is small. `gpt-5.6-sol` is the flagship and agrees
+   with terra 0.86 of the time at 2.9× the price: no measured reason to pay it.
+2. **Until human labels exist this picks the least-bad option, not the right
+   one.** The bake-off scores every candidate against those labels the moment
+   they land — one command, and it can overturn the default.

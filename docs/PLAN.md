@@ -472,6 +472,20 @@ ways, `compare` decides: if hiding the text cuts `synthesis_error` without costi
 quality, routing-only becomes the default and the instruction-based boundary retires. Entangled
 with E6 the same way summaries are: if E6's contextual chunks win outright, E7 is moot.
 
+**E8 — Agent model** *(opened 2026-07-31, blocked on DB access)*
+The judge moved to `gpt-5.6-terra` on measured evidence (`judge_bakeoff`: all candidates
+pass the synthetic set, but they disagree on ~20% of real pairs, and gpt-5.1 was the strict
+outlier at 16 `unsupported` vs 11 for each 5.6 tier). The agent model is the same question
+and does **not** inherit that answer — judging entailment and running an eight-step tool
+loop are different tasks. `ADVISOR_AGENT_MODEL` exists so the change is A/B'd, not asserted:
+run the judged suite at `gpt-5.6-terra` against a terra-judged baseline (`experiments.rejudge`
+brings the old run onto the contract) and let `compare` decide. Cost ≈ $2 for the pair.
+`gpt-5.6-luna` is excluded up front for the same task-specific reason as on the judge side —
+published long-context performance drops to 41.3% against terra's 72.5%, and an eight-step
+agent accumulates exactly that kind of context. Expected effect if any: faithfulness and
+citation coverage, since synthesis is where this suite loses answers. Note the noise floor —
+a mean move under ~0.07 at n=20 is not a result (1E-4).
+
 - **Exit criteria for Phase 3:** four dated entries in `DECISIONS.md` (embedding, reranker,
   web search, per-role models), each with the manifest path and the runner-up named as
   fallback. E5/E6 land their own entries when run.
