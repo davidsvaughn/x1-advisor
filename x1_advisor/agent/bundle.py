@@ -57,7 +57,7 @@ def build_bundle(conn, *, question: str, history: list[dict] | None,
                  tools: Sequence[Any], agent_model: str, config_id: str,
                  messages: Sequence[Any], retrieval_explain: list[dict],
                  raw_answer: str, validated: dict, steps: list[dict],
-                 summary: dict,
+                 summary: dict, evidence: list[dict] | None = None,
                  agent_model_resolved: str | None = None) -> dict[str, Any]:
     principal = ({"user_id": None, "role": "admin"} if acl == "admin"
                  else {"user_id": acl.get("user_id"), "role": "user"})
@@ -79,6 +79,9 @@ def build_bundle(conn, *, question: str, history: list[dict] | None,
         "summary": summary,
         "steps": steps,
         "messages": serialize_messages(messages),
+        # ref -> evidence identity. Without it a replayed `[ref3]` resolves to
+        # nothing, because tool results carry the ref but not what it points at.
+        "evidence": evidence or [],
         "retrieval_explain": retrieval_explain,
         "raw_answer": raw_answer,
         "validation": validated,

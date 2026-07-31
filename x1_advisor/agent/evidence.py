@@ -22,7 +22,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
@@ -143,6 +143,29 @@ class EvidenceRegistry:
 
     def __len__(self) -> int:
         return len(self._items)
+
+    def to_list(self) -> list[dict[str, Any]]:
+        """Serialize for the turn bundle.
+
+        Tool results carry a `ref` and a title but not the identity behind it,
+        so without this a stored turn cannot be replayed: `[ref3]` in the
+        recorded answer would resolve to nothing. Replay needs the same mapping
+        the live turn had.
+        """
+        return [asdict(e) for e in self._items.values()]
+
+    @classmethod
+    def from_list(cls, items: list[dict[str, Any]]) -> "EvidenceRegistry":
+        reg = cls()
+        for raw in items or []:
+            ev = Evidence(**{k: v for k, v in raw.items()
+                             if k in Evidence.__dataclass_fields__})
+            reg._items[ev.ref] = ev
+            key = (("chunk", ev.document_id, ev.block_index) if ev.kind == "chunk"
+                   else ("query", ev.query_name, canonical_params(ev.query_params))
+                   if ev.kind == "query" else ("web", ev.url))
+            reg._by_key[key] = ev.ref
+        return reg
 
 
 def validate_citations(answer: str, registry: EvidenceRegistry) -> dict[str, Any]:
