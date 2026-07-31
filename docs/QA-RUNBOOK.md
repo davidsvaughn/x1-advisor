@@ -184,11 +184,18 @@ The judge cannot be trusted past "not obviously broken" until this is done.
 
 ```bash
 uv run python -m experiments.judge_calibrate --sample 32 --run <run_id>
-# edit .qa-artifacts/calibration/pending.jsonl: set "label" on each line
-#   (supported | partial | unsupported)
+uv run python -m experiments.label_ui        # browser UI at http://127.0.0.1:8377
+# (or edit pending.jsonl by hand: set "label" to supported|partial|unsupported)
 uv run python -m experiments.judge_calibrate --ingest
 uv run python -m experiments.judge_calibrate            # score agreement
 ```
+
+The labeling UI serves only the blind pending file (id, claim, evidence,
+label — it never opens `items.jsonl`), shows the judge's own rubric verbatim
+(human and judge must share label definitions or kappa means nothing), and
+writes each click straight back into `pending.jsonl`, so `--ingest` is
+unchanged. Keyboard: `1`/`2`/`3` label and advance, arrows navigate,
+`Backspace` clears.
 
 Items are drawn **stratified** across the judge's verdict classes (a random
 sample would be nearly all `supported` and teach nothing about the boundary)
