@@ -69,6 +69,19 @@ def test_chunk_dedup_registry_reuses_refs():
     assert a == b and len(reg) == 1
 
 
+def test_summary_windows_cover_the_whole_document():
+    from x1_advisor.ingest.summaries import MAP_WINDOW_CHARS, split_windows
+
+    # the bug this replaced was a silent head slice, so the invariant that
+    # matters is coverage: every character reaches exactly one window, in order
+    for text in ("", "short doc", "a" * 30_000,
+                 ("para " * 500 + "\n\n") * 20, "x" * 12_000 + "\n\n" + "y" * 5):
+        windows = split_windows(text)
+        assert windows, "splitter must always produce at least one window"
+        assert all(len(w) <= MAP_WINDOW_CHARS for w in windows)
+        assert "".join(windows).replace("\n\n", "") == text.replace("\n\n", "")
+
+
 def test_manifests_never_overwrite(tmp_path):
     from experiments.manifest import open_new_manifest
 
