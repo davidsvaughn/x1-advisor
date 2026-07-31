@@ -112,8 +112,13 @@ def entity_mentions(text: str) -> list[str]:
     """
     out: list[str] = []
     for match in _ENTITY_RE.finditer(text or ""):
-        candidate = match.group().strip()
+        # trailing sentence punctuation is not part of a name: "Calmr." would
+        # otherwise never match the evidence's "Calmr" and report itself as an
+        # invented company. Internal dots stay — `2ndCourt.com`, `Ph.D`.
+        candidate = match.group().strip().rstrip(".,;:'’-")
         words = candidate.split()
+        if not words:
+            continue
         if all(w.lower().strip(".,;:") in _NOT_ENTITIES for w in words):
             continue
         out.append(candidate)

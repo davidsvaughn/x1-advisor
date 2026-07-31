@@ -1,0 +1,319 @@
+"""Multi-turn script runner (Gate 4 build step 4; GOLDEN-V2-DESIGN §8).
+
+`experiments/run.py` grades single turns. The scripts are ordered sequences —
+SCR Script A is *show all → filter score>77 → which mention regulatory risk →
+exact quotes → best evidence* — and what they test only exists across turns:
+coreference ("which of these"), working-set carryover, and evidence fidelity
+applied to a set someone established two turns ago.
+
+So a script runs as ONE conversation through the real history/condense path
+(`advisor.run_turn(history=…)`), and is graded twice over:
+
+* **per turn** — the same bundles, funnel labels, deterministic checkers and
+  judge as a single case. Recorded for the funnel; not the gate.
+* **across turns** — the assertions a single turn cannot express. The gate unit
+  is the script: it passes only as a sequence (§8).
+
+The coverage-challenge assertion is the one that matters most and the one a
+naive implementation gets wrong: "did you search all 20?" is graded against
+**what the prior turn's bundle actually searched**, never against what the
+answer claims it searched. Grading a coverage claim by reading the coverage
+claim measures nothing.
+
+Run:
+    uv run python -m experiments.script_runner --golden v2 --script v2s003
+    uv run python -m experiments.script_runner --golden v2 --judge
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import json
+import os
+import sys
+from dataclasses import dataclass, field
+from typing import Any
+
+from experiments import checkers
+from experiments.cases import (
+    CaseValidationError,
+    Script,
+    load_suite,
+    render_question,
+    resolve_bindings,
+)
+from experiments.funnel import classify
+from experiments.manifest import code_fingerprint, git_sha, open_new_manifest
+from x1_advisor.agent.bundle import QA_ARTIFACTS_DIR, export_bundle, manifest_record
+from x1_advisor.agent.judge import calibration_state, evidence_texts, judge_bundle
+from x1_advisor.cost import JsonlSink, Tracker
+from x1_advisor.db import connect
+
+
+@dataclass
+class TurnRecord:
+    """Everything the cross-turn assertions are allowed to look at.
+
+    Deliberately a plain data object with no bundle inside: the assertions are
+    pure functions of these fields, which is what makes them testable without a
+    database or a model.
+    """
+    n: int
+    question: str
+    answer: str
+    evidence: list[str] = field(default_factory=list)
+    # documents the turn actually put in front of the model — the denominator
+    # a coverage claim is checked against
+    searched_documents: int = 0
+    searched_chunks: int = 0
+
+    @property
+    def entities(self) -> list[str]:
+        return checkers.entity_mentions(checkers.strip_citations(self.answer))
+
+
+def _diag(check: str, passed: bool, **detail: Any) -> checkers.Diagnostic:
+    return checkers.Diagnostic(check=check, passed=passed, detail=detail)
+
+
+def assert_set_carryover(records: dict[int, TurnRecord], from_turn: int,
+                         to_turn: int) -> checkers.Diagnostic:
+    """The later turn must operate on the set the earlier turn established."""
+    earlier = {e.lower() for e in records[from_turn].entities}
+    later = {e.lower() for e in records[to_turn].entities}
+    shared = earlier & later
+    return _diag("set_carryover", bool(shared), from_turn=from_turn,
+                 to_turn=to_turn, established=len(earlier), carried=len(shared))
+
+
+def assert_no_new_entities(records: dict[int, TurnRecord], from_turn: int,
+                           to_turn: int) -> checkers.Diagnostic:
+    """The later turn introduces nothing that was not in the established set.
+
+    Entities named in the later turn's own question are allowed — the user is
+    permitted to widen the subject; the model is not.
+    """
+    allowed = {e.lower() for e in records[from_turn].entities}
+    allowed |= {e.lower() for e in
+                checkers.entity_mentions(records[to_turn].question)}
+    intruders = sorted({e for e in records[to_turn].entities
+                        if e.lower() not in allowed})
+    return _diag("no_new_entities", not intruders, from_turn=from_turn,
+                 to_turn=to_turn, intruders=intruders)
+
+
+def assert_quotes_from_turn(records: dict[int, TurnRecord], from_turn: int,
+                            to_turn: int) -> checkers.Diagnostic:
+    """Quotes in the later turn must be verbatim from evidence seen since the
+    set was established.
+
+    Simplification worth naming: the evidence union spans turns from..to rather
+    than the establishing turn alone, because a legitimate follow-up fetches
+    full sources (`get_source`) for entities it already had. The assertion that
+    the quotes belong to the right ENTITIES is carried by no_new_entities.
+    """
+    evidence = [text for n in range(from_turn, to_turn + 1)
+                for text in records[n].evidence]
+    diagnostic = checkers.check_quotes_verbatim(records[to_turn].answer, evidence)
+    return _diag("quotes_from_turn", diagnostic.passed, from_turn=from_turn,
+                 to_turn=to_turn, **diagnostic.detail)
+
+
+def assert_coverage_claim_grounded(records: dict[int, TurnRecord], turn: int
+                                   ) -> checkers.Diagnostic:
+    """A coverage claim is graded against the BUNDLE of the turn that did the
+    searching, not against the claim itself (§8).
+
+    "Did you search all 20?" answered "yes, all 20" when the prior turn put 8
+    documents in front of the model is the failure this exists to catch. Any
+    number the answer offers as a coverage count is compared with what was
+    actually searched across the conversation so far; a claim larger than the
+    evidence is not grounded.
+    """
+    searched = max((records[n].searched_documents for n in records if n <= turn),
+                   default=0)
+    answer = checkers.strip_citations(records[turn].answer)
+    claimed = [int(float(n)) for n in checkers.numerals(answer)
+               if n.replace(".", "").isdigit()]
+    overclaims = sorted({n for n in claimed if n > searched})
+    return _diag("coverage_claim_grounded", not overclaims, turn=turn,
+                 searched_documents=searched, overclaimed=overclaims)
+
+
+CROSS_TURN_IMPL = {
+    "set_carryover": assert_set_carryover,
+    "no_new_entities": assert_no_new_entities,
+    "quotes_from_turn": assert_quotes_from_turn,
+    "coverage_claim_grounded": assert_coverage_claim_grounded,
+}
+
+
+def evaluate_cross_turn(script: Script, records: dict[int, TurnRecord]
+                        ) -> list[checkers.Diagnostic]:
+    """Pure function over turn records — no bundle, no database, no model."""
+    out = []
+    for assertion in script.cross_turn:
+        kind = dict(assertion)
+        impl = CROSS_TURN_IMPL[kind.pop("type")]
+        out.append(impl(records, **kind))
+    return out
+
+
+def turn_record(conn, n: int, question: str, result: dict) -> TurnRecord:
+    """Project a live turn into the plain record the assertions read."""
+    bundle = result["bundle"]
+    refs = evidence_texts(conn, bundle)
+    explains = bundle.get("retrieval_explain") or []
+    returned = {cid for e in explains for cid in e.get("returned", [])}
+    documents = {ref.get("document_id") for ref in refs.values()
+                 if isinstance(ref, dict) and ref.get("document_id")}
+    return TurnRecord(
+        n=n, question=question,
+        answer=bundle.get("validation", {}).get("answer") or result.get("answer", ""),
+        evidence=[str(ref.get("snapshot") or ref.get("text") or "")
+                  for ref in refs.values() if isinstance(ref, dict)],
+        searched_documents=len(documents),
+        searched_chunks=len(returned))
+
+
+def run_script(conn, script: Script, *, fixtures: dict, seed: int | str,
+               judge: bool = False, tracker: Tracker | None = None,
+               run_id: str | None = None) -> dict[str, Any]:
+    """Execute one script as a single conversation and grade it as a unit."""
+    from x1_advisor.agent.advisor import run_turn
+
+    bound = resolve_bindings(script, seed=seed, fixtures=fixtures) if script.bindings else {}
+    history: list[dict] = []
+    records: dict[int, TurnRecord] = {}
+    turns_out: list[dict[str, Any]] = []
+
+    for turn in script.turns:
+        question = render_question(turn.question, bound)
+        result = run_turn(conn, question, acl="admin", history=history)
+        answer = result["bundle"].get("validation", {}).get("answer") or ""
+        history += [{"role": "user", "content": question},
+                    {"role": "assistant", "content": answer}]
+
+        record = turn_record(conn, turn.n, question, result)
+        records[turn.n] = record
+
+        verdict = None
+        if judge and turn.grade.judged:
+            verdict = judge_bundle(conn, result["bundle"], tracker=tracker,
+                                   calibration=calibration_state())
+            result["bundle"]["scores"].update(verdict["scores"])
+            result["bundle"]["judge"] = verdict
+
+        # two different things, kept apart on purpose: the assertions this turn
+        # DECLARED are its grading contract, while the §5.2 globals are
+        # diagnostics that gate nothing until a false-positive audit promotes
+        # them (review criterion 4)
+        assertions = checkers.run_case_checks(
+            answer, evidence=record.evidence,
+            deterministic=turn.grade.deterministic)
+        diagnostics = checkers.run_global_checkers(
+            answer, evidence=record.evidence, question=question)
+        # the funnel wants a question-shaped dict; a script turn has no
+        # `expected` matchers, so the corpus-funnel stages simply stay quiet
+        labels = classify(conn, result["bundle"],
+                          {"id": f"{script.id}t{turn.n}", "category": script.cls})
+        bundle_path = export_bundle(result["bundle"],
+                                    name=f"{script.id}t{turn.n}", subdir=run_id)
+        turns_out.append({
+            "turn": turn.n, "question": question,
+            "cost_usd": result["cost_usd"], "latency_ms": result["latency_ms"],
+            "citation_stats": result["citation_stats"],
+            "searched_documents": record.searched_documents,
+            "assertions": [d.to_dict() for d in assertions],
+            "diagnostics": [d.to_dict() for d in diagnostics],
+            "labels": labels["labels"], "notes": labels["notes"],
+            "judge": verdict,
+            "bundle": bundle_path.name if bundle_path else None,
+        })
+
+    cross = evaluate_cross_turn(script, records)
+    # §8: the gate unit is the script. A declared per-turn assertion failing, or
+    # any cross-turn assertion failing, fails the whole sequence — passing four
+    # turns and dropping the set on the fifth is a failed script, not 80% of
+    # one. The §5.2 diagnostics are reported but deliberately excluded from the
+    # verdict until the false-positive audit (criterion 4).
+    turn_checks_pass = all(a["passed"] for t in turns_out for a in t["assertions"])
+    return {
+        "script_id": script.id, "class": script.cls, "tier": script.tier,
+        "bindings": {k: v.get("name") for k, v in bound.items()},
+        "turns": turns_out,
+        "cross_turn": [d.to_dict() for d in cross],
+        "cross_turn_pass": all(d.passed for d in cross),
+        "deterministic_pass": turn_checks_pass,
+        "pass": all(d.passed for d in cross) and turn_checks_pass,
+        "cost_usd": sum(t["cost_usd"] for t in turns_out),
+    }
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--golden", default="v2")
+    ap.add_argument("--script", default=None, help="run one script by id")
+    ap.add_argument("--seed", default="v2-baseline",
+                    help="binding seed; paired runs MUST use the same one (§4)")
+    ap.add_argument("--judge", action="store_true",
+                    help="run the claim/citation judge on turns that ask for it")
+    args = ap.parse_args()
+
+    try:
+        suite = load_suite(args.golden)
+    except CaseValidationError as exc:
+        print(f"suite does not compile ({len(exc.errors)} error(s)):", file=sys.stderr)
+        for err in exc.errors:
+            print(f"  {err}", file=sys.stderr)
+        sys.exit(2)
+
+    scripts = [s for s in suite.scripts
+               if args.script is None or s.id == args.script]
+    if not scripts:
+        sys.exit(f"no such script: {args.script}")
+
+    run_id, manifest_path, manifest_file = open_new_manifest(
+        f"{dt.date.today()}_scripts_{suite.version}")
+    tracker = Tracker(run_id=f"{run_id}:judge",
+                      sink=JsonlSink(os.environ.get("ADVISOR_COST_LEDGER",
+                                                    "cost_ledger.jsonl")))
+    results = []
+    with connect() as conn, manifest_file as manifest:
+        for script in scripts:
+            print(f"\n== {script.id} ({script.cls}, {len(script.turns)} turns) ==")
+            result = run_script(conn, script, fixtures=suite.fixtures,
+                                seed=args.seed, judge=args.judge,
+                                tracker=tracker, run_id=run_id)
+            for turn in result["turns"]:
+                failed = [a["check"] for a in turn["assertions"] if not a["passed"]]
+                print(f"  turn {turn['turn']}  ${turn['cost_usd']:.4f} "
+                      f"{turn['latency_ms']}ms  docs={turn['searched_documents']}  "
+                      f"cite {turn['citation_stats']['resolved']}/"
+                      f"{turn['citation_stats']['emitted']}"
+                      f"  {'checks: ' + ','.join(failed) if failed else 'checks ok'}")
+            for diagnostic in result["cross_turn"]:
+                mark = "ok  " if diagnostic["passed"] else "FAIL"
+                print(f"  {mark} {diagnostic['check']:<24} {diagnostic['detail']}")
+            print(f"  => {'PASS' if result['pass'] else 'FAIL'} "
+                  f"(${result['cost_usd']:.4f})")
+            results.append(result)
+            manifest.write(json.dumps({
+                "run_id": run_id, "experiment": "golden-v2-scripts",
+                "git_sha": git_sha(), "code_fingerprint": code_fingerprint(),
+                **suite.identity(), **result,
+            }, default=str) + "\n")
+
+    passed = sum(1 for r in results if r["pass"])
+    print(f"\n== {run_id} ==")
+    print(f"scripts: {passed}/{len(results)} passed as sequences")
+    print(f"cost: ${sum(r['cost_usd'] for r in results):.4f}"
+          + (f" + judge ${tracker.run_total:.4f}" if args.judge else ""))
+    print(f"manifest: {manifest_path}")
+    print(f"bundles:  {QA_ARTIFACTS_DIR / run_id}")
+    sys.exit(0 if passed == len(results) else 1)
+
+
+if __name__ == "__main__":
+    main()
