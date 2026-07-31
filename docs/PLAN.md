@@ -103,7 +103,13 @@ acceptable-evidence groups, replay never trusts stored ACLs.
   (budgeted semantic map/reduce — on demonstrated demand).
 - **Gate 5 — provider/model experiments:** generator/embedding/search seams
   (D1/D2 + SearchProvider), then E1/E3/E4 via immutable paired manifests.
-  RRF-only and current models stay provisional until then.
+  RRF-only and current models stay provisional until then. Two experiments were
+  promoted out of "deferred" by Gate 1A measurements (§2 Phase 3):
+  **E5 lexical-leg query preprocessing** — the leg returns nothing for 21 of 35
+  golden questions, so the hybrid is dense-only in the majority case — and
+  **E6 chunk contextualization vs. document summaries**, which tests whether
+  per-chunk context prefixes make the record-summary class unnecessary
+  altogether.
 - **Gate 6 — non-admin exposure:** policy finalization (private docs, premium,
   existence disclosure), persona suite, audience opens only after every path
   consumes the same verified auth context.
@@ -357,12 +363,42 @@ Two separate questions:
      `claude-haiku-4-5`, `gemini-3-flash-preview` (already the extraction model),
      `deepseek-v4-flash`, `gpt-5-mini`. Judge quality per role on ~20 samples, pick per-role.
 
-**E5 — Lexical leg** *(deferred; only if E1/E2 show recall misses on keyword-ish queries)*
+**E5 — Lexical leg** *(no longer speculative — the trigger fired, 2026-07-30)*
 Ladder per review §4.4: tuned FTS → BGE-M3 sparse in `sparsevec` → app-layer BM25.
+Gate 1A's retrieval explain measured the leg **returning zero rows for 21 of 35 golden
+questions and ≤1 for 23**: `websearch_to_tsquery` ANDs every stemmed term, so a
+natural-language question matches almost nothing (*"What does the X1 Pipeline premium
+report identify as key uncertainties?"* → 4 chunks; *"X1 Pipeline key uncertainties"* →
+213). It is not dead weight when it fires — 25 returned hits across 11 questions came from
+the lexical leg alone — so the first rung is **query preprocessing** (OR semantics,
+stopword/interrogative stripping, or a keyword-extraction step) before any new index
+technology. Cheap, and it may be most of the win.
+
+**E6 — Chunk contextualization vs. document summaries** *(after E1; the two are entangled)*
+The reason record summaries exist is **entity identity**: an eval-section chunk discusses
+"the team" without ever naming the company, so it cannot be found by company name. Summaries
+route around that with a separate node per document. *Contextual retrieval* attacks the
+cause instead — prepend a short, chunk-specific context line ("This section is from
+ArtCentrica's team evaluation…") to each chunk **before embedding**, so every chunk carries
+its own identity. Candidates:
+  1. **Current**: record summaries as retrieval-only routers (Gate 1B baseline).
+  2. **Contextual chunks**: generated context prefix on all ~7,281 blocks, no summary node.
+  3. **Both** — they are not mutually exclusive, and the interaction is the real question.
+  4. **`voyage-context-4`** (already an E1 candidate): the same idea moved into the embedding
+     model rather than the text. Fold the comparison in if E1 runs it.
+Cost: a generation pass over 7,281 blocks rather than 412 documents — bigger, but each call
+is small and the source document caches across its own chunks. Metrics: recall@10/MRR on
+golden v2, reported **separately for the entity-identity question class**, which is the class
+this is meant to fix; plus $/re-index and re-index wall-clock, since freshness sweeps pay it
+repeatedly.
+*Secondary payoff if (2) wins outright:* the retrieval-only evidence class disappears
+entirely — no summary nodes means no summary/expansion machinery and no
+generated-text-as-citation hazard to police (Gate 1B-1 exists only because that class
+exists). Weigh that simplification alongside the recall numbers, not after them.
 
 - **Exit criteria for Phase 3:** four dated entries in `DECISIONS.md` (embedding, reranker,
   web search, per-role models), each with the manifest path and the runner-up named as
-  fallback.
+  fallback. E5/E6 land their own entries when run.
 
 ### Phase 4 — Tier-1 agent assembly *(≈3–5 days)*
 
