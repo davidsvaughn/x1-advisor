@@ -172,14 +172,27 @@ class Usage:
             return cls.from_haystack_meta("anthropic", usage)
 
         # OpenAI-compatible shape (openai, azure, gemini, grok, deepseek, ...)
+        #
+        # Two OpenAI wire shapes, and the difference is not cosmetic. Chat
+        # Completions reports prompt_tokens + prompt_tokens_details.cached_tokens;
+        # the **Responses API** reports input_tokens + input_tokens_details
+        # .cached_tokens (verified against a live call 2026-07-31). Reading only
+        # the Completions key would score every Responses call as zero cached
+        # tokens and bill the whole prompt at full input price — silently, and
+        # exactly on the agent's hottest path, where the cached system prompt and
+        # tool schemas are most of the input.
         prompt = int(usage.get("prompt_tokens", usage.get("input_tokens", 0)))
         completion = int(usage.get("completion_tokens", usage.get("output_tokens", 0)))
-        details = usage.get("prompt_tokens_details") or {}
+        details = (usage.get("prompt_tokens_details")
+                   or usage.get("input_tokens_details") or {})
         cached = int(details.get("cached_tokens", 0))
         return cls(
             input_tokens=max(0, prompt - cached),
             output_tokens=completion,
             cache_read_tokens=cached,
+            # Responses additionally reports cache_write_tokens; OpenAI does not
+            # bill cache writes separately, so this stays 0 for pricing and is
+            # not invented into a charge.
             cache_write_tokens=0,
         )
 

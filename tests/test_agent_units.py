@@ -297,3 +297,25 @@ def test_calibration_row_order_does_not_leak_the_stratum():
         assert len({it["stratum"] for k, it in enumerate(out) if k % 3 == m}) > 1
     assert sorted(i["id"] for i in out) == sorted(i["id"] for i in items)
     assert blind_order(items) == out          # deterministic, no seed
+
+
+def test_usage_reads_cached_tokens_from_both_openai_wire_shapes():
+    """Responses and Chat Completions disagree on where cached tokens live.
+
+    Reading only `prompt_tokens_details` scores every Responses-API call as
+    zero cached and bills the whole prompt at full input price — silent, and
+    worst exactly where the cached prefix is largest.
+    """
+    from x1_advisor.cost import Usage
+
+    completions = Usage.from_haystack_meta("openai", {"usage": {
+        "prompt_tokens": 1000, "completion_tokens": 50,
+        "prompt_tokens_details": {"cached_tokens": 800}}})
+    responses = Usage.from_haystack_meta("openai", {"usage": {
+        "input_tokens": 1000, "output_tokens": 50,
+        "input_tokens_details": {"cached_tokens": 800, "cache_write_tokens": 0},
+        "output_tokens_details": {"reasoning_tokens": 0}}})
+
+    assert completions == responses
+    assert responses.cache_read_tokens == 800
+    assert responses.input_tokens == 200        # uncached remainder, not 1000
