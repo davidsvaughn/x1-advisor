@@ -203,8 +203,20 @@ and **blind**: `pending.jsonl` carries claim + evidence and *nothing derived
 from the judge's verdict* — the stratum lives in the machine-side
 `items.jsonl` and is joined back by id at `--ingest`, after your label exists.
 (The first version wrote the verdict into the labeling file as `stratum`;
-1D-4 fixed that.) The evidence you read is built exactly the way the judge's
-entailment prompt builds its SOURCE, so human and judge grade the same text.
+1D-4 fixed that.) Blindness covers **row order** too: the stratified draw
+emits one item per stratum in rotation, so line position spelled the verdict
+out exactly — `index % 3` was the answer for all 32 rows until `blind_order`
+(hash of the id) broke it. A field-level blindness fix is not a file-level
+one; the unit test pins it. The evidence you read is built exactly the way
+the judge's entailment prompt builds its SOURCE, so human and judge grade the
+same text.
+
+An optional `.qa-artifacts/calibration/assist.jsonl` (id → label, reason,
+confidence, alt) puts a **second reader's** verdict behind a per-item reveal
+toggle in the UI, collapsed by default. It is a discussion partner, not an
+answer key: to the extent you anchor on it, the number you produce drifts
+from "human vs judge" toward "second reader vs judge". Form your own read
+first, then reveal — and where you disagree, you are the ground truth.
 
 Storage: the tracked `experiments/judge_calibration.jsonl` holds **labels
 only** — evidence bodies stay in `.qa-artifacts/calibration/` and are never

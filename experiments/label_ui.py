@@ -25,10 +25,15 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from experiments.judge_calibrate import LABELS, PENDING_PATH
+from experiments.judge_calibrate import CALIBRATION_DIR, LABELS, PENDING_PATH
 
 LOCK = threading.Lock()
 PATH: Path = PENDING_PATH   # overridable via --file (tests, future batches)
+# Optional second opinion, keyed by id: {"label", "reason", "confidence", "alt"}.
+# Never merged into pending.jsonl and hidden until the labeler asks for it —
+# a visible suggestion turns "human vs judge" agreement into "did the human
+# agree with the assistant", which is a different and much weaker measurement.
+ASSIST_PATH: Path = CALIBRATION_DIR / "assist.jsonl"
 
 
 def load_items() -> list[dict]:
@@ -36,6 +41,18 @@ def load_items() -> list[dict]:
         return []
     return [json.loads(line) for line in PATH.read_text().splitlines()
             if line.strip()]
+
+
+def load_assist() -> dict[str, dict]:
+    if not ASSIST_PATH.exists():
+        return {}
+    out = {}
+    for line in ASSIST_PATH.read_text().splitlines():
+        if line.strip():
+            rec = json.loads(line)
+            out[rec["id"]] = {k: rec.get(k) for k in
+                              ("label", "reason", "confidence", "alt", "by")}
+    return out
 
 
 def save_label(item_id: str, label: str | None) -> bool:
@@ -101,6 +118,16 @@ PAGE = r"""<!doctype html>
   button.active.on-supported { background:var(--sup); }
   button.active.on-partial { background:var(--par); }
   button.active.on-unsupported { background:var(--uns); }
+  .assist { margin-top:14px; border:1px dashed var(--line); border-radius:8px;
+            padding:10px 14px; background:var(--card); font-size:14px; }
+  .assist summary { cursor:pointer; color:var(--muted); font-weight:600;
+                    font-size:13px; }
+  .assist .verdict { font-weight:700; }
+  .assist .verdict.supported { color:var(--sup); }
+  .assist .verdict.partial { color:var(--par); }
+  .assist .verdict.unsupported { color:var(--uns); }
+  .assist p { margin:8px 0 0; }
+  .assist .caveat { color:var(--muted); font-size:12.5px; margin-top:8px; }
   .nav { color:var(--muted); font-size:13px; margin-top:10px; }
   kbd { background:var(--line); border-radius:3px; padding:0 5px; font-size:12px; }
   .done { background:var(--sup); color:#fff; border-radius:8px; padding:12px 16px;
@@ -129,10 +156,14 @@ PAGE = r"""<!doctype html>
   <div class="card"><div class="tag">Evidence (exactly what the judge saw)</div>
     <div class="evidence" id="evidence"></div></div>
   <div class="btns" id="btns"></div>
+  <div id="assistbox"></div>
   <div class="nav"><kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd> label &amp; advance ·
-    <kbd>←</kbd>/<kbd>→</kbd> navigate · <kbd>Backspace</kbd> clear label</div>
+    <kbd>←</kbd>/<kbd>→</kbd> navigate · <kbd>Backspace</kbd> clear label ·
+    <kbd>r</kbd> reveal second opinion</div>
 </div><script>
-let items = [], labels = [], cur = 0;
+let items = [], labels = [], assist = {}, cur = 0;
+
+const revealed = new Set();   // per-item: collapsed again on every new item
 
 function esc(s) { const d = document.createElement('div');
   d.textContent = s; return d.innerHTML; }
@@ -169,6 +200,33 @@ function render() {
     b.onclick = () => setLabel(lab);
     btns.appendChild(b);
   });
+  renderAssist(it);
+}
+
+function renderAssist(it) {
+  const box = document.getElementById('assistbox');
+  const a = assist[it.id];
+  box.innerHTML = '';
+  if (!a) return;
+  const d = document.createElement('details');
+  d.className = 'assist';
+  d.open = revealed.has(it.id);
+  d.ontoggle = () => { d.open ? revealed.add(it.id) : revealed.delete(it.id); };
+  const s = document.createElement('summary');
+  s.textContent = '🤔 Second opinion (' + (a.by || 'assistant') +
+    ') — click or press r to reveal';
+  d.appendChild(s);
+  const body = document.createElement('div');
+  body.innerHTML =
+    '<p><span class="verdict ' + a.label + '">' + a.label + '</span>' +
+    (a.confidence ? ' <span class="caveat">· confidence ' + a.confidence + '</span>' : '') +
+    (a.alt ? ' <span class="caveat">· defensible alternative: ' + a.alt + '</span>' : '') +
+    '</p><p>' + esc(a.reason || '') + '</p>' +
+    '<p class="caveat">Judged blind to the judge’s verdict, same as you. ' +
+    'It is a second reader, not an answer key — where you disagree, you are ' +
+    'the ground truth.</p>';
+  d.appendChild(body);
+  box.appendChild(d);
 }
 
 async function setLabel(lab) {
@@ -191,10 +249,16 @@ document.addEventListener('keydown', e => {
   else if (e.key === 'ArrowRight') { cur = Math.min(cur + 1, items.length - 1); render(); }
   else if (e.key === 'ArrowLeft') { cur = Math.max(cur - 1, 0); render(); }
   else if (e.key === 'Backspace') { e.preventDefault(); setLabel(null); }
+  else if (e.key === 'r' || e.key === 'R') {
+    const id = items[cur] && items[cur].id;
+    if (!id) return;
+    revealed.has(id) ? revealed.delete(id) : revealed.add(id);
+    renderAssist(items[cur]);
+  }
 });
 
 fetch('/api/items').then(r => r.json()).then(d => {
-  items = d.items; labels = d.labels;
+  items = d.items; labels = d.labels; assist = d.assist || {};
   const n = items.findIndex(i => !i.label);
   cur = n >= 0 ? n : 0;
   render();
@@ -217,7 +281,8 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/":
             self._send(200, PAGE.encode(), "text/html; charset=utf-8")
         elif self.path == "/api/items":
-            self._send(200, {"items": load_items(), "labels": list(LABELS)})
+            self._send(200, {"items": load_items(), "labels": list(LABELS),
+                             "assist": load_assist()})
         else:
             self._send(404, {"error": "not found"})
 

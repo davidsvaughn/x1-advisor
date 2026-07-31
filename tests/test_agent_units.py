@@ -275,3 +275,25 @@ def test_chunker_groups_paragraphs_under_headings():
     assert len(blocks) == 2
     assert blocks[0].text.startswith("## Section A")
     assert blocks[1].text.startswith("## Section B")
+
+
+def test_calibration_row_order_does_not_leak_the_stratum():
+    """Blindness is a property of the file, not just its fields.
+
+    The sampler draws one item per stratum in a fixed rotation, so before
+    `blind_order` the pending file's line position spelled out the judge's
+    verdict exactly: index % 3 == 0 was `unsupported`, 1 `partial`, 2
+    `supported`, for every one of 32 rows.
+    """
+    from experiments.judge_calibrate import blind_order
+
+    cycle = ["unsupported", "partial", "supported"]
+    items = [{"id": f"g{i // 3:03d}_v{i}", "stratum": cycle[i % 3]}
+             for i in range(30)]
+    assert [i["stratum"] for i in items] == [cycle[i % 3] for i in range(30)]
+
+    out = blind_order(items)
+    for m in range(3):        # no residue class may be one stratum only
+        assert len({it["stratum"] for k, it in enumerate(out) if k % 3 == m}) > 1
+    assert sorted(i["id"] for i in out) == sorted(i["id"] for i in items)
+    assert blind_order(items) == out          # deterministic, no seed

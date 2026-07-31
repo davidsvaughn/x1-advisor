@@ -26,6 +26,8 @@ Storage split (Gate 1D-4 — the review caught both halves done wrong):
   `"stratum": <the judge's verdict>` into the file it claimed was blind —
   handing the labeler the answer being withheld. Strata now stay in
   items.jsonl and are joined back by id at ingest, after the label exists.
+  Row *order* is blinded too (`blind_order`): the stratum rotation leaked
+  through line position, which the field-level fix did not touch.
 
 Workflow:
   uv run python -m experiments.judge_calibrate --sample 32 --run <run_id>
@@ -63,6 +65,24 @@ PENDING_PATH = CALIBRATION_DIR / "pending.jsonl"  # blind labeling view (human)
 # diversity guard (1E-5): a labeled set drawn mostly from one turn calibrates
 # almost nothing, whatever its size
 PER_QUESTION_CAP = 2
+
+
+def blind_order(items: list[dict]) -> list[dict]:
+    """Order a batch so row position carries no information about the stratum.
+
+    Blindness is a property of the whole FILE, not just its fields. The 1D-4
+    fix removed the judge's verdict from pending.jsonl, but `take()` emits one
+    item per stratum in a fixed rotation, so line position still spelled it
+    out: index % 3 == 0 was `unsupported`, 1 `partial`, 2 `supported`, for all
+    32 rows. A labeler who noticed the cycle would have been anchored by the
+    exact value the blind file exists to withhold.
+
+    Sorted by a hash of the id: deterministic (no seed, reproducible across
+    runs and machines) and uncorrelated with the stratum.
+    """
+    import hashlib
+    return sorted(items,
+                  key=lambda it: hashlib.sha256(it["id"].encode()).hexdigest())
 
 
 def _load_jsonl(path: Path) -> list[dict]:
@@ -193,6 +213,7 @@ def sample_pairs(limit: int, run: str | None = None) -> int:
 
     take(strict=True)      # unique evidence payloads first
     take(strict=False)     # relax dedup (never the per-question cap) if short
+    picked = blind_order(picked)   # row position must not spell out the stratum
 
     _append_jsonl(ITEMS_PATH, picked)
     # the human-facing file: claim + evidence + an empty label. Deliberately
