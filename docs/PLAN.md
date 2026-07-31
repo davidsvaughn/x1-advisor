@@ -66,9 +66,12 @@ acceptable-evidence groups, replay never trusts stored ACLs.
   no-clobber; persist `raw_answer` (F5). Golden v1 unchanged at recall@10
   0.833 / MRR 0.746, so none of it moved retrieval.
 - **Gate 1 — evidence correctness + QA loop, in internal order** (review
-  §6.2): **1A observability foundation** (turn bundles + fingerprints,
-  retrieval explain, manifest immutability, non-git owner-only storage for full
-  evidence exports) → **1B evidence correction**
+  §6.2): **1A observability foundation — ✅ DONE 2026-07-30** (`e19d8e5`,
+  `bef0bd0`, `f90e37f`, + `4d5e1da`; DECISIONS 2026-07-30): turn bundles +
+  fingerprints, retrieval explain, manifest immutability, non-git owner-only
+  storage. It measured 1B's case on first run — **38% of "100% resolvable"
+  citations point at record summaries** — and found that the lexical leg is
+  silent on 21 of 35 golden questions (Gate 5) → **1B evidence correction**
   (record summaries retrieval-only with source-block expansion, whole-document
   summary fix, calibrated claim/citation judge, full agent-suite rerun on the
   current corpus) → **1C loop completion** (funnel classifier, three replay

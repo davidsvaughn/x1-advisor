@@ -4,6 +4,59 @@
 > engineering choices land here, newest first. Each entry names its evidence (spike
 > output, manifest path, or doc reference) and the revisit trigger if one exists.
 
+## 2026-07-30 — Gate 1A complete: the QA loop can now see, and it found three things
+
+All four Gate-1A items are in (`e19d8e5`, `bef0bd0`, `f90e37f`, plus manifest
+immutability from Step 0.4 `4d5e1da`):
+
+- **Fingerprints** (`x1_advisor/fingerprint.py`) — git sha, worktree_dirty,
+  source-tree hash when dirty, prompt sha, tool-schema sha, index config, corpus
+  watermark (hashes every live document's `content_hash`), agent model, filter and
+  ACL policy versions. Also closes **F4**: CI now pins the tool schemas as well as
+  the prompt, since the cached prefix is both.
+- **Retrieval explain** (`retrieve(..., explain_out=…)`) — per call: query,
+  compiled filters + notes, forensic ACL, both legs with ranks, the full fused list
+  with `rrf`/`dense_rank`/`lex_rank`/`granularity`, drop reasons, returned ids. Side
+  channel only; zero tokens. `Hit` gained `granularity`.
+- **Turn bundles v2** (`research_record`, `x1_advisor/agent/bundle.py`) —
+  request/principal/forensic-ACL, fingerprint, summary + verdict, steps, the full
+  verbatim message list, retrieval explains, `raw_answer`, validation, scores with
+  `faithfulness: null` so a bundle never implies a judge ran.
+- **Owner-only storage** — `.qa-artifacts/runs/` (already gitignored) created
+  `0700`/`0600` with `O_EXCL` and an opt-in retention window defaulting to *keep
+  everything*. `experiments/runs/` now holds only body-free projections; the split
+  and the legacy-artifact caveat are in `experiments/runs/README.md`.
+
+**Agent suite rerun on the current corpus** (20 golden questions, admin):
+73/73 citations resolvable (100%), mean **$0.0083**/turn, total $0.1666, p50 7.8 s /
+max 13.7 s, zero-citation answers `g014` and `g020`. Manifest
+`experiments/runs/2026-07-30_agent_v1_bef0bd0+dirty_r1.jsonl` (47 KB, body-free);
+bundles under `.qa-artifacts/runs/2026-07-30_agent_v1_bef0bd0+dirty_r1/` (852 KB).
+
+### What the instrument found on its first run
+
+1. **38% of "resolvable" citations point at generated text.** 28 of the 73
+   citations, across 16 of the 20 questions, resolve to `record_summary` chunks
+   (`block_index` 10000) — LLM-written summaries *about* a document, not source
+   evidence. The 100% headline was counting them as citable sources. This is the
+   Gate-1B evidence-boundary correction, now measured rather than asserted, and it
+   sets the bar the fix has to clear: record summaries retrieval-only, with
+   expansion to the source blocks they summarize.
+2. **Hybrid retrieval is dense-only for most questions.** Across golden v1 the
+   lexical leg returns **zero** rows for 21 of 35 questions and ≤1 for 23. Cause
+   confirmed in SQL: `websearch_to_tsquery` ANDs every stemmed term, so a
+   natural-language question matches almost nothing — *"What does the X1 Pipeline
+   premium report identify as key uncertainties?"* → `'x1' & 'pipelin' & 'premium'
+   & 'report' & 'identifi' & 'key' & 'uncertainti'` → 4 chunks, while *"X1 Pipeline
+   key uncertainties"* → 213. It is not dead weight when it does fire: 25 returned
+   hits across 11 questions came from the lexical leg alone. **Deliberately not
+   fixed** — tuning retrieval before the judge exists is the trap the plan warns
+   about. Gate 5 (query preprocessing for the lexical leg: OR semantics or keyword
+   extraction) with the golden set as the referee.
+3. **Record summaries dominate the candidate pool too**, not just the citations —
+   34 of 77 fused candidates on a typical broad query. Whatever Gate 1B does about
+   citability, the ranking effect is a separate question.
+
 ## 2026-07-30 — Step 0 complete: all five immediate fixes landed and verified on test
 
 PLAN §R Step 0 done, one commit per fix, each verified live against x1-db-test before
