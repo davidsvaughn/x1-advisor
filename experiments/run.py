@@ -84,6 +84,8 @@ def run_agent_mode(questions: list[dict], limit: int, judge: bool = False) -> No
     judge_tracker = Tracker(run_id=f"{run_id}:judge",
                             sink=JsonlSink(os.environ.get("ADVISOR_COST_LEDGER",
                                                           "cost_ledger.jsonl")))
+    from experiments.funnel import classify
+
     with connect() as conn, manifest_file as manifest:
         for q in subset:
             r = run_turn(conn, q["question"], acl="admin")
@@ -105,6 +107,11 @@ def run_agent_mode(questions: list[dict], limit: int, judge: bool = False) -> No
                 r["bundle"]["judge"] = verdict
                 emit_judge_scores(r.get("trace_id"), verdict)
                 judged.append(verdict)
+            # funnel labels ride IN the manifest so `compare` can diff label
+            # shifts between committed runs — they used to live only in
+            # post-hoc funnel output, which made compare's label-shift section
+            # dead code (Gate 1D-3, review finding 4)
+            fun = classify(conn, r["bundle"], q)
             # storage split (QA-LOOP §4.1): the complete bundle — answer text,
             # every tool result, evidence text — goes to owner-only local
             # storage; the committed manifest gets the body-free projection
@@ -114,6 +121,8 @@ def run_agent_mode(questions: list[dict], limit: int, judge: bool = False) -> No
                 "git_sha": git_sha(), "code_fingerprint": code_fingerprint(),
                 "question_id": q["id"], "category": q["category"],
                 "bundle": bundle_path.name if bundle_path else None,
+                "labels": fun["labels"], "notes": fun["notes"],
+                "routes": fun["routes"],
                 **manifest_record(r["bundle"]),
             }, default=str) + "\n")
             print(f"  {q['id']} {q['category']:13s} cite {cs['resolved']}/{cs['emitted']}"

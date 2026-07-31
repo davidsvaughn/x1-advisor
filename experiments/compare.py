@@ -1,4 +1,5 @@
-"""Run comparator (Gate 1C) — what changed between two runs, and was it a fix?
+"""Run comparator (Gate 1C; contract-aware since Gate 1D-3) — what changed
+between two runs, and was it a fix?
 
 Two manifests in, one verdict out. The order matters: **fingerprint diff first**,
 because "recall went up" is not a finding until you know whether the code, the
@@ -7,13 +8,25 @@ prompt, the models or the corpus moved underneath it. We watched recall move
 that only diffed metrics would have credited that to whatever commit was
 nearest.
 
+**Runs are compared under a named scoring contract.** "Pass" means a different
+thing on a retrieval run (recall), an unjudged agent run (citations resolve),
+and a judged run (no judge labels). The first version of this tool silently
+picked a definition per record, so comparing a pre-judge manifest against a
+post-judge one reported 17 phantom regressions — the questions didn't get
+worse, the bar moved. Differing contracts now yield NOT COMPARABLE (exit 2)
+and only shared metrics are shown; a gate that cannot say "pass" must say
+"cannot compare", never guess.
+
 The gate is deliberately **suite-aware** rather than uniformly zero-regression
 (QA-LOOP-DESIGN §4.5). Retrieval runs are deterministic — same query, same
-corpus, same result — so any regression there is real and blocks. Agent runs are
-stochastic: the model picks different search queries on identical input, so a
-single question flipping is noise and only a budget overrun is signal.
+corpus, same result — so ANY per-question recall/MRR decrease blocks, not just
+a full-recall flip (0.8 → 0.4 used to slip through as "still failing"). Agent
+runs are stochastic: the model picks different search queries on identical
+input, so a single question flipping is noise and only a budget overrun is
+signal.
 
 Run: uv run python -m experiments.compare <before.jsonl> <after.jsonl>
+Exit: 0 pass · 1 fail · 2 not comparable
 """
 
 from __future__ import annotations
@@ -64,14 +77,32 @@ def flatten(fp: dict, prefix: str = "") -> dict[str, Any]:
     return out
 
 
-def passed(rec: dict) -> bool | None:
-    """Did this question pass? None when the manifest cannot say."""
-    if rec.get("experiment") == "phase2-baseline":
+def contract_of(records: list[dict]) -> str:
+    """The scoring contract a RUN was graded under — decided per run, never per
+    record, so a mixed manifest cannot flip definitions mid-comparison."""
+    if all(r.get("experiment") == "phase2-baseline" for r in records):
+        return "retrieval"
+    if any(r.get("judge") or (r.get("scores") or {}).get("faithfulness") is not None
+           for r in records):
+        return "judged"
+    return "citation-liveness"
+
+
+def passed(rec: dict, contract: str) -> bool | None:
+    """Did this question pass UNDER THE GIVEN CONTRACT? None when the record
+    cannot say — an ungraded record is reported, never guessed at."""
+    if contract == "retrieval":
         return rec.get("recall") == 1.0
-    scores = rec.get("scores") or {}
-    if scores.get("faithfulness") is not None:
-        # judged runs: full entailment of every cited claim, nothing uncited
-        return scores["faithfulness"] == 1.0 and scores.get("citation_coverage") == 1.0
+    if contract == "judged":
+        j = rec.get("judge") or {}
+        if j.get("labels") is not None:
+            return not j["labels"]
+        scores = rec.get("scores") or {}
+        if scores.get("faithfulness") is not None:
+            # pre-1D manifests: no label projection, scores only
+            return (scores["faithfulness"] == 1.0
+                    and scores.get("citation_coverage") == 1.0)
+        return None
     stats = rec.get("citation_stats") or {}
     if stats.get("emitted"):
         return stats["resolved"] == stats["emitted"]
@@ -103,7 +134,8 @@ def main() -> None:
         paths.append(p if p.exists() else RUNS_DIR / arg)
     (before, before_sum), (after, after_sum) = load(paths[0]), load(paths[1])
     a_by, b_by = {r["question_id"]: r for r in before}, {r["question_id"]: r for r in after}
-    deterministic = all(r.get("experiment") == "phase2-baseline" for r in before + after)
+    ca, cb = contract_of(before), contract_of(after)
+    comparable = ca == cb
 
     # --- what moved underneath the numbers --------------------------------
     fa = flatten(fingerprint_of(before, before_sum))
@@ -117,38 +149,69 @@ def main() -> None:
     for k, (x, y) in changed.items():
         print(f"  {k:<34} {str(x)[:28]:<30} -> {str(y)[:28]}")
 
-    # --- per-question transitions -----------------------------------------
-    print("\n== questions ==")
+    # --- scoring contract ---------------------------------------------------
+    print(f"\n== scoring contract ==\n  before: {ca}   after: {cb}")
+    if not comparable:
+        print("  DIFFERENT CONTRACTS — 'pass' means different things in these "
+              "two runs, so\n  per-question transitions would be phantom "
+              "regressions (finding 4: 17 of them).\n  Showing shared metrics "
+              "only; the verdict is NOT COMPARABLE, not pass/fail.")
+
+    # --- per-question transitions (same contract only) ----------------------
     buckets: dict[str, list[str]] = {"fixed": [], "broken": [], "still_failing": [],
-                                     "still_passing": [], "added": [], "removed": []}
-    for qid in sorted(set(a_by) | set(b_by)):
-        if qid not in a_by:
-            buckets["added"].append(qid)
-            continue
-        if qid not in b_by:
-            buckets["removed"].append(qid)
-            continue
-        pa, pb = passed(a_by[qid]), passed(b_by[qid])
-        key = ("still_passing" if pa and pb else "fixed" if pb and not pa
-               else "broken" if pa and not pb else "still_failing")
-        buckets[key].append(qid)
-    for key in ("broken", "fixed", "still_failing", "added", "removed"):
-        if buckets[key]:
-            print(f"  {key:<14} {len(buckets[key]):>3}  {', '.join(buckets[key])}")
-    print(f"  {'still_passing':<14} {len(buckets['still_passing']):>3}")
+                                     "still_passing": [], "ungraded": [],
+                                     "added": [], "removed": []}
+    if comparable:
+        print("\n== questions ==")
+        for qid in sorted(set(a_by) | set(b_by)):
+            if qid not in a_by:
+                buckets["added"].append(qid)
+                continue
+            if qid not in b_by:
+                buckets["removed"].append(qid)
+                continue
+            pa, pb = passed(a_by[qid], ca), passed(b_by[qid], cb)
+            key = ("ungraded" if pa is None or pb is None
+                   else "still_passing" if pa and pb else "fixed" if pb and not pa
+                   else "broken" if pa and not pb else "still_failing")
+            buckets[key].append(qid)
+        for key in ("broken", "fixed", "still_failing", "ungraded",
+                    "added", "removed"):
+            if buckets[key]:
+                print(f"  {key:<14} {len(buckets[key]):>3}  {', '.join(buckets[key])}")
+        print(f"  {'still_passing':<14} {len(buckets['still_passing']):>3}")
 
-    # --- label shifts (funnel labels ride in the bundle, judge labels here) -
+    # --- deterministic per-question metric regressions ----------------------
+    # recall 0.8 -> 0.4 is a real regression even though both "fail"; MRR can
+    # sink while recall holds 1.0. On a deterministic suite every decrease is
+    # signal, so every decrease is listed and any decrease blocks.
+    metric_regressions: list[str] = []
+    if comparable and ca == "retrieval":
+        for qid in sorted(set(a_by) & set(b_by)):
+            for name in ("recall", "mrr"):
+                x, y = metric(a_by[qid], name), metric(b_by[qid], name)
+                if x is not None and y is not None and y < x - 1e-9:
+                    metric_regressions.append(f"{qid} {name} {x:.3f} -> {y:.3f}")
+        if metric_regressions:
+            print("\n== per-question metric regressions ==")
+            for line in metric_regressions:
+                print(f"  {line}")
+
+    # --- label shifts (funnel + judge labels ride in the manifest, 1D-3) ----
     def labels_of(rec):
-        return set((rec.get("judge") or {}).get("labels")
-                   or (rec.get("scores") or {}).get("labels") or [])
+        if rec.get("labels") is not None:            # run.py agent manifests
+            return set(rec["labels"])
+        j = rec.get("judge") or {}
+        return set(j.get("labels") or [])
 
-    shifts = {qid: (labels_of(a_by[qid]), labels_of(b_by[qid]))
-              for qid in set(a_by) & set(b_by)
-              if labels_of(a_by[qid]) != labels_of(b_by[qid])}
-    if shifts:
-        print("\n== label shifts ==")
-        for qid, (x, y) in sorted(shifts.items()):
-            print(f"  {qid:<7} -{sorted(x - y) or '[]'}  +{sorted(y - x) or '[]'}")
+    if comparable:
+        shifts = {qid: (labels_of(a_by[qid]), labels_of(b_by[qid]))
+                  for qid in set(a_by) & set(b_by)
+                  if labels_of(a_by[qid]) != labels_of(b_by[qid])}
+        if shifts:
+            print("\n== label shifts ==")
+            for qid, (x, y) in sorted(shifts.items()):
+                print(f"  {qid:<7} -{sorted(x - y) or '[]'}  +{sorted(y - x) or '[]'}")
 
     # --- aggregate metrics --------------------------------------------------
     print("\n== metrics ==")
@@ -167,18 +230,28 @@ def main() -> None:
         print(f"  {name:<20} {ax:>10.4f} -> {ay:>10.4f}   {ay - ax:+.4f}")
 
     # --- suite-aware verdict ------------------------------------------------
-    net = len(buckets["broken"]) - len(buckets["fixed"])
     print("\n== verdict ==")
-    if deterministic:
-        ok = not buckets["broken"]
-        print(f"  deterministic suite: {len(buckets['broken'])} regression(s); "
+    if not comparable:
+        print(f"  scoring contracts differ ({ca} vs {cb}) — re-run one side "
+              "under the other's contract to gate")
+        print("\nCOMPARE: NOT COMPARABLE")
+        sys.exit(2)
+    if ca == "retrieval":
+        # deterministic: any per-question metric decrease is real and blocks,
+        # not just pass-flips
+        ok = not buckets["broken"] and not metric_regressions
+        print(f"  deterministic suite: {len(buckets['broken'])} pass-flip(s), "
+              f"{len(metric_regressions)} per-question metric regression(s); "
               "the bar is zero")
     else:
+        net = len(buckets["broken"]) - len(buckets["fixed"])
         ok = net <= args.budget
         print(f"  stochastic suite: {len(buckets['broken'])} broken, "
               f"{len(buckets['fixed'])} fixed, net {net:+d}; budget {args.budget}")
         print("  (the model chooses its own search queries, so single flips are "
               "noise — judge the net and the label shifts, not the individual)")
+        if buckets["ungraded"]:
+            print(f"  ungraded (cannot say pass/fail): {buckets['ungraded']}")
     print(f"\nCOMPARE: {'PASS' if ok else 'FAIL'}")
     sys.exit(0 if ok else 1)
 
