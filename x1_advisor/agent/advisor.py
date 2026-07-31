@@ -28,7 +28,11 @@ from x1_advisor.agent.tools import build_tools
 from x1_advisor.cost import JsonlSink, Tracker, Usage
 from x1_advisor.index import active_config
 
-AGENT_MODEL = "gpt-5.1"
+# Overridable so a model change can be A/B'd against the committed baseline
+# (`ADVISOR_AGENT_MODEL=... experiments.run --agent`) instead of edited in and
+# hoped about. The resolved value is stamped into every trace and bundle, so a
+# run always says which model produced it.
+AGENT_MODEL = os.environ.get("ADVISOR_AGENT_MODEL", "gpt-5.1")
 MAX_STEPS = 8
 PER_TURN_SOFT_CAP_USD = 0.50
 

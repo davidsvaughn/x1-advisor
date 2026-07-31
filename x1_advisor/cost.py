@@ -68,6 +68,13 @@ PRICING: dict[str, dict[str, dict[str, float]]] = {
     },
     "openai": {
         # OpenAI auto-caches; cache reads are discounted, cache writes are not separately billed.
+        # gpt-5.6 family, verified 2026-07-31 against developers.openai.com/api/docs/pricing
+        # (the 2026-07-30 price cut is included). Tiers are sol > terra > luna on
+        # capability AND on price; luna is the budget tier, not a stronger model.
+        "gpt-5.6-sol":       {"input": 5.00, "cache_read": 0.500, "output": 30.00},
+        "gpt-5.6-terra":     {"input": 2.00, "cache_read": 0.200, "output": 12.00},
+        "gpt-5.6-luna":      {"input": 0.20, "cache_read": 0.020, "output":  1.20},
+        "gpt-5.5":           {"input": 5.00, "cache_read": 0.500, "output": 30.00},  # <=272K ctx
         "gpt-5.1":           {"input": 1.25, "cache_read": 0.125, "output": 10.00},
         "gpt-5.2":           {"input": 1.75, "cache_read": 0.175, "output": 14.00},
         "gpt-5.4":           {"input": 2.50, "cache_read": 0.250, "output": 15.00},  # verify

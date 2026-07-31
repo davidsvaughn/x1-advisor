@@ -101,7 +101,16 @@ def contract_of(records: list[dict]) -> str:
     Evidence provenance is PART of the judged contract: a legacy-judged run
     (judge read the live DB) and a snapshot-judged run (judge read what the
     model saw) measure different things, and runbook rule 5 forbids comparing
-    them. Records with no provenance field predate snapshots — legacy."""
+    them. Records with no provenance field predate snapshots — legacy.
+
+    So is the judge MODEL. A faithfulness number is that model's reading of
+    the rubric: swap the judge and the scale moves under you, exactly as it
+    does when provenance changes. Without this, changing judges would look
+    like the agent got better or worse overnight — the same phantom-regression
+    trap 1D-3 closed for the appearance of the judge column. Manifests written
+    before the judge model was recorded fall back to `unknown-judge`, which is
+    still a distinct contract: it is not comparable to a named one, because
+    nothing says it was the same model."""
     if all(r.get("experiment") == "phase2-baseline" for r in records):
         return "retrieval"
     judged = [r for r in records
@@ -110,7 +119,10 @@ def contract_of(records: list[dict]) -> str:
     if judged:
         prov = {(r.get("judge") or {}).get("evidence_provenance")
                 or "reconstructed-legacy" for r in judged}
-        return f"judged/{prov.pop() if len(prov) == 1 else 'mixed-provenance'}"
+        models = {(r.get("judge") or {}).get("judge_model") or "unknown-judge"
+                  for r in judged}
+        return (f"judged/{prov.pop() if len(prov) == 1 else 'mixed-provenance'}"
+                f"/{models.pop() if len(models) == 1 else 'mixed-judge'}")
     return "citation-liveness"
 
 

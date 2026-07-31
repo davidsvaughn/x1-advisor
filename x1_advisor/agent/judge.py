@@ -54,7 +54,21 @@ from pydantic import BaseModel
 from x1_advisor.agent.evidence import canonical_params
 from x1_advisor.cost import Tracker, Usage
 
-JUDGE_MODEL = os.environ.get("ADVISOR_JUDGE_MODEL", "gpt-5.1")
+# gpt-5.6-terra since 2026-07-31, chosen by `experiments.judge_bakeoff` over
+# 42 identical pairs: all four candidates pass the synthetic known-answer set
+# (9-10/10, so none is broken), but they disagree on real text ~20% of the time
+# (pairwise 0.74-0.86), so the choice is load-bearing. gpt-5.1 was the strict
+# outlier — 16 `unsupported` where the 5.6 tiers each said 11 — which is the
+# direction that deflates faithfulness. luna is excluded despite being cheapest:
+# it degrades badly on long context (published 41.3% vs terra 72.5%) and this
+# judge is deliberately unclipped (1E-3), so it routinely reads 8k-char
+# evidence. sol matches terra (0.86 agreement) at 2.9x the price with no
+# measured advantage on this task.
+#
+# PROVISIONAL: no human labels exist yet, so this is "best supported by what we
+# can measure", not "correct". Rerun the bake-off once the 32 labels land — it
+# scores every candidate against them and can overturn this in one command.
+JUDGE_MODEL = os.environ.get("ADVISOR_JUDGE_MODEL", "gpt-5.6-terra")
 # v2 (Gate 1D-1): claims are judged against per-ref snapshots of what the model
 # saw, not against the current database; scores from v1 are not comparable
 SCHEMA_VERSION = 2
@@ -166,14 +180,19 @@ SOURCE:
 # --------------------------------------------------------------------------
 
 def _ask(client: OpenAI, tracker: Tracker | None, prompt: str,
-         schema: type[BaseModel], stage: str) -> BaseModel | None:
+         schema: type[BaseModel], stage: str,
+         model: str | None = None) -> BaseModel | None:
+    """`model` overrides JUDGE_MODEL for this call — used by the bake-off to
+    put several candidate judges on byte-identical prompts. Cost is attributed
+    to whichever model actually ran, never to the configured default."""
+    model = model or JUDGE_MODEL
     resp = client.chat.completions.parse(
-        model=JUDGE_MODEL,
+        model=model,
         messages=[{"role": "user", "content": prompt}],
         response_format=schema,
     )
     if tracker:
-        tracker.log(provider="openai", model=JUDGE_MODEL, stage=stage,
+        tracker.log(provider="openai", model=model, stage=stage,
                     usage=Usage.from_haystack_meta("openai", resp.usage.model_dump()))
     return resp.choices[0].message.parsed
 

@@ -176,10 +176,15 @@ def manifest_record(bundle: dict) -> dict[str, Any]:
         "citation_stats": {k: val.get(k) for k in ("emitted", "resolved", "dropped")},
         # judge verdict, body-free: labels/counts/state only — never the claim
         # texts or verdict reasons, which quote the answer
+        # judge_model rides along because a faithfulness number means "this
+        # model's reading of the rubric" — it is half of the scoring contract
+        # `compare` gates on, and a manifest that omits it cannot prove two
+        # runs were graded by the same judge.
         "judge": ({k: bundle["judge"].get(k) for k in ("labels", "counts")}
                   | {"calibration_state": (bundle["judge"].get("calibration") or {})
                      .get("state"),
-                     "evidence_provenance": bundle["judge"].get("evidence_provenance")}
+                     "evidence_provenance": bundle["judge"].get("evidence_provenance"),
+                     "judge_model": bundle["judge"].get("judge_model")}
                   if bundle.get("judge") else None),
         "retrieval": [{"call": e["call"], "filters": e["filters"],
                        "filter_notes": e["filter_notes"], "k": e["k"],
