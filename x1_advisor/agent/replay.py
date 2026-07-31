@@ -144,28 +144,44 @@ def _cite_keys(citations: list[dict]) -> list[str]:
 
 
 def replay_live_tools(conn, bundle: dict, acl: Any, tracker: Tracker) -> dict[str, Any]:
-    """Re-execute the recorded tool calls against today's code and data.
+    """Re-execute the recorded tool calls THROUGH THE REAL TOOLS under the
+    replaying principal.
 
-    ALL of them (Gate 1D-5): the first version ignored get_source entirely —
-    a turn whose full-block fetch drifted reported IDENTICAL because only the
-    search leg was compared — and printed structured-query digests without
-    ever comparing them to the stored ones.
+    The first two versions were shadows (1D-5 review, then 1E-6): they called
+    retrieval internals directly — their own `k`, their own get_source SQL,
+    no ACL/gated-note/filter-compilation paths — so a tool-contract change
+    was invisible to the thing meant to detect drift. Now `build_tools()`
+    supplies the same closures the live agent runs:
+
+    * a fresh evidence registry is built by the replayed searches themselves;
+    * recorded refs are remapped recorded→identity→new ref before dispatch —
+      a chain that cannot be rebuilt under this principal (the replayed
+      searches never surfaced that chunk) is reported as a finding, not
+      papered over with the stored entitlement's view;
+    * structured digests come from the new registry's own registration,
+      the identical code path the live turn used.
+
+    Web calls are skipped: replaying them would diff the internet, not the
+    code. Produces diffs, never a new answer.
     """
     import hashlib
 
-    from x1_advisor.agent.queries import run_query
-    from x1_advisor.agent.tools import SOURCE_CHARS, _clip
-    from x1_advisor.filters import FilterError, compile_filters
-    from x1_advisor.retrieval import retrieve
+    from x1_advisor.agent.tools import build_tools
 
-    registry = EvidenceRegistry.from_list(bundle.get("evidence") or [])
-    # stored structured results, keyed the way citations identify them
+    old_reg = EvidenceRegistry.from_list(bundle.get("evidence") or [])
+    new_reg = EvidenceRegistry()
+    explain: list[dict] = []
+    tools = {t.name: t.function
+             for t in build_tools(conn, acl=acl, registry=new_reg,
+                                  tracker=tracker, explain_out=explain)}
+
+    stored_explains = {e["call"]: e for e in bundle.get("retrieval_explain") or []}
     stored_queries = {
         (ev.get("query_name"), canonical_params(ev.get("query_params"))):
             (ev.get("result_digest"), ev.get("row_count"))
         for ev in bundle.get("evidence") or [] if ev.get("kind") == "query"}
-    # what get_source actually showed the model, per ref (from the recorded
-    # tool results — works for pre-snapshot bundles too)
+    # what get_source actually showed the model, per recorded ref (from the
+    # recorded tool results — works for pre-snapshot bundles too)
     stored_sources: dict[str, str] = {}
     for m in bundle.get("messages") or []:
         for content in m.get("content") or []:
@@ -186,7 +202,6 @@ def replay_live_tools(conn, bundle: dict, acl: Any, tracker: Tracker) -> dict[st
     def _sha(text: str) -> str:
         return hashlib.sha256(text.encode()).hexdigest()[:12]
 
-    stored = {e["call"]: e for e in bundle.get("retrieval_explain") or []}
     diffs, search_n = [], 0
     for m in bundle.get("messages") or []:
         for content in m.get("content") or []:
@@ -194,49 +209,66 @@ def replay_live_tools(conn, bundle: dict, acl: Any, tracker: Tracker) -> dict[st
             if not call:
                 continue
             name, args = call.get("tool_name"), call.get("arguments") or {}
+            if name == "web_research":
+                diffs.append({"call": None, "tool": name,
+                              "skipped": "live web is not reproducible; replaying "
+                                         "it would diff the internet, not the code"})
+                continue
+            if name not in tools:
+                diffs.append({"call": None, "tool": name,
+                              "error_now": "tool no longer exists — contract drift"})
+                continue
             if name == "search_corpus":
                 search_n += 1
-                explain: list[dict] = []
-                try:
-                    hits = retrieve(conn, args.get("query", ""), acl=acl,
-                                    filters=compile_filters(conn, args.get("filters")),
-                                    k=8, tracker=tracker, explain_out=explain,
-                                    expand_summaries=True)
-                except FilterError as exc:
+                payload = json.loads(tools[name](**args))
+                if payload.get("error"):
                     diffs.append({"call": search_n, "tool": name,
-                                  "error_now": str(exc)})
+                                  "query": args.get("query"),
+                                  "error_now": payload["error"]})
                     continue
-                then = (stored.get(search_n) or {}).get("returned") or []
-                now = [h.chunk_id for h in hits]
-                diffs.append({
+                now = explain[-1]["returned"] if explain else []
+                then = (stored_explains.get(search_n) or {}).get("returned") or []
+                entry = {
                     "call": search_n, "tool": name, "query": args.get("query"),
                     "returned_then": then, "returned_now": now,
                     "lost": [c for c in then if c not in now],
                     "gained": [c for c in now if c not in then],
-                    "identical": then == now})
+                    "identical": then == now}
+                # boundary behavior is part of the contract — surface it
+                for key in ("access_note", "filter_notes"):
+                    if payload.get(key):
+                        entry[f"{key}_now"] = payload[key]
+                diffs.append(entry)
             elif name == "get_source":
-                ref = args.get("ref")
-                ev = registry.get(ref) if ref else None
-                then_text = stored_sources.get(ref)
-                if ev is None or ev.kind != "chunk":
-                    diffs.append({"call": None, "tool": name, "ref": ref,
-                                  "error_now": "ref not resolvable from the "
-                                  "bundle's evidence registry (pre-registry "
+                old_ref = args.get("ref")
+                old_ev = old_reg.get(old_ref) if old_ref else None
+                if old_ev is None or old_ev.kind != "chunk":
+                    diffs.append({"call": None, "tool": name, "ref": old_ref,
+                                  "error_now": "recorded ref not resolvable from "
+                                  "the bundle's evidence registry (pre-registry "
                                   "bundle?) — cannot compare"})
                     continue
-                row = conn.execute(
-                    """SELECT c.text FROM advisor.doc_chunks c
-                       WHERE c.document_id = %s AND c.block_index = %s""",
-                    (ev.document_id, ev.block_index)).fetchone()
-                if not row:
-                    diffs.append({"call": None, "tool": name, "ref": ref,
-                                  "locator": f"doc{ev.document_id}#{ev.block_index}",
-                                  "error_now": "block no longer exists"})
+                locator = f"doc{old_ev.document_id}#{old_ev.block_index}"
+                new_ref = new_reg.ref_for_chunk(old_ev.document_id,
+                                                old_ev.block_index)
+                if new_ref is None:
+                    diffs.append({"call": None, "tool": name, "ref": old_ref,
+                                  "locator": locator,
+                                  "error_now": "ref chain broken under this "
+                                  "principal — no replayed search surfaced the "
+                                  "chunk, so get_source cannot be issued"})
                     continue
-                now_text, _ = _clip(row["text"], SOURCE_CHARS)  # as the tool shows it
+                payload = json.loads(tools[name](ref=new_ref))
+                if payload.get("error"):
+                    diffs.append({"call": None, "tool": name, "ref": old_ref,
+                                  "locator": locator,
+                                  "error_now": payload["error"]})
+                    continue
+                then_text = stored_sources.get(old_ref)
+                now_text = payload.get("text") or ""
                 diffs.append({
-                    "call": None, "tool": name, "ref": ref,
-                    "locator": f"doc{ev.document_id}#{ev.block_index}",
+                    "call": None, "tool": name, "ref": old_ref,
+                    "ref_now": new_ref, "locator": locator,
                     "sha_then": _sha(then_text) if then_text else None,
                     "sha_now": _sha(now_text),
                     "chars_then": len(then_text) if then_text else None,
@@ -245,27 +277,23 @@ def replay_live_tools(conn, bundle: dict, acl: Any, tracker: Tracker) -> dict[st
             elif name == "structured_query":
                 key = (args.get("name"), canonical_params(args.get("params")))
                 digest_then, rows_then = stored_queries.get(key, (None, None))
-                try:
-                    rows = run_query(conn, args.get("name"), args.get("params"),
-                                     acl=acl)
-                    digest_now = rows_digest(rows)
-                    diffs.append({"call": None, "tool": name,
-                                  "query": args.get("name"),
-                                  "row_count_then": rows_then,
-                                  "row_count_now": len(rows),
-                                  "digest_then": digest_then,
-                                  "digest_now": digest_now,
-                                  "identical": (digest_then == digest_now
-                                                if digest_then else None)})
-                except Exception as exc:  # noqa: BLE001
+                payload = json.loads(tools[name](**args))
+                if payload.get("error"):
                     diffs.append({"call": None, "tool": name,
                                   "query": args.get("name"),
                                   "digest_then": digest_then,
-                                  "error_now": f"{type(exc).__name__}: {exc}"})
-            elif name == "web_research":
+                                  "error_now": payload["error"]})
+                    continue
+                # the digest the tool itself registered — same code path as live
+                ev_now = new_reg.query_evidence(args.get("name"), args.get("params"))
                 diffs.append({"call": None, "tool": name,
-                              "skipped": "live web is not reproducible; replaying "
-                                         "it would diff the internet, not the code"})
+                              "query": args.get("name"),
+                              "row_count_then": rows_then,
+                              "row_count_now": payload.get("row_count"),
+                              "digest_then": digest_then,
+                              "digest_now": ev_now.result_digest if ev_now else None,
+                              "identical": (digest_then == ev_now.result_digest
+                                            if digest_then and ev_now else None)})
     return {"mode": "live-tools", "acl_used": acl, "calls": diffs}
 
 

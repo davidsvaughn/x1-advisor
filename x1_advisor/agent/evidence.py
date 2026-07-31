@@ -171,6 +171,18 @@ class EvidenceRegistry:
     def get(self, ref: str) -> Evidence | None:
         return self._items.get(ref.lower())
 
+    def ref_for_chunk(self, document_id: int, block_index: int) -> str | None:
+        """The ref this registry assigned to a chunk identity, if any — how
+        replay remaps a recorded ref onto the registry a fresh tool pass
+        built. None means the replayed searches never surfaced the chunk."""
+        return self._by_key.get(("chunk", document_id, block_index))
+
+    def query_evidence(self, query_name: str,
+                       params: dict[str, Any] | None) -> Evidence | None:
+        """The evidence registered for a (query, params) identity, if any."""
+        ref = self._by_key.get(("query", query_name, canonical_params(params)))
+        return self._items.get(ref) if ref else None
+
     def __len__(self) -> int:
         return len(self._items)
 

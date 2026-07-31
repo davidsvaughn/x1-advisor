@@ -60,6 +60,9 @@ load = load_calibration_set
 CALIBRATION_DIR = QA_ARTIFACTS_DIR.parent / "calibration"
 ITEMS_PATH = CALIBRATION_DIR / "items.jsonl"      # bodies + strata (machine)
 PENDING_PATH = CALIBRATION_DIR / "pending.jsonl"  # blind labeling view (human)
+# diversity guard (1E-5): a labeled set drawn mostly from one turn calibrates
+# almost nothing, whatever its size
+PER_QUESTION_CAP = 2
 
 
 def _load_jsonl(path: Path) -> list[dict]:
@@ -102,7 +105,17 @@ def sample_pairs(limit: int, run: str | None = None) -> int:
     nothing about the boundary that actually matters. The stratum is recorded
     in items.jsonl (machine side) and joined back at --ingest; the pending
     file the human reads carries no verdict-derived field at all.
+
+    **And diverse** (1E-5): the first pass drew 23 of 32 items from g001 with
+    only nine unique evidence payloads, because it drained sorted bundles in
+    file order — 30 labels from one question's marketing page would have
+    triggered "human-calibrated" while calibrating almost nothing. Now: only
+    snapshot-judged bundles are eligible, at most PER_QUESTION_CAP items per
+    question, and duplicate evidence payloads are skipped while distinct ones
+    remain.
     """
+    import hashlib
+
     from x1_advisor.agent.judge import evidence_texts
     from x1_advisor.db import connect
 
@@ -114,8 +127,12 @@ def sample_pairs(limit: int, run: str | None = None) -> int:
     with connect() as conn:
         for path in sorted(runs_dir.rglob("*.json")):
             bundle = json.loads(path.read_text())
-            verdicts = (bundle.get("judge") or {}).get("verdicts") or []
-            if not verdicts:
+            judge = bundle.get("judge") or {}
+            verdicts = judge.get("verdicts") or []
+            # legacy-judged pairs would calibrate the judge on evidence the
+            # model never saw — snapshot bundles only, enforced here rather
+            # than left to operator discipline
+            if not verdicts or judge.get("evidence_provenance") != "turn-snapshot":
                 continue
             sources = evidence_texts(conn, bundle)
             for k, v in enumerate(verdicts):
@@ -127,19 +144,55 @@ def sample_pairs(limit: int, run: str | None = None) -> int:
                 if not text or item_id in existing:
                     continue
                 buckets.setdefault(v["verdict"], []).append({
-                    "id": item_id, "claim": v["claim"], "evidence": text,
+                    "id": item_id, "question": path.stem,
+                    "claim": v["claim"], "evidence": text,
                     "stratum": v["verdict"],
                     "locator": ", ".join(v["locators"]) or path.stem,
                 })
 
-    # round-robin across strata so the set is balanced rather than
-    # supported-dominated; take whatever each bucket can give
+    # interleave each stratum by question so no single turn dominates
+    def by_question_rotation(items: list[dict]) -> list[dict]:
+        groups: dict[str, list[dict]] = {}
+        for it in items:
+            groups.setdefault(it["question"], []).append(it)
+        out, queues = [], list(groups.values())
+        while queues:
+            queues = [q for q in queues if q]
+            for q in queues:
+                if q:
+                    out.append(q.pop(0))
+        return out
+
+    for b in buckets:
+        buckets[b] = by_question_rotation(buckets[b])
+
     picked: list[dict] = []
-    order = ["unsupported", "partial", "supported", "unverifiable"]
-    while len(picked) < limit and any(buckets[b] for b in order):
-        for b in order:
-            if buckets[b] and len(picked) < limit:
-                picked.append(buckets[b].pop(0))
+    per_question: Counter = Counter()
+    seen_evidence: set[str] = set()
+
+    def take(strict: bool) -> None:
+        order = ["unsupported", "partial", "supported", "unverifiable"]
+        progress = True
+        while len(picked) < limit and progress:
+            progress = False
+            for b in order:
+                for it in buckets[b]:
+                    ev_hash = hashlib.sha256(it["evidence"].encode()).hexdigest()
+                    if per_question[it["question"]] >= PER_QUESTION_CAP:
+                        continue
+                    if strict and ev_hash in seen_evidence:
+                        continue
+                    buckets[b].remove(it)
+                    picked.append(it)
+                    per_question[it["question"]] += 1
+                    seen_evidence.add(ev_hash)
+                    progress = True
+                    break
+                if len(picked) >= limit:
+                    return
+
+    take(strict=True)      # unique evidence payloads first
+    take(strict=False)     # relax dedup (never the per-question cap) if short
 
     _append_jsonl(ITEMS_PATH, picked)
     # the human-facing file: claim + evidence + an empty label. Deliberately
@@ -194,11 +247,15 @@ def main() -> None:
 
     if args.sample:
         n = sample_pairs(args.sample, run=args.run)
-        counts = Counter(i["stratum"] for i in _load_jsonl(ITEMS_PATH))
+        items = _load_jsonl(ITEMS_PATH)
+        counts = Counter(i["stratum"] for i in items)
+        by_q = Counter(i.get("question", "?") for i in items if i.get("question"))
         print(f"sampled {n} pair(s) → {PENDING_PATH}")
         print(f"strata so far: {dict(counts)}  (balanced on purpose — reweight "
               "before reading accuracy as a population estimate; the labeler "
               "never sees these)")
+        print(f"questions represented: {len(by_q)}  (cap {PER_QUESTION_CAP}/question; "
+              f"max share: {by_q.most_common(1)[0] if by_q else 'n/a'})")
         print("For each line: read `claim` against `evidence`, set `label` to "
               "supported | partial | unsupported. Then run --ingest.")
         return
