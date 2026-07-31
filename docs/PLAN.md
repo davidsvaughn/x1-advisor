@@ -28,7 +28,7 @@ current truth is this readiness matrix and the gate sequence that follows.
 | Answer quality | **Not yet adequately measured** (citation resolvability ≠ faithfulness; no judge) |
 | ACL | Retrieval-level filter validated; **end-to-end boundary incomplete** (structured_query unfiltered, filter-key SQL injection, thread ownership) |
 | Service runtime | Skeleton only; **not concurrency-safe** (shared connection/transaction) |
-| Production data coverage & freshness | Not established (Phase 6 not started) |
+| Production data coverage & freshness | Not established (historical ingestion Phase 6 not started; distinct from revised Gate 6) |
 | Admin pilot / non-admin exposure | Not ready (gates 3 / 6) |
 
 ### Scope decision (David, 2026-07-30)
@@ -41,10 +41,10 @@ Page context flows **into** the advisor only (see context-snapshot design).
 
 - [`QA-LOOP-DESIGN-2026-07-30.md`](QA-LOOP-DESIGN-2026-07-30.md) — teacher-QA
   observability: turn bundles, retrieval explain, funnel classification,
-  replay/compare. *Pending second-agent review.*
+  replay/compare. Reviewed and revised same-day.
 - [`QUESTION-BANK.md`](QUESTION-BANK.md) — master test-question corpus
   (13 recovered sources); seed for golden v2; 7 architecture implications.
-  *Pending second-agent review.*
+  Reviewed and revised same-day.
 - [`CONTEXT-SNAPSHOT-DESIGN-2026-07-30.md`](CONTEXT-SNAPSHOT-DESIGN-2026-07-30.md)
   — page-context/working-set architecture (app → advisor only).
 
@@ -63,7 +63,8 @@ acceptable-evidence groups, replay never trusts stored ACLs.
   manifest no-clobber; persist `raw_answer`.
 - **Gate 1 — evidence correctness + QA loop, in internal order** (review
   §6.2): **1A observability foundation** (turn bundles + fingerprints,
-  retrieval explain, manifest immutability) → **1B evidence correction**
+  retrieval explain, manifest immutability, non-git owner-only storage for full
+  evidence exports) → **1B evidence correction**
   (record summaries retrieval-only with source-block expansion, whole-document
   summary fix, calibrated claim/citation judge, full agent-suite rerun on the
   current corpus) → **1C loop completion** (funnel classifier, three replay
@@ -80,13 +81,17 @@ acceptable-evidence groups, replay never trusts stored ACLs.
   backfill rehearsal + coverage registry.
 - **Gate 3B — context-snapshot support** (before golden v2; not blocking the
   plain-chat pilot): context schema + `context_status`, selected/visible/
-  working-set scope handles, extensional resolved-scope persistence, context
-  fixtures + scope grading.
+  working-set scope handles, polymorphic typed refs, extensional resolved-scope
+  persistence, app-side complete-membership projection using the page's exact
+  query builder (inline refs or a user-bound materialized snapshot above the
+  configured limit), context fixtures + scope grading.
 - **Gate 4 — golden v2:** curate (not copy) QUESTION-BANK — smoke ~12 /
   core ~40–60 + scripts / extended ~80–100 tiers; acceptable evidence groups;
   `expected_route` + `expected_scope` + `context_fixture`; genuinely-blind
-  held-out cases; real-thread weighting; exact-scan vs semantic-analysis cases
-  separated. Future capabilities named by the bank: **`scan_text`**
+  held-out cases executed by a separately authorized CI/evaluation service
+  (case bodies are not mounted in the teacher workspace); real-thread
+  weighting; exact-scan vs semantic-analysis cases separated. Future
+  capabilities named by the bank: **`scan_text`**
   (deterministic bounded text scan — build first) and **`analyze_scope`**
   (budgeted semantic map/reduce — on demonstrated demand).
 - **Gate 5 — provider/model experiments:** generator/embedding/search seams
@@ -166,9 +171,16 @@ Three registries, all stored in the `advisor` schema so runs are reproducible:
   schema never changes when the provider swaps. **Contract requirement: every finding must
   carry a real, fetchable URL** — the citation validator depends on it.
 
-Run manifests: every bake-off run writes a JSONL manifest (config ids, model ids, git SHA,
-per-question results, cost from `cost.py`) under `experiments/runs/`. No silent truncation of
-model outputs in manifests.
+Run manifests: every bake-off writes a body-free JSONL comparison manifest
+(config ids, model ids, git SHA, per-question labels/metrics, policy-safe opaque
+evidence ids, cost from `cost.py`) under `experiments/runs/`; restricted source
+identities are omitted or pseudonymized. Complete model messages and tool-result
+bodies belong only in gitignored `.qa-artifacts/runs/` or the canonical
+authorized JSONB bundle; they are never committed. No silent truncation is
+allowed inside the complete bundle. The committed v1 manifests predate this
+split and contain answers/source metadata; Gate 1A reviews them as historical
+test-corpus artifacts and migrates the writer rather than using them as the v2
+security template.
 
 ---
 

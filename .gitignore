@@ -9,3 +9,4 @@ __pycache__/
 
 # runtime artifacts
 cost_ledger.jsonl
+.qa-artifacts/

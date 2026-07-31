@@ -35,10 +35,11 @@
 
 **Readiness model** (revised per `QA-BANK-CONTEXT-REVIEW-2026-07-30.md` §4.2 —
 the earlier single ✅ conflated "the data exists" with "the current agent can
-answer correctly"). Each question is scored on orthogonal dimensions, carried
-in full in the golden-v2 YAML (`source_available`, `tool_ready`, `scope`,
-`operation`, `context_required`, `golden_priority`); the tables below show a
-compact display status:
+answer correctly"). Promotion into golden v2 requires orthogonal fields
+(`source_available`, `tool_ready`, `scope`, `operation`, `context_required`,
+`golden_priority`); this source bank uses compound display tags to expose the
+known dependencies without pretending it is already the machine-readable
+golden specification:
 
 - **✅** — source *and* tools ready today (corpus content + an existing
   tool/query path).
@@ -46,13 +47,24 @@ compact display status:
   query, coverage query, or relationship/aggregate support).
 - **WS** — needs working-set/page context
   (`CONTEXT-SNAPSHOT-DESIGN-2026-07-30.md`).
+- **SEL** — needs an explicit selected-entity page context.
+- **PA** — needs the entity set established by a prior answer/turn.
 - **SCAN-T** — needs the exhaustive **text scan** tool (`scan_text`, §3.2A:
   deterministic phrase/FTS over a bounded scope with per-entity coverage).
 - **SCAN-A** — needs **bounded semantic analysis** (`analyze_scope`, §3.2B:
   budgeted per-entity judgment + synthesis; heavier machinery, sequenced
   later).
-- **NOTES** — needs notes/XRM ingestion (Phase 6+).
+- **NOTES** — needs deferred notes/XRM coverage ingestion (historical PLAN
+  Phase 6; not revised Gate 6).
+- **CONTRACT** — needs a durable answer-behavior contract and grading rule
+  (quotes, scope/coverage disclosure, or abstention).
+- **ACL** — needs an explicit persona/disclosure-policy case.
 - Tags combine (e.g. WS+SCAN-T).
+
+The compact status is deliberately compound: context alone does not make an
+aggregate, coverage query, exhaustive scan, or semantic comparison ready. When
+a case is promoted into golden v2, all six orthogonal fields above are required;
+the compact tag is not a substitute for that machine-readable contract.
 
 Curation weighting (review §4.1): real captured user turns (LFT) outrank
 speculative design examples; repeated copies of one historical list count as
@@ -76,32 +88,31 @@ Deduplicated; each entry keeps its best verbatim phrasing. Route abbreviations:
 
 | # | Question | Src | Status |
 |---|---|---|---|
-| 1 | What are the biggest risks mentioned for this startup? | P4 | ✅* |
-| 2 | What strengths are highlighted for this startup? | P4 | ✅* |
-| 3 | What concerns are raised about the founding team? | P4 | ✅* |
-| 4 | What does the evaluation say about market timing? | P4 | ✅* |
-| 5 | What traction signals are mentioned in the documents? | P4 | ✅* |
-| 6 | What evidence is there that this startup has enterprise demand? | P4 | ✅* |
-| 7 | What objections or caveats appear in the evaluation narrative? | P4 | ✅* |
-| 8 | What does the evaluator say about defensibility or moat? | P4 | ✅* |
-| 9 | What narrative evidence supports this startup being venture-scale? | P4 | ✅* |
-| 10 | What rationale is given for the overall evaluation conclusion? | P4 | ✅* |
-| 11 | Why did the evaluator give this startup a weak market score? | P4 (wrong-tool) | ✅* |
-| 12 | What exact concerns are mentioned about the founder? | P4 (wrong-tool) | ✅* |
-| 13 | What language in the pitch deck supports the claim of strong traction? | P4 (wrong-tool) | ✅* |
-| 14 | Is there any mention of customer concentration for this startup? | P4 (edge) | ✅* |
-| 15 | Are there contradictions between the evaluation and the pitch deck for this startup? | P4 (edge) | ✅* |
-| 16 | Summarize the evidence for why this startup might fail. | P4 (edge) | ✅* |
-| 17 | What's the team score? / What are the founder's biggest risks? | RAG | ✅* |
-| 18 | Compare the traction analysis to the market analysis. | RAG | ✅* |
-| 19 | What did the evaluation say about their moat? | CAP | ✅* |
+| 1 | What are the biggest risks mentioned for this startup? | P4 | SEL+✅ |
+| 2 | What strengths are highlighted for this startup? | P4 | SEL+✅ |
+| 3 | What concerns are raised about the founding team? | P4 | SEL+✅ |
+| 4 | What does the evaluation say about market timing? | P4 | SEL+✅ |
+| 5 | What traction signals are mentioned in the documents? | P4 | SEL+✅ |
+| 6 | What evidence is there that this startup has enterprise demand? | P4 | SEL+✅ |
+| 7 | What objections or caveats appear in the evaluation narrative? | P4 | SEL+✅ |
+| 8 | What does the evaluator say about defensibility or moat? | P4 | SEL+✅ |
+| 9 | What narrative evidence supports this startup being venture-scale? | P4 | SEL+✅ |
+| 10 | What rationale is given for the overall evaluation conclusion? | P4 | SEL+✅ |
+| 11 | Why did the evaluator give this startup a weak market score? | P4 (wrong-tool) | SEL+✅ |
+| 12 | What exact concerns are mentioned about the founder? | P4 (wrong-tool) | SEL+✅ |
+| 13 | What language in the pitch deck supports the claim of strong traction? | P4 (wrong-tool) | SEL+✅ |
+| 14 | Is there any mention of customer concentration for this startup? | P4 (edge) | SEL+✅ |
+| 15 | Are there contradictions between the evaluation and the pitch deck for this startup? | P4 (edge) | SEL+✅ |
+| 16 | Summarize the evidence for why this startup might fail. | P4 (edge) | SEL+✅ |
+| 17 | What's the team score? / What are the founder's biggest risks? | RAG | SEL+✅ |
+| 18 | Compare the traction analysis to the market analysis. | RAG | SEL+✅ |
+| 19 | What did the evaluation say about their moat? | CAP | SEL+✅ |
 | 20 | What risks did the research identify for VeraAI? | CAP | ✅ |
-| 21 | How has this startup improved since last evaluation? | EDS | 🔧 (cross-version comparison; latest/prior-eval semantics §3.5) |
-| 22 | Were there any red flags in the traction analysis? | EDS | ✅* |
+| 21 | How has this startup improved since last evaluation? | EDS | SEL+🔧 (cross-version comparison; latest/prior-eval semantics §3.5) |
+| 22 | Were there any red flags in the traction analysis? | EDS | SEL+✅ |
 
-\* "this startup" phrasing assumes a selected-entity context (WS-lite): in chat
-today, substitute a company name; from the UI (Phase 5), the working set
-supplies it.
+For CLI testing before selected-page context lands, bind `SEL` cases to an
+explicit company fixture/name; do not silently broaden them to corpus scope.
 
 ### 1.2 Corpus-wide enumeration — split into exact scan vs semantic analysis (§3.2)
 
@@ -122,41 +133,41 @@ lexical no-match as a semantic negative.
 | 29 | Which startups are described as platform businesses rather than single-product companies? | KS | SCAN-A |
 | 30 | Which startup evaluations have evidence of patent defensibility? | KS | SCAN-A |
 | 31 | Which startup evaluations mention payer adoption or hospital procurement friction? | KS | SCAN-T |
-| 32 | Which visible startups have artifact language suggesting execution risk even when the DB summary is vague? | KS | SCAN-A |
-| 33 | Which of these startups has at least one founder with a PhD? | SCR | SCAN-T/hybrid |
-| 34 | Compare the strongest GTM concerns across these 12 startups. | RSA | SCAN-A+WS |
+| 32 | Which visible startups have artifact language suggesting execution risk even when the DB summary is vague? | KS | WS+SCAN-A |
+| 33 | Which of these startups has at least one founder with a PhD? | SCR | WS+SCAN-T/hybrid |
+| 34 | Compare the strongest GTM concerns across these 12 startups. | RSA | WS+SCAN-A |
 | 35 | Find evidence of FDA/compliance mentions, then summarize by startup. | RSA | SCAN-T |
-| 36 | Do any of these CVs mention FDA, HIPAA, or reimbursement experience? | SKL | SCAN-T |
+| 36 | Do any of these CVs mention FDA, HIPAA, or reimbursement experience? | SKL | WS+SCAN-T |
 
-### 1.3 Working-set scoped (route: hybrid; status all **WS** until Phase-5 UI context lands)
+### 1.3 Working-set scoped (route: hybrid; context plus operation shown separately)
 
-| # | Question | Src |
-|---|---|---|
-| 37 | Across the startups currently on screen, what risks are mentioned most often? | P4 |
-| 38 | Among the startups currently on screen with a score above 80, what risks are mentioned most often? | P4 (compact #7) |
-| 39 | Which startups passing the current filters have pitch decks, and what do those decks say about traction? | P4 (compact #8) |
-| 40 | For the top 5 highest-scoring startups currently on screen, summarize the main risks in their evaluations. | P4 |
-| 41 | Which currently filtered AI startups mention regulatory risk in their documents? | P4 |
-| 42 | Among the startups in the current results founded in 2024, what concerns are raised about traction? | P4 |
-| 43 | For the startups currently on screen, what evidence conflicts with their current scores? | P4 (edge) |
-| 44 | Which startups currently on screen have no evaluation yet? | P4 (compact #11) |
-| 45 | Which ones are based in Europe? (follow-up narrowing) | CAP |
-| 46 | Which of these has the best traction? / How many of these have been evaluated? | CAP+SKL |
-| 47 | What is the average market score among these? | CAP |
-| 48 | Which of these seem the most promising? | CAP |
-| 49 | Which would a deep-tech investor care about? | CAP |
-| 50 | Stay strictly within the current working set and explain your evidence. | KS (directive) |
+| # | Question | Src | Status |
+|---|---|---|---|
+| 37 | Across the startups currently on screen, what risks are mentioned most often? | P4 | WS+SCAN-A |
+| 38 | Among the startups currently on screen with a score above 80, what risks are mentioned most often? | P4 (compact #7) | WS+SCAN-A |
+| 39 | Which startups passing the current filters have pitch decks, and what do those decks say about traction? | P4 (compact #8) | WS+🔧+SCAN-A (coverage then analysis) |
+| 40 | For the top 5 highest-scoring startups currently on screen, summarize the main risks in their evaluations. | P4 | WS+SCAN-A |
+| 41 | Which currently filtered AI startups mention regulatory risk in their documents? | P4 | WS+SCAN-T |
+| 42 | Among the startups in the current results founded in 2024, what concerns are raised about traction? | P4 | WS+SCAN-A |
+| 43 | For the startups currently on screen, what evidence conflicts with their current scores? | P4 (edge) | WS+SCAN-A |
+| 44 | Which startups currently on screen have no evaluation yet? | P4 (compact #11) | WS+🔧 (coverage query) |
+| 45 | Which ones are based in Europe? (follow-up narrowing) | CAP | PA |
+| 46 | Which of these has the best traction? / How many of these have been evaluated? | CAP+SKL | (PA or WS)+SCAN-A / (PA or WS)+🔧 |
+| 47 | What is the average market score among these? | CAP | (PA or WS)+🔧 (aggregate query) |
+| 48 | Which of these seem the most promising? | CAP | (PA or WS)+SCAN-A |
+| 49 | Which would a deep-tech investor care about? | CAP | (PA or WS)+SCAN-A |
+| 50 | Stay strictly within the current working set and explain your evidence. | KS (directive) | WS |
 
 ### 1.4 Canonical/structured data (route: sql)
 
 | # | Question | Src | Status |
 |---|---|---|---|
-| 51 | What industry is this startup in? | P4 | ✅ |
-| 52 | What is the current X1 score for this startup? | P4 | ✅ |
+| 51 | What industry is this startup in? | P4 | SEL+✅ |
+| 52 | What is the current X1 score for this startup? | P4 | SEL+✅ |
 | 53 | What's the market score for StartupX? | EDS | ✅ |
 | 54 | Which startups scored above 70 overall? | EDS+SCR ("score over 77") | ✅ |
 | 55 | How many startups in the current results have uploaded pitch decks? | P4 | WS+🔧 (doc-inventory query) |
-| 56 | What investors are associated with this startup? | P4 | 🔧 (relationship query not in registry) |
+| 56 | What investors are associated with this startup? | P4 | SEL+🔧 (relationship query not in registry) |
 | 57 | How many startups are in the database? | e2e smoke | ✅ |
 | 58 | Which startups currently on screen were created in the last 12 months? | P4 | WS |
 | 59 | Which currently filtered startups are based in Switzerland? | P4 | WS |
@@ -169,10 +180,10 @@ lexical no-match as a semantic negative.
 
 | # | Question | Src | Status |
 |---|---|---|---|
-| 64 | What documents are available for this startup? | P4 (compact #3) | 🔧 (coverage query — §3.3) |
-| 65 | Do we have a pitch deck for this startup? | P4 (compact #4) | 🔧 (coverage query) |
-| 66 | What evaluation bundles exist for this startup? | P4 | 🔧 (coverage query) |
-| 67 | Which document types are searchable for this startup? | P4 | 🔧 (coverage query) |
+| 64 | What documents are available for this startup? | P4 (compact #3) | SEL+🔧 (coverage query — §3.3) |
+| 65 | Do we have a pitch deck for this startup? | P4 (compact #4) | SEL+🔧 (coverage query) |
+| 66 | What evaluation bundles exist for this startup? | P4 | SEL+🔧 (coverage query) |
+| 67 | Which document types are searchable for this startup? | P4 | SEL+🔧 (coverage query) |
 | 68 | Across the startups currently on screen, which ones have pitch decks? | P4 | WS+🔧 |
 | 69 | Which startups passing the current filters have any searchable documents at all? | P4 | WS+🔧 |
 | 70 | For the current working set, which startups have both evaluation bundles and uploaded documents? | P4 | WS+🔧 |
@@ -187,15 +198,15 @@ lexical no-match as a semantic negative.
 | 74 | Which investor profiles mention board involvement or operating support? | KS | SCAN-T |
 | 75 | Which investment companies describe late-stage, growth, or crossover behavior? | KS | SCAN-A |
 | 76 | Which organizations mention university spinout support? | KS | SCAN-T |
-| 77 | Which of these investors emphasize climate or hard-tech themes in their notes? | SKL | NOTES |
-| 78 | Which investors in our network focus on climate seed and move fast? | BRN | SCAN-A/NOTES ("move fast" needs notes) |
-| 79 | Which of these are angel investors? / Who has the fastest response time? | SKL | 🔧/NOTES |
+| 77 | Which of these investors emphasize climate or hard-tech themes in their notes? | SKL | (PA or WS)+NOTES+SCAN-A |
+| 78 | Which investors in our network focus on climate seed and move fast? | BRN | NOTES+SCAN-A ("move fast" needs notes) |
+| 79 | Which of these are angel investors? / Who has the fastest response time? | SKL | (PA or WS)+🔧+NOTES |
 
 ### 1.7 People / CV / team (route: search + sql)
 
 | # | Question | Src | Status |
 |---|---|---|---|
-| 80 | Which visible startups have founders with prior exits? | KS | SCAN-T/hybrid |
+| 80 | Which visible startups have founders with prior exits? | KS | WS+SCAN-T/hybrid |
 | 81 | Which team members mention regulatory or clinical backgrounds? | KS | SCAN-T |
 | 82 | Which CVs mention McKinsey, BCG, Bain, or consulting backgrounds? | KS | SCAN-T |
 | 83 | Which founders mention synthetic biology, drug discovery, or semiconductor expertise? | KS | SCAN-T |
@@ -208,8 +219,8 @@ lexical no-match as a semantic negative.
 | # | Question | Src | Status |
 |---|---|---|---|
 | 87 | Compare how investors and startup evaluations talk about regulatory risk in medtech. | KS | SCAN-A |
-| 88 | Which startups look strong in evaluations but weak in internal notes? | KS | NOTES |
-| 89 | Which companies appear in both positive investor-fit notes and negative execution-risk evaluations? | KS | NOTES |
+| 88 | Which startups look strong in evaluations but weak in internal notes? | KS | NOTES+SCAN-A |
+| 89 | Which companies appear in both positive investor-fit notes and negative execution-risk evaluations? | KS | NOTES+SCAN-A |
 | 90 | What patterns show up repeatedly in successful vs unsuccessful climate startups? | KS | SCAN-A |
 | 91 | Which fund descriptions overlap most with the themes in our highest-rated startup evaluations? | KS | SCAN-A |
 | 92 | What are the most common failure modes across our recent startup evaluations? | KS | SCAN-A |
@@ -220,44 +231,44 @@ lexical no-match as a semantic negative.
 | 97 | What patterns do you see across our portfolio? | EDS | SCAN-A (top-k search gives a *sampled* answer today — must say so) |
 | 98 | Which recommendations had the biggest impact for similar startups? | EDS | 🔧 (underlying data contract unclear) |
 
-### 1.9 Internal notes / XRM (all **NOTES** — content not yet ingested; these become coverage-model cases today)
+### 1.9 Internal notes / XRM (compound ingestion, scope, and operation requirements)
 
-| # | Question | Src |
-|---|---|---|
-| 99 | What concerns have teammates repeatedly raised about this startup? | KS |
-| 100 | Which startups have internal notes mentioning poor responsiveness or missed deadlines? | KS |
-| 101 | What objections have been logged most often for companies in this pipeline stage? | KS |
-| 102 | Which investors has our team described as slow-moving or low-conviction? | KS |
-| 103 | Which XRM notes mention a pricing model concern? | KS |
-| 104 | Which accounts have multiple notes about procurement friction? | KS |
-| 105 | Summarize this pipeline — how many in each stage? | XRM |
-| 106 | Which entities on this board don't have an evaluation yet? | XRM |
-| 107 | Compare the entities in Due Diligence — who's strongest? | XRM |
-| 108 | Which boards have applications waiting for review? | BRN |
+| # | Question | Src | Status |
+|---|---|---|---|
+| 99 | What concerns have teammates repeatedly raised about this startup? | KS | SEL+NOTES+SCAN-A |
+| 100 | Which startups have internal notes mentioning poor responsiveness or missed deadlines? | KS | NOTES+SCAN-T |
+| 101 | What objections have been logged most often for companies in this pipeline stage? | KS | WS+NOTES+SCAN-A |
+| 102 | Which investors has our team described as slow-moving or low-conviction? | KS | NOTES+SCAN-A |
+| 103 | Which XRM notes mention a pricing model concern? | KS | NOTES+SCAN-T |
+| 104 | Which accounts have multiple notes about procurement friction? | KS | NOTES+SCAN-A |
+| 105 | Summarize this pipeline — how many in each stage? | XRM | WS+🔧 (XRM aggregate) |
+| 106 | Which entities on this board don't have an evaluation yet? | XRM | WS+🔧 (coverage query) |
+| 107 | Compare the entities in Due Diligence — who's strongest? | XRM | WS+SCAN-A |
+| 108 | Which boards have applications waiting for review? | BRN | 🔧 (XRM aggregate) |
 
 
 ### 1.10 Evidence-fidelity and scope directives (answer-contract tests)
 
 | # | Directive | Src | Status |
 |---|---|---|---|
-| 109 | Pull the exact quotes for each startup. | SCR | ✅ |
-| 110 | Show me the best evidence (best quotes) for each startup. | SCR | ✅ |
-| 111 | Find exact passages supporting the claim that these startups face regulatory hurdles. | KS | ✅ |
-| 112 | Show me the most relevant excerpts, not just a summary. | KS | ✅ |
-| 113 | Search all available evidence, not just the current page. | KS | WS |
-| 114 | Search only full artifact content, not DB summaries. | KS | ✅ |
+| 109 | Pull the exact quotes for each startup. | SCR | PA+CONTRACT+✅ |
+| 110 | Show me the best evidence (best quotes) for each startup. | SCR | PA+CONTRACT+✅ |
+| 111 | Find exact passages supporting the claim that these startups face regulatory hurdles. | KS | (PA or WS)+CONTRACT+✅ |
+| 112 | Show me the most relevant excerpts, not just a summary. | KS | CONTRACT+✅ |
+| 113 | Search all available evidence, not just the current page. | KS | WS+CONTRACT |
+| 114 | Search only full artifact content, not DB summaries. | KS | CONTRACT+✅ |
 | 115 | Use the latest evaluation per startup only. | KS | 🔧 (latest-eval filter semantic, §3.5) |
-| 116 | Compare current page results with the broader database. | KS | WS |
-| 117 | Summarize the strongest evidence for and against the startups currently visible on screen. | KS | WS |
+| 116 | Compare current page results with the broader database. | KS | WS+SCAN-A |
+| 117 | Summarize the strongest evidence for and against the startups currently visible on screen. | KS | WS+SCAN-A |
 
 ### 1.11 Coverage-challenge follow-ups (from real threads — gold for the QA loop)
 
-| # | Follow-up | Src |
-|---|---|---|
-| 118 | Did you search all 20 startups? | LFT |
-| 119 | Why did you only search their summaries? | LFT |
-| 120 | Can you see my CV contents? | LFT |
-| 121 | (after a list) …pull the exact quotes for each | SCR/LFT |
+| # | Follow-up | Src | Status |
+|---|---|---|---|
+| 118 | Did you search all 20 startups? | LFT | PA+CONTRACT |
+| 119 | Why did you only search their summaries? | LFT | PA+CONTRACT |
+| 120 | Can you see my CV contents? | LFT | SEL+🔧+ACL (coverage query) |
+| 121 | (after a list) …pull the exact quotes for each | SCR/LFT | PA+CONTRACT+✅ |
 
 ### 1.12 Multi-turn scripts (test as ordered sequences, not single turns)
 
@@ -318,12 +329,13 @@ Surfaced by reading the bank against the current implementation:
 ### 3.1 Working-set context is a missing first-class concept
 The single most common phrasing across every era of David's lists ("currently on
 screen", "passing the current filters", "the current working set", "this
-startup") has **no representation** in the current advisor. Phase-5 UI
-integration must carry a working-set handle (entity-type + ids visible in the
-UI, or a named filter state) into `/ask`, exposed to tools as an optional
-entity-set filter. Without it, roughly a third of the bank is untestable and the
-product misses its most natural usage mode. (Also needed for directive #113/116
-"current page vs broader database".)
+startup") has **no representation** in the current advisor. Gate-3B integration
+must carry immutable typed refs for the visible and full matching sets (or a
+materialized `scope_snapshot_id`) into `/ask`, exposed to tools as an optional
+entity-set filter. Typed refs are required because search pages and XRM boards
+may contain multiple entity types. Without this, roughly a third of the bank is
+untestable and the product misses its most natural usage mode. (Also needed for
+directive #113/116 "current page vs broader database".)
 
 ### 3.2 Top-k retrieval cannot answer bounded enumeration — and the fix is TWO capabilities, not one
 
@@ -341,7 +353,10 @@ passages with citations, and eligible/scanned/matched coverage counts. Cheap
 answerable. **Disclosure note:** the per-entity `restricted` status reveals
 that gated material *exists* for that entity — it must follow the same
 class-disclosure policy as the gated-vs-absent note (recommendation:
-premium-class existence only; never private-doc existence).
+premium-class existence only; never private-doc existence). `restricted` may
+exist in the internal/admin result, but the user-facing renderer maps it to the
+policy-approved gated/unavailable/omitted form. Eligible/scanned counts exclude
+undisclosable private sources, so totals cannot reveal them indirectly.
 
 **B. `analyze_scope(scope, question_or_rubric, limits)`** — bounded semantic
 map/reduce: per-entity evidence gathering, per-entity verdict with citations,
