@@ -462,6 +462,21 @@ candidate), sparse-vector lexical leg, founder/investor audience rollout (ACL is
    b. **Premium eval report full text**: keep purchase-gated per requester (recommended —
       it's revenue; scores + basic summaries open to all), or open it.
    c. Confirm the never-index list (contact emails, invite/claim/share tokens, lat/long?).
+   d. **Existence disclosure — the docs currently hold two policies, and the code
+      follows the older one.** `tools.py`'s gated-vs-absent note tells a non-admin
+      how many restricted blocks exist *and their class*, including
+      `"private document"` and `"unpublished draft"`
+      ([`QA-LOOP-DESIGN`](QA-LOOP-DESIGN-2026-07-30.md) §4.3 also confines
+      admin-shadow classification to persona QA, yet this runs on every empty
+      non-admin search). [`QUESTION-BANK`](QUESTION-BANK.md) §7A recommends the
+      narrower rule: **premium-class existence only; never private-doc existence**.
+      Note this is *separate from* (a): (a) is whether private content is
+      researchable, (d) is whether a stranger learns the document exists at all.
+      *Recommended:* adopt the QUESTION-BANK rule — say "purchasable material
+      exists" for premium, and treat private/draft exactly like absent — and make
+      the admin-shadow retrieval conditional on that, since today it also doubles
+      the retrieval cost of every empty non-admin search. Must be settled before
+      Gate 6; harmless while the pilot is admin-only.
 2. Confirm drop/truncate of `advisor_obs` + `advisor_evidence` leftovers (Phase 0).
 3. Who runs `CREATE EXTENSION vector` on prod, and when (Phase 0 / Phase 6 cutover).
 4. Budget comfort: per-turn soft cap default (proposal: $0.50) and daily cap (proposal: $20

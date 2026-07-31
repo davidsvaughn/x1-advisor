@@ -57,6 +57,37 @@ bundles under `.qa-artifacts/runs/2026-07-30_agent_v1_bef0bd0+dirty_r1/` (852 KB
    34 of 77 fused candidates on a typical broad query. Whatever Gate 1B does about
    citability, the ranking effect is a separate question.
 
+### Review pass on Gate 1A (second agent, same day) — four gaps closed (`5feb699`)
+
+The reviewer was right on all four, and one was mine to be embarrassed about:
+
+1. **The storage split only covered agent mode.** The retrieval writer still put
+   source titles in commit-eligible manifests — 350 of them, 30 naming premium
+   reports, in a manifest committed *after* the contract was written. Writer
+   migrated; that manifest withdrawn and reproduced body-free. (Disagreed on one
+   sub-point: internal `document_id`/`chunk_id` need no pseudonymizing — they name
+   nothing and resolve only against a database whose holder can read it all
+   anyway. Titles do name their source, which is the actual defect.)
+2. **The fingerprint missed in-place change** — a metadata correction or a re-embed
+   of the same `chunk_id`s moved retrieval without moving the watermark. Now digests
+   chunk text+metadata and embedding vectors, memoized behind a `max(xmin)` sentinel
+   (~100 ms typical, ~1.6 s only when something actually moved).
+   `experiments/fingerprint_probes.py` proves it: three in-place mutation classes,
+   each rolled back, each moving the expected digest. Also captured
+   `agent_model_resolved` — we ask for `gpt-5.1`, the provider serves
+   `gpt-5.1-2025-11-13`, and only the alias was reaching the manifest.
+3. **ACL positive controls covered one class** while the docstring claimed all.
+   Each class is now checked for existence and admin reachability; premium, private
+   and unpublished pass, **`hidden_eval` is SKIPPED — no such chunk exists on test,
+   so that class remains unverified anywhere.** Gate 2 needs a seeded fixture.
+4. **`g020` distorted the retrieval score.** Both numbers now reported and stored:
+   ALL CASES **0.833 / 0.746** (comparable with earlier manifests), ROUTE-VALID ONLY
+   **0.857 / 0.767**.
+
+Left open deliberately: the gated-note existence-disclosure conflict — see
+PLAN §5.1(d). It is a product decision, not a defect, and harmless while the pilot
+is admin-only.
+
 ## 2026-07-30 — Step 0 complete: all five immediate fixes landed and verified on test
 
 PLAN §R Step 0 done, one commit per fix, each verified live against x1-db-test before
