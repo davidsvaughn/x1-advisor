@@ -39,6 +39,7 @@ from x1_advisor.agent.judge import (CALIBRATION_SET, ENTAILMENT_PROMPT,
                                     JUDGE_MODEL, LABELS, MIN_HUMAN_LABELS,
                                     Entailment, _ask, calibration_state,
                                     load_calibration_set)
+from x1_advisor.agent.bundle import QA_ARTIFACTS_DIR
 from x1_advisor.cost import Tracker
 
 # the judge owns the set path and the trust rules; this module only measures
@@ -57,50 +58,80 @@ def cohens_kappa(pairs: list[tuple[str, str]]) -> float | None:
     return None if expected == 1 else (observed - expected) / (1 - expected)
 
 
-def sample_pairs(limit: int) -> int:
-    """Append unlabeled real (claim, evidence) pairs from stored turns."""
+def sample_pairs(limit: int, run: str | None = None) -> int:
+    """Append unlabeled real (claim, evidence) pairs for a human labelling pass.
+
+    Claims come from the judge's own inventory in exported bundles, so a labeller
+    reads a real claim against the real evidence and only has to supply a
+    verdict — no hand-extraction of sentences.
+
+    **Stratified across the judge's verdicts, and blind.** Random sampling would
+    be almost all `supported`, which makes kappa unstable and teaches nothing
+    about the boundary that actually matters. Each item therefore records the
+    `stratum` it was drawn from so agreement can be reweighted to the population
+    later — and the judge's verdict is deliberately NOT written to the file, so
+    labelling is not anchored by it.
+    """
     from x1_advisor.agent.judge import evidence_texts
     from x1_advisor.db import connect
 
     existing = {i["id"] for i in load()}
-    added = 0
-    with connect() as conn, SET_PATH.open("a") as fh:
-        rows = conn.execute(
-            """SELECT id, research_record FROM advisor.turns
-               WHERE role = 'assistant'
-                 AND research_record ? 'validation'
-               ORDER BY id DESC LIMIT 200""").fetchall()
-        for row in rows:
-            bundle = row["research_record"]
+    runs_dir = QA_ARTIFACTS_DIR / run if run else QA_ARTIFACTS_DIR
+    buckets: dict[str, list[dict]] = {"supported": [], "partial": [],
+                                      "unsupported": [], "unverifiable": []}
+    with connect() as conn:
+        for path in sorted(runs_dir.rglob("*.json")):
+            bundle = json.loads(path.read_text())
+            verdicts = (bundle.get("judge") or {}).get("verdicts") or []
+            if not verdicts:
+                continue
             sources = evidence_texts(conn, bundle)
-            for c in bundle.get("validation", {}).get("citations", []):
-                item_id = f"turn{row['id']}_c{c.get('n')}"
-                src = sources.get(c.get("n"))
-                if item_id in existing or not src or not src["text"]:
+            for k, v in enumerate(verdicts):
+                text = "\n\n".join(
+                    sources[n]["text"] for n in v["citations"]
+                    if sources.get(n) and sources[n]["text"])
+                item_id = f"{path.stem}_v{k}"
+                if not text or item_id in existing:
                     continue
-                fh.write(json.dumps({
+                buckets.setdefault(v["verdict"], []).append({
                     "id": item_id, "provenance": "unlabeled", "label": None,
-                    "claim": "<<paste the sentence from the answer that carries "
-                             f"citation [{c.get('n')}]>>",
-                    "evidence": src["text"][:2000], "note": src["locator"],
-                }) + "\n")
-                added += 1
-                if added >= limit:
-                    return added
-    return added
+                    "stratum": v["verdict"],       # NOT the answer — the bucket
+                    "claim": v["claim"], "evidence": text[:3000],
+                    "note": ", ".join(v["locators"]) or path.stem,
+                })
+
+    # round-robin across strata so the set is balanced rather than
+    # supported-dominated; take whatever each bucket can give
+    picked: list[dict] = []
+    order = ["unsupported", "partial", "supported", "unverifiable"]
+    while len(picked) < limit and any(buckets[b] for b in order):
+        for b in order:
+            if buckets[b] and len(picked) < limit:
+                picked.append(buckets[b].pop(0))
+    with SET_PATH.open("a") as fh:
+        for item in picked:
+            fh.write(json.dumps(item) + "\n")
+    return len(picked)
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--sample", type=int, default=0,
                     help="append N unlabeled real pairs for a human pass")
+    ap.add_argument("--run", default=None,
+                    help="sample from one .qa-artifacts run directory")
     args = ap.parse_args()
 
     if args.sample:
-        n = sample_pairs(args.sample)
+        n = sample_pairs(args.sample, run=args.run)
+        counts = Counter(i["stratum"] for i in load() if i.get("provenance") == "unlabeled")
         print(f"appended {n} unlabeled pairs to {SET_PATH}")
-        print("fill in \"label\" (supported|partial|unsupported) and set "
-              "\"provenance\": \"human\"")
+        print(f"strata: {dict(counts)}  (balanced on purpose — reweight before "
+              "reading accuracy as a population estimate)")
+        print("For each: read `claim` against `evidence`, set `label` to "
+              "supported | partial | unsupported, and change `provenance` to "
+              '"human". The judge\'s own verdict is deliberately absent so the '
+              "labelling is not anchored by it.")
         return
 
     items = [i for i in load() if i.get("label") in LABELS]
