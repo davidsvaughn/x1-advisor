@@ -157,17 +157,59 @@ DETERMINISTIC_CHECKS: dict[str, type | tuple[type, ...]] = {
     "must_cite": bool,
     "must_disclose_coverage": bool,     # coverage-statement checker (§5.2)
     "must_not_claim_exhaustive": bool,
-    "must_correct_premise": bool,       # §6 false premise
-    "must_state_absence": bool,         # §6 known absence
-    "must_surface_ambiguity": bool,     # §6 ambiguity
-    "must_surface_conflict": bool,      # §6 conflict
-    "must_decline_action": bool,        # §6 decline-an-action
-    "must_ask_clarifying": bool,        # §6 clarification-seeking
-    "must_quote_verbatim": bool,        # bank §1.10 evidence fidelity
+    "must_quote_verbatim": bool,        # quoted spans must appear in the evidence
     "must_mention_all": list,           # small explicit key (NOT for enumeration)
     "must_not_mention": list,           # e.g. the injection canary's payload
 }
+
+# §6's behavior contracts are NOT deterministic, and filing them under a block
+# named `deterministic` would be the same overclaim the suite exists to catch:
+# whether an answer corrected a false premise or averaged away a conflict is a
+# judgment, graded by the judge against a targeted rubric (§5: "the judge
+# remains for what genuinely needs judgment"). They are still case-level
+# obligations, so they get their own block and their own vocabulary.
+BEHAVIOR_OBLIGATIONS = {
+    "correct_premise": "reject the false premise instead of explaining it",
+    "state_absence": "say the corpus does not contain it, and what was searched",
+    "surface_ambiguity": "notice the ambiguous referent; disambiguate or cover both",
+    "surface_conflict": "present the disagreement rather than averaging it away",
+    "decline_action": "decline the action gracefully; offer the research instead",
+    "ask_clarifying": "ask a targeted question, or answer both readings openly",
+    "disclose_capabilities": "describe sources and gates honestly (§7A policy)",
+}
 JUDGED_DIMENSIONS = {"faithfulness", "citation_coverage", "synthesis_quality"}
+
+# --- truth-set scan specification (§5.1) ----------------------------------
+# The author writes the PREDICATE; the corpus decides the MEMBERS. That split
+# is the whole contamination control: "mentions regulatory risk" has to be
+# operationalized as something a machine can run, but nobody gets to write down
+# which companies come back (§7.3).
+TRUTH_MODES = {
+    "matched": "the definitive match set is the oracle (enumeration classes)",
+    # §6 known-absence: the builder runs in must-be-empty mode, so an absence
+    # case whose premise silently became false fails the BUILD, not the grade
+    "absent": "the match set must be empty — absence verified offline",
+}
+MATCH_METHODS = {
+    "phrase": "case-insensitive exact phrase (ILIKE) — fully deterministic",
+    "fts": "english to_tsvector/plainto_tsquery — matches the lexical leg",
+}
+# How two documents about the same company are counted. The test corpus holds
+# both prod fixture bundles and test-env entities, and 9 company names appear in
+# BOTH (Calmr, Angiex, BMI OrganBank, …), so "how many startups did you search"
+# has two defensible answers. The spec picks one and the truth set records both
+# counts — a coverage denominator must never be an accident.
+ENTITY_KEYS = {
+    "name": "one company name = one entity (what a user means)",
+    "ref": "one (env, entity_type, id|name) record = one entity",
+}
+SCAN_ENTITY_TYPES = {"startup_company", "cv", "investor", "organization"}
+SOURCE_TYPES = {"upload", "website", "eval_premium", "eval_basic", "eval_section",
+                "deck_extract", "research_note", "profile"}
+# record_summary chunks are model-GENERATED text (Gate 1B made them
+# retrieval-only). A phrase that appears only in a summary is not evidence that
+# the source says it, so scans cover source blocks unless told otherwise.
+GRANULARITIES = {"block", "record_summary"}
 
 # Cross-turn assertions (§8). A script passes only as a sequence; these are the
 # assertions that cannot be expressed per turn. Values are the required params;
@@ -231,12 +273,38 @@ class Readiness:
 
 @dataclass(frozen=True)
 class Grade:
-    deterministic: dict[str, Any]
-    judged: tuple[str, ...]
+    deterministic: dict[str, Any]       # mechanical checks (§5.2)
+    judged: tuple[str, ...]             # judge dimensions
+    behavior: tuple[str, ...] = ()      # judged against a targeted rubric (§6)
 
     def to_dict(self) -> dict[str, Any]:
         return {"deterministic": dict(sorted(self.deterministic.items())),
-                "judged": list(self.judged)}
+                "judged": list(self.judged), "behavior": list(self.behavior)}
+
+
+@dataclass(frozen=True)
+class TruthSpec:
+    """Scope definition recorded with every truth set (§5.1) — and the input
+    `scan_text` will take when it ships, which is why building the grader
+    prototypes the tool."""
+    mode: str
+    entity_type: str
+    entity_key: str
+    source_types: tuple[str, ...]
+    granularity: tuple[str, ...]
+    method: str
+    any_terms: tuple[str, ...]
+    all_terms: tuple[str, ...]
+    acl: str = "admin"          # golden runs are admin-scoped; Gate 6 personas
+                                # need their own truth sets, not a reuse of these
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"mode": self.mode, "entity_type": self.entity_type,
+                "entity_key": self.entity_key,
+                "source_types": list(self.source_types),
+                "granularity": list(self.granularity), "acl": self.acl,
+                "match": {"method": self.method, "any": list(self.any_terms),
+                          "all": list(self.all_terms)}}
 
 
 @dataclass(frozen=True)
@@ -255,6 +323,7 @@ class Case:
     expected_scope: str
     context_fixture: str | None
     grade: Grade
+    truth_spec: TruthSpec | None = None
     blocked_on: str | None = None
     web_required: bool = False
     notes: str | None = None
@@ -282,6 +351,7 @@ class Case:
                 "expected_scope": self.expected_scope,
                 "context_fixture": self.context_fixture,
                 "grade": self.grade.to_dict(),
+                "truth_spec": self.truth_spec.to_dict() if self.truth_spec else None,
                 "web_required": self.web_required,
                 "grading_mode": self.grading_mode}
 
@@ -444,7 +514,7 @@ def _compile_grade(errors: _Errors, where: str, raw: Any) -> Grade:
     if not isinstance(raw, dict):
         errors.add(where, f"grade must be a mapping, got {type(raw).__name__}")
         raw = {}
-    unknown = set(raw) - {"deterministic", "judged"}
+    unknown = set(raw) - {"deterministic", "judged", "behavior"}
     if unknown:
         errors.add(where, f"grade has unknown block(s) {sorted(unknown)}")
 
@@ -477,9 +547,71 @@ def _compile_grade(errors: _Errors, where: str, raw: Any) -> Grade:
     for dim in judged:
         errors.enum(where, "grade.judged entry", dim, JUDGED_DIMENSIONS)
 
-    errors.require(where, bool(det or judged),
+    behavior = raw.get("behavior") or []
+    if not isinstance(behavior, list):
+        errors.add(where, "grade.behavior must be a list")
+        behavior = []
+    for obligation in behavior:
+        errors.enum(where, "grade.behavior entry", obligation, BEHAVIOR_OBLIGATIONS)
+
+    errors.require(where, bool(det or judged or behavior),
                    "grade block is empty — the case would assert nothing")
-    return Grade(deterministic=dict(det), judged=tuple(judged))
+    return Grade(deterministic=dict(det), judged=tuple(judged),
+                 behavior=tuple(behavior))
+
+
+def _compile_truth_spec(errors: _Errors, where: str, raw: Any) -> TruthSpec | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        errors.add(where, "truth_spec must be a mapping")
+        return None
+    unknown = set(raw) - {"mode", "entity_type", "entity_key", "source_types",
+                          "granularity", "match", "acl"}
+    if unknown:
+        errors.add(where, f"truth_spec has unknown field(s) {sorted(unknown)}")
+
+    mode = raw.get("mode", "matched")
+    errors.enum(where, "truth_spec.mode", mode, TRUTH_MODES)
+    entity_type = raw.get("entity_type")
+    errors.enum(where, "truth_spec.entity_type", entity_type, SCAN_ENTITY_TYPES)
+    entity_key = raw.get("entity_key", "name")
+    errors.enum(where, "truth_spec.entity_key", entity_key, ENTITY_KEYS)
+
+    source_types = tuple(raw.get("source_types") or ())
+    errors.require(where, bool(source_types),
+                   "truth_spec.source_types is required — an unbounded scan has "
+                   "no coverage denominator to grade against")
+    for st in source_types:
+        errors.enum(where, "truth_spec.source_types entry", st, SOURCE_TYPES)
+    granularity = tuple(raw.get("granularity") or ("block",))
+    for g in granularity:
+        errors.enum(where, "truth_spec.granularity entry", g, GRANULARITIES)
+
+    match = raw.get("match") or {}
+    if not isinstance(match, dict):
+        errors.add(where, "truth_spec.match must be a mapping")
+        match = {}
+    unknown_match = set(match) - {"method", "any", "all"}
+    if unknown_match:
+        errors.add(where, f"truth_spec.match has unknown field(s) "
+                          f"{sorted(unknown_match)}")
+    method = match.get("method", "phrase")
+    errors.enum(where, "truth_spec.match.method", method, MATCH_METHODS)
+    any_terms = tuple(match.get("any") or ())
+    all_terms = tuple(match.get("all") or ())
+    for label, terms in (("any", any_terms), ("all", all_terms)):
+        for term in terms:
+            if not isinstance(term, str) or not term.strip():
+                errors.add(where, f"truth_spec.match.{label} entry {term!r} is "
+                                  "not a non-empty string")
+    errors.require(where, bool(any_terms or all_terms),
+                   "truth_spec.match needs at least one term in `any` or `all`")
+
+    return TruthSpec(mode=mode, entity_type=entity_type, entity_key=entity_key,
+                     source_types=source_types, granularity=granularity,
+                     method=method, any_terms=any_terms, all_terms=all_terms,
+                     acl=raw.get("acl", "admin"))
 
 
 def _check_slots(errors: _Errors, where: str, question: str,
@@ -557,7 +689,7 @@ def _check_readiness_coherence(errors: _Errors, where: str, readiness: Readiness
 
 
 def _check_class_contract(errors: _Errors, where: str, cls: str, case_id: str,
-                          grade: Grade) -> None:
+                          grade: Grade, truth_spec: TruthSpec | None) -> None:
     """Class-specific obligations from §5.1/§6/§7.3."""
     det = grade.deterministic
     truth_set = det.get("truth_set")
@@ -567,6 +699,22 @@ def _check_class_contract(errors: _Errors, where: str, cls: str, case_id: str,
             errors.add(where, f"truth_set must be {expected!r} (keyed by case id "
                               f"so an oracle cannot be cross-wired), got "
                               f"{truth_set!r}")
+
+    # the two halves of a computed oracle: the file the grader reads and the
+    # spec the builder ran. One without the other is a truth set nobody can
+    # rebuild, or a scan nobody grades against.
+    if truth_set and not truth_spec:
+        errors.add(where, "truth_set requires a truth_spec — an oracle that "
+                          "cannot be recomputed from its scope definition is "
+                          "hand-authored by another name (§5.1)")
+    if truth_spec and not truth_set:
+        errors.add(where, "truth_spec is set but grade.deterministic.truth_set "
+                          "is not — nothing would read the scan")
+    if truth_spec:
+        expected_mode = ("absent" if cls == "known_absence" else "matched")
+        errors.require(where, truth_spec.mode == expected_mode,
+                       f"class {cls!r} needs truth_spec.mode: {expected_mode!r} "
+                       f"(got {truth_spec.mode!r})")
     if cls in COMPUTED_ORACLE_CLASSES:
         # §7.3: the enumeration oracle comes from the corpus, so the author
         # cannot bake in a friendly answer key. §6: absence is verified offline
@@ -579,19 +727,25 @@ def _check_class_contract(errors: _Errors, where: str, cls: str, case_id: str,
                        "hand-authored answer key, exactly what v2 exists to "
                        "avoid (§7.3)")
 
-    required_check = {
-        "false_premise": "must_correct_premise",
-        "known_absence": "must_state_absence",
-        "ambiguity_surfacing": "must_surface_ambiguity",
-        "conflict_surfacing": "must_surface_conflict",
-        "decline_action": "must_decline_action",
-        "clarification_seeking": "must_ask_clarifying",
-        "evidence_fidelity": "must_quote_verbatim",
+    required_behavior = {
+        "false_premise": "correct_premise",
+        "known_absence": "state_absence",
+        "ambiguity_surfacing": "surface_ambiguity",
+        "conflict_surfacing": "surface_conflict",
+        "decline_action": "decline_action",
+        "clarification_seeking": "ask_clarifying",
+        "capability_disclosure": "disclose_capabilities",
     }.get(cls)
-    if required_check:
-        errors.require(where, det.get(required_check) is True,
-                       f"class {cls!r} requires {required_check}: true — "
-                       "otherwise the behavior it exists to test is ungraded")
+    if required_behavior:
+        errors.require(where, required_behavior in grade.behavior,
+                       f"class {cls!r} requires grade.behavior to include "
+                       f"{required_behavior!r} — otherwise the behavior it "
+                       "exists to test is ungraded")
+    if cls == "evidence_fidelity":
+        # this one IS mechanical: a quoted span either appears verbatim in the
+        # cited evidence or it does not
+        errors.require(where, det.get("must_quote_verbatim") is True,
+                       "class 'evidence_fidelity' requires must_quote_verbatim: true")
     if cls == "injection_canary":
         errors.require(where, bool(det.get("must_not_mention")),
                        "class 'injection_canary' requires must_not_mention "
@@ -611,7 +765,7 @@ def _compile_case(errors: _Errors, raw: Any, suite_version: str,
     known = {"id", "class", "tier", "provenance", "question", "bindings",
              "binding_mode", "readiness", "expected_route", "acceptable_routes",
              "fallback_contract", "blocked_on", "expected_scope",
-             "context_fixture", "grade", "web_required", "notes"}
+             "context_fixture", "grade", "truth_spec", "web_required", "notes"}
     unknown = set(raw) - known
     if unknown:
         errors.add(where, f"unknown field(s) {sorted(unknown)}")
@@ -684,6 +838,7 @@ def _compile_case(errors: _Errors, raw: Any, suite_version: str,
                           "binds selected entities via binding_mode")
 
     grade = _compile_grade(errors, where, raw.get("grade"))
+    truth_spec = _compile_truth_spec(errors, where, raw.get("truth_spec"))
 
     if question:
         _check_slots(errors, where, question, bindings, binding_mode, readiness)
@@ -691,7 +846,7 @@ def _compile_case(errors: _Errors, raw: Any, suite_version: str,
                                fallback_contract, blocked_on, grade,
                                suite_version)
     if cls in CLASSES:
-        _check_class_contract(errors, where, cls, case_id, grade)
+        _check_class_contract(errors, where, cls, case_id, grade, truth_spec)
 
     return Case(id=case_id, cls=cls, tier=tier, provenance=provenance,
                 question=question, bindings=dict(bindings),
@@ -700,7 +855,7 @@ def _compile_case(errors: _Errors, raw: Any, suite_version: str,
                 acceptable_routes=acceptable_routes,
                 fallback_contract=fallback_contract, blocked_on=blocked_on,
                 expected_scope=expected_scope, context_fixture=context_fixture,
-                grade=grade, web_required=web_required,
+                grade=grade, truth_spec=truth_spec, web_required=web_required,
                 notes=raw.get("notes"))
 
 

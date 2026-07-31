@@ -49,6 +49,14 @@ BASE_CASE = {
         },
         "judged": ["faithfulness"],
     },
+    "truth_spec": {
+        "mode": "matched",
+        "entity_type": "startup_company",
+        "entity_key": "name",
+        "source_types": ["eval_section", "eval_basic", "eval_premium"],
+        "granularity": ["block"],
+        "match": {"method": "phrase", "any": ["regulatory risk"]},
+    },
 }
 
 # A tool-ready single-entity case bound to a fixture pool (bank §1.1 note).
@@ -305,19 +313,43 @@ def test_truth_set_is_keyed_by_case_id(tmp_path):
     assert "must be 'truth/v2c001.json'" in out
 
 
-@pytest.mark.parametrize("cls,check", [
-    ("false_premise", "must_correct_premise"),
-    ("ambiguity_surfacing", "must_surface_ambiguity"),
-    ("conflict_surfacing", "must_surface_conflict"),
-    ("decline_action", "must_decline_action"),
-    ("clarification_seeking", "must_ask_clarifying"),
-    ("evidence_fidelity", "must_quote_verbatim"),
+@pytest.mark.parametrize("cls,obligation", [
+    ("false_premise", "correct_premise"),
+    ("ambiguity_surfacing", "surface_ambiguity"),
+    ("conflict_surfacing", "surface_conflict"),
+    ("decline_action", "decline_action"),
+    ("clarification_seeking", "ask_clarifying"),
+    ("capability_disclosure", "disclose_capabilities"),
 ])
-def test_behavior_classes_must_grade_the_behavior_they_test(tmp_path, cls, check):
+def test_behavior_classes_must_grade_the_behavior_they_test(tmp_path, cls, obligation):
     out = errors_from(tmp_path, cases=[dict(
         BASE_SEL_CASE, **{"class": cls, "question": "Tell me about Matt Young."},
         bindings={})])
-    assert f"requires {check}: true" in out
+    assert f"include {obligation!r}" in out
+
+    ok = build(tmp_path, cases=[dict(
+        BASE_SEL_CASE, **{"class": cls, "question": "Tell me about Matt Young."},
+        bindings={},
+        grade={"deterministic": {"must_cite": True}, "behavior": [obligation]})])
+    assert ok.by_id("v2c002").grade.behavior == (obligation,)
+
+
+def test_behavior_obligations_are_not_filed_as_deterministic_checks(tmp_path):
+    """Whether an answer corrected a false premise is a judgment. Filing it in a
+    block named `deterministic` would be the same overclaim the suite exists to
+    catch (§5, §6)."""
+    out = errors_from(tmp_path, cases=[case(grade={"deterministic": {
+        "must_correct_premise": True}})])
+    assert "unknown deterministic check 'must_correct_premise'" in out
+
+
+def test_evidence_fidelity_stays_mechanical(tmp_path):
+    """A quoted span either appears verbatim in the cited evidence or it does
+    not — no judge required."""
+    out = errors_from(tmp_path, cases=[dict(
+        BASE_SEL_CASE, **{"class": "evidence_fidelity"}, bindings={},
+        question="Give me the exact sentences about traction.")])
+    assert "requires must_quote_verbatim: true" in out
 
 
 def test_injection_canary_must_name_the_payload(tmp_path):

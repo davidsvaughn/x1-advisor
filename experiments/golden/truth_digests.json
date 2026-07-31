@@ -1,0 +1,41 @@
+{
+  "builder_version": 1,
+  "truth_sets": {
+    "v2c017": {
+      "digest": "eeb62bd7b99888299089394639b6dd067f76ed867a2aea578eea8c8ed2fc2ef3",
+      "builder_version": 1,
+      "counts": {
+        "eligible": 64,
+        "scanned": 25,
+        "matched": 8,
+        "no_match": 17,
+        "not_indexed": 39,
+        "scanned_chunks": 6459,
+        "matching_chunks": 18,
+        "entity_names": 64,
+        "entity_records": 74
+      },
+      "scope": {
+        "mode": "matched",
+        "entity_type": "startup_company",
+        "entity_key": "name",
+        "source_types": [
+          "eval_section",
+          "eval_basic",
+          "eval_premium"
+        ],
+        "granularity": [
+          "block"
+        ],
+        "acl": "admin",
+        "match": {
+          "method": "phrase",
+          "any": [
+            "regulatory risk"
+          ],
+          "all": []
+        }
+      }
+    }
+  }
+}

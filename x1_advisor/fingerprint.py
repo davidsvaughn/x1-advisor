@@ -166,6 +166,33 @@ def corpus_watermark(conn, config_id: str) -> dict[str, Any]:
     return watermark
 
 
+def corpus_text_watermark(conn) -> dict[str, Any]:
+    """Identity of the corpus TEXT — what an offline scan actually reads.
+
+    Deliberately narrower than `corpus_watermark`: a truth set (GOLDEN-V2-DESIGN
+    §5.1) is a deterministic scan over document text, so a re-embed under a new
+    index config must not mark it stale, while an edit to a single chunk must.
+    Embeddings and config id are therefore excluded, and the result is comparable
+    across index configs.
+    """
+    docs = conn.execute(
+        """SELECT count(*) AS documents,
+                  md5(coalesce(string_agg(content_hash, ',' ORDER BY id), ''))
+                      AS document_digest
+           FROM advisor.documents WHERE superseded_by IS NULL"""
+    ).fetchone()
+    chunks = conn.execute(
+        """SELECT count(*) AS chunks,
+                  md5(coalesce(string_agg(
+                      md5(c.text || coalesce(c.metadata::text, '')), ',' ORDER BY c.id
+                  ), '')) AS chunk_digest
+           FROM advisor.doc_chunks c
+           JOIN advisor.documents d ON d.id = c.document_id
+           WHERE d.superseded_by IS NULL"""
+    ).fetchone()
+    return {**dict(docs), **dict(chunks)}
+
+
 def run_fingerprint(conn, *, config_id: str) -> dict[str, Any]:
     """The part of a fingerprint that does not involve a model or a prompt.
 

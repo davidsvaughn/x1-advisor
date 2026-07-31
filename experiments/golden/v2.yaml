@@ -45,5 +45,17 @@ cases:
         must_not_claim_exhaustive: true
         must_cite: true
       judged: [faithfulness]
+    # the predicate is authored (it operationalizes the question's own wording);
+    # the membership is computed. Recorded with the truth set so the scan is
+    # auditable and rebuildable — and it is the input scan_text will take.
+    truth_spec:
+      mode: matched
+      entity_type: startup_company
+      entity_key: name
+      source_types: [eval_section, eval_basic, eval_premium]
+      granularity: [block]           # not record_summary: that is generated text
+      match:
+        method: phrase
+        any: ["regulatory risk"]
 
 scripts: []
