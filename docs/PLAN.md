@@ -47,6 +47,10 @@ Page context flows **into** the advisor only (see context-snapshot design).
   Reviewed and revised same-day.
 - [`CONTEXT-SNAPSHOT-DESIGN-2026-07-30.md`](CONTEXT-SNAPSHOT-DESIGN-2026-07-30.md)
   — page-context/working-set architecture (app → advisor only).
+- [`CC-AGENTS-DESIGN-2026-07-31.md`](CC-AGENTS-DESIGN-2026-07-31.md) — headless
+  Claude Code agents at the edges (H1 QA-side agents, H2 research-note
+  flywheel, H3 Tier-2 named shape); Tier-1 loop unchanged. **Adopted
+  2026-07-31 (David: all three).** See Track H below.
 
 All three were reviewed same-day
 ([`QA-BANK-CONTEXT-REVIEW-2026-07-30.md`](QA-BANK-CONTEXT-REVIEW-2026-07-30.md):
@@ -185,6 +189,22 @@ acceptable-evidence groups, replay never trusts stored ACLs.
 - **Gate 6 — non-admin exposure:** policy finalization (private docs, premium,
   existence disclosure), persona suite, audience opens only after every path
   consumes the same verified auth context.
+- **Track H — headless-agent adoption** (parallel track, adopted 2026-07-31;
+  full design + billing boundary in
+  [`CC-AGENTS-DESIGN-2026-07-31.md`](CC-AGENTS-DESIGN-2026-07-31.md)). The
+  Tier-1 loop stays Haystack-owned — that is what keeps citations, ACL, and
+  the QA machinery enforceable in code. Headless Claude Code adopts at the
+  edges: **H1 QA-side agents** (now, David-seat subscription, helm sandbox
+  recipe): nightly golden runs + funnel triage, truth-set rebuilds,
+  calibration prep, held-out batch execution — the concrete near-term form of
+  Gate 4's "separately authorized evaluation service". **H2 research-note
+  flywheel** (after the golden v2.0 baseline, so note quality is
+  judge-measurable): scheduled deep sweeps ingested as `research_note`
+  documents — cite-through required, max-restrictive ACL inheritance,
+  version-and-append. **H3 Tier-2 deep mode** (on demonstrated demand):
+  headless agent over MCP tools wrapping `build_tools` under the requesting
+  principal; Agent SDK + API billing in production. Standing rule:
+  **subscription billing never backs a multi-user production path.**
 >
 > **Prime directive of this plan:** model choices (LLM, embeddings, reranker, web search) are
 > **experiments, not commitments**. Every seam where a model/provider plugs in is built
@@ -588,7 +608,9 @@ a mean move under ~0.07 at n=20 is not a result (1E-4).
 
 ### Later (evidence-driven, explicitly not scheduled)
 
-Tier-2 deep mode (converged shape; explicit "go deep" user action; budgets from §7 of the
+Tier-2 deep mode (named shape as of 2026-07-31: Track H3 in
+[`CC-AGENTS-DESIGN-2026-07-31.md`](CC-AGENTS-DESIGN-2026-07-31.md) — headless
+agent over principal-bound MCP tools; explicit "go deep" user action; budgets from §7 of the
 design), auto-router (train on observed escalations), sentence-granularity indexing,
 block-level diff-indexing, layout-aware extraction for sub-page citations (Docling first
 candidate), sparse-vector lexical leg, founder/investor audience rollout (ACL is ready).

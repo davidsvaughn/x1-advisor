@@ -4,6 +4,37 @@
 > engineering choices land here, newest first. Each entry names its evidence (spike
 > output, manifest path, or doc reference) and the revisit trigger if one exists.
 
+## 2026-07-31 — Headless Claude Code agents: adopt at the edges, never the Tier-1 loop
+
+David reviewed the helm pattern (alpha-claw: `claude -p` runner, settings-scoped
+sandbox, proposal-only power boundary, subscription-billed) and asked whether it
+fits x1-advisor. Assessment + adoption design:
+[`CC-AGENTS-DESIGN-2026-07-31.md`](CC-AGENTS-DESIGN-2026-07-31.md); PLAN §R
+Track H. **All three adoption paths approved (David, 2026-07-31).**
+
+- **Not Tier-1**: latency (minutes-shaped harness vs 8.7s mean turn), per-user
+  ACL inverts the single-principal sandbox model, the Gate 1D snapshot/replay
+  machinery requires owning the loop, and subscription usage defeats `cost.py`
+  metering. The Haystack loop stays the spine.
+- **H1 — QA-side agents (now):** nightly golden runs + funnel triage,
+  truth-set rebuilds, calibration prep, held-out batch execution (Gate 4's
+  "separately authorized evaluation service" in near-term form),
+  second-agent reviews. David-seat subscription — legitimate (dev tooling).
+- **H2 — research-note flywheel (after v2.0 baseline):** scheduled deep
+  research ingested as `research_note` documents. Policy set here:
+  **cite-through or no ingest** (notes carry their own validated citation
+  trail — generated text never launders into bare "evidence", per the Gate 1B
+  lesson) and **max-restrictive ACL inheritance** from source evidence.
+- **H3 — Tier-2 deep mode (on demand):** headless agent over MCP tools
+  wrapping `build_tools` under the requesting principal; Agent SDK + API
+  billing in production; turn-bundle adapter is the named QA work item.
+
+**Billing rule (standing): subscription backs David-seat dev work only;
+multi-user/production paths run API billing through `cost.py`.** Distinct from
+E4a (Claude as *model* via API in the existing loop), which stays a bake-off.
+Revisit trigger: if the QA machinery ever decouples from loop ownership, or a
+vendor ships metered multi-seat subscription APIs.
+
 ## 2026-07-31 — Gate 1B: the evidence boundary holds, and answer quality is finally measured
 
 All five 1B items landed (`12e9bee`, `593ff23`, `4561bb2`, `362703b`, `40240cb`).
