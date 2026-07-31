@@ -22,35 +22,13 @@ Two guarantees here:
 from __future__ import annotations
 
 import itertools
-import subprocess
 from pathlib import Path
 from typing import TextIO
 
+# one implementation of "which code ran" — shared with turn bundles
+from x1_advisor.fingerprint import code_fingerprint, git_dirty, git_sha  # noqa: F401
+
 RUNS_DIR = Path(__file__).parent / "runs"
-_GIT_CWD = Path(__file__).parent
-
-
-def _git(*args: str) -> str | None:
-    try:
-        p = subprocess.run(["git", *args], capture_output=True, text=True,
-                           timeout=5, cwd=_GIT_CWD)
-    except Exception:  # noqa: BLE001 — git absent or wedged; caller degrades
-        return None
-    return p.stdout.strip() if p.returncode == 0 else None
-
-
-def git_sha() -> str:
-    return _git("rev-parse", "--short", "HEAD") or "unknown"
-
-
-def git_dirty() -> bool:
-    """True when tracked files differ from HEAD (untracked files don't count)."""
-    out = _git("status", "--porcelain", "--untracked-files=no")
-    return bool(out) if out is not None else True   # unknown → assume dirty
-
-
-def code_fingerprint() -> str:
-    return git_sha() + ("+dirty" if git_dirty() else "")
 
 
 def open_new_manifest(stem: str, *, runs_dir: Path = RUNS_DIR,

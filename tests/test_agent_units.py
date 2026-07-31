@@ -14,10 +14,13 @@ from x1_advisor.agent.advisor import SYSTEM_PROMPT
 from x1_advisor.agent.evidence import EvidenceRegistry, validate_citations
 from x1_advisor.ingest.chunker import chunk_markdown
 
-# §9: the system prompt is the cached prompt prefix. Any byte change invalidates
-# the cache for every turn — so changing it must be deliberate: update this hash
-# in the same commit and say why in the message.
+# §9: the cached prompt prefix is the system prompt PLUS the tool schemas. Any
+# byte change in either invalidates the cache for every turn — so changing one
+# must be deliberate: update the hash in the same commit and say why in the
+# message. Pinning only the prompt missed four tool-description edits in Phase 4
+# alone (DESIGN-REVIEW F4).
 SYSTEM_PROMPT_SHA256 = "dc236bb7a28dc61c3dde170aead6f7c328eaa10024bb763a30d6388a7ca3c13a"
+TOOL_SCHEMA_SHA256 = "9c50db4e0267c443ae576f0bd4f95c22b03545c28d1ff38bdbe4e102c061a34f"
 
 
 def test_prompt_prefix_stability():
@@ -25,6 +28,22 @@ def test_prompt_prefix_stability():
     assert actual == SYSTEM_PROMPT_SHA256, (
         "SYSTEM_PROMPT changed — this invalidates the prompt cache for every turn. "
         f"If intentional, update SYSTEM_PROMPT_SHA256 to {actual!r} in this test."
+    )
+
+
+def test_tool_schema_stability():
+    from x1_advisor.agent.tools import build_tools
+    from x1_advisor.fingerprint import tool_schema_digest
+
+    # build_tools only closes over conn/tracker; it touches neither at build time
+    tools = build_tools(None, acl="admin", registry=EvidenceRegistry(), tracker=None)
+    actual = tool_schema_digest(tools)
+    assert actual == TOOL_SCHEMA_SHA256, (
+        "A tool name, description or parameter schema changed — this invalidates "
+        "the prompt cache for every turn, exactly like a SYSTEM_PROMPT edit. Note "
+        "structured_query's description embeds queries.catalog() and search_corpus's "
+        "schema embeds the filter registry, so registry edits land here too. If "
+        f"intentional, update TOOL_SCHEMA_SHA256 to {actual!r}."
     )
 
 
