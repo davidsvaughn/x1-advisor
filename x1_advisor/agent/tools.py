@@ -22,6 +22,7 @@ from haystack.tools import Tool
 from x1_advisor.agent.evidence import EvidenceRegistry
 from x1_advisor.agent.queries import catalog, run_query
 from x1_advisor.cost import Tracker, Usage, estimate
+from x1_advisor.filters import FilterError, compile_filters, filters_json_schema
 from x1_advisor.retrieval import retrieve
 
 SNIPPET_CHARS = 600
@@ -38,19 +39,14 @@ def _clip(text: str, limit: int) -> tuple[str, bool]:
 
 def build_tools(conn, *, acl: Any, registry: EvidenceRegistry,
                 tracker: Tracker) -> list[Tool]:
-    _ENTITY_TYPES = {"startup_company", "investor", "cv", "investment_company",
-                     "investment_fund", "organization"}
-    _ENTITY_ALIASES = {"startup": "startup_company", "company": "startup_company",
-                       "person": "cv", "fund": "investment_fund", "org": "organization"}
-
     def search_corpus(query: str, filters: dict | None = None) -> str:
-        if filters and "entity_type" in filters:
-            et = _ENTITY_ALIASES.get(str(filters["entity_type"]), filters["entity_type"])
-            if et not in _ENTITY_TYPES:
-                return json.dumps({"error": f"invalid entity_type {filters['entity_type']!r};"
-                                            f" valid: {sorted(_ENTITY_TYPES)}"})
-            filters = {**filters, "entity_type": et}
-        hits = retrieve(conn, query, acl=acl, filters=filters, k=SEARCH_K,
+        # validate + compile at the model-facing boundary: retrieval only ever
+        # applies an already-typed filter (filters.py — F1)
+        try:
+            compiled = compile_filters(conn, filters)
+        except FilterError as exc:
+            return json.dumps({"error": str(exc)})
+        hits = retrieve(conn, query, acl=acl, filters=compiled, k=SEARCH_K,
                         tracker=tracker)
         # gated-vs-absent: on an empty result for a NON-admin, check (count/class
         # only — no titles, no content) whether access-restricted material exists,
@@ -58,7 +54,7 @@ def build_tools(conn, *, acl: Any, registry: EvidenceRegistry,
         gated_note = None
         if not hits and acl != "admin":
             open_hits = [
-                h for h in retrieve(conn, query, acl="admin", filters=filters,
+                h for h in retrieve(conn, query, acl="admin", filters=compiled,
                                     k=SEARCH_K, tracker=tracker)
                 # platform-hidden evals are hidden, not user-gated: never reveal
                 if h.metadata.get("acl_eval_is_visible") is not False
@@ -88,6 +84,10 @@ def build_tools(conn, *, acl: Any, registry: EvidenceRegistry,
                 item["_truncated"] = True   # full text via get_source(ref)
             items.append(item)
         out = {"results": items, "k": len(items)}
+        if compiled.notes:
+            # F7: a filter value that matched nothing known says so, with the
+            # nearest stored values — an empty result is never left ambiguous
+            out["filter_notes"] = list(compiled.notes)
         if gated_note:
             out["access_note"] = gated_note
         return json.dumps(out)
@@ -168,17 +168,13 @@ def build_tools(conn, *, acl: Any, registry: EvidenceRegistry,
              description=(
                  "Search the X1 corpus (startup/investor/CV profiles, evaluation "
                  "reports and sections, pitch-deck extracts, website content). "
-                 "Returns ranked snippets with citation refs. Optional filters: "
-                 "source_type (profile|eval_section|eval_premium|eval_basic|"
-                 "deck_extract|website), company_name, section_key, entity_type "
-                 "(startup_company|investor|cv|investment_company|investment_fund|"
-                 "organization). Prefer NO filters for broad discovery questions; "
-                 "add filters only to narrow a specific document class."),
+                 "Returns ranked snippets with citation refs. Filters are optional "
+                 "and narrow the search; each accepts one value or a list of "
+                 "values. Prefer NO filters for broad discovery questions; add "
+                 "filters only to narrow a specific document class."),
              parameters={"type": "object",
-                         "properties": {
-                             "query": {"type": "string"},
-                             "filters": {"type": "object",
-                                         "description": "optional metadata equality filters"}},
+                         "properties": {"query": {"type": "string"},
+                                        "filters": filters_json_schema()},
                          "required": ["query"]},
              function=search_corpus),
         Tool(name="get_source",

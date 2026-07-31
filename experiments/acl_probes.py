@@ -24,6 +24,7 @@ from typing import Any
 
 from x1_advisor.agent.queries import run_query
 from x1_advisor.db import connect
+from x1_advisor.filters import unknown_corpus_values
 from x1_advisor.retrieval import retrieve
 
 NOBODY = {"user_id": 999_999}                       # owns nothing, purchased nothing
@@ -169,6 +170,9 @@ def main() -> None:
                 int(h.metadata.get("evaluation_id") or -1) in granted for h in hits)
 
         v_structured, notes = structured_probes(conn)
+        # filter registry is the allowlist: a stored enum value it does not
+        # declare is material the model cannot filter on and the schema hides
+        drift = unknown_corpus_values(conn)
 
     print("== retrieval ==")
     print(f"nobody persona violations:    {v_nobody or 'NONE'}")
@@ -178,7 +182,9 @@ def main() -> None:
     print(f"violations: {v_structured or 'NONE'}")
     for n in notes:
         print(f"  note: {n}")
-    ok = (not v_nobody and not v_purchaser and not v_structured
+    print("\n== filter registry ==")
+    print(f"undeclared enum values in corpus: {drift or 'NONE'}")
+    ok = (not v_nobody and not v_purchaser and not v_structured and not drift
           and (purchased_visible or not granted))
     print("\nACL PROBES:", "PASS" if ok else "FAIL")
     sys.exit(0 if ok else 1)

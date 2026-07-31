@@ -21,6 +21,7 @@ from typing import Any
 from openai import OpenAI
 
 from x1_advisor.cost import Tracker, Usage
+from x1_advisor.filters import CompiledFilters, compile_filters
 from x1_advisor.index import CONFIGS, IndexConfig, active_config
 
 RRF_K = 60
@@ -84,21 +85,6 @@ def _acl_sql(acl: Any) -> tuple[str, list]:
     return sql, params
 
 
-def _filter_sql(filters: dict[str, Any] | None) -> tuple[str, list]:
-    """Structured-field filters over chunk metadata (equality or any-of on arrays)."""
-    if not filters:
-        return "", []
-    sql, params = "", []
-    for key, value in filters.items():
-        if isinstance(value, list):
-            sql += f" AND (c.metadata->'{key}' ?| %s OR c.metadata->>'{key}' = ANY(%s))"
-            params.extend([value, value])
-        else:
-            sql += f" AND c.metadata->>'{key}' = %s"
-            params.append(str(value))
-    return sql, params
-
-
 _BASE_FROM = """
     FROM advisor.doc_chunks c
     JOIN advisor.documents d ON d.id = c.document_id
@@ -155,7 +141,7 @@ def retrieve(
     query: str,
     *,
     acl: Any,
-    filters: dict[str, Any] | None = None,
+    filters: dict[str, Any] | CompiledFilters | None = None,
     config_id: str | None = None,
     k: int = 10,
     rerank: bool = False,
@@ -163,9 +149,12 @@ def retrieve(
 ) -> list[Hit]:
     cfg: IndexConfig = CONFIGS[config_id] if config_id else active_config(conn)
     acl_sql, acl_params = _acl_sql(acl)
-    f_sql, f_params = _filter_sql(filters)
-    where_tail = acl_sql + f_sql
-    tail_params = acl_params + f_params
+    # filters are compiled — never interpolated. Callers that need the
+    # resolution notes (the model-facing tool) compile first and pass the
+    # CompiledFilters through; harness callers may pass a plain dict.
+    compiled = compile_filters(conn, filters)
+    where_tail = acl_sql + compiled.sql
+    tail_params = acl_params + list(compiled.params)
 
     client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
     resp = client.embeddings.create(model=cfg.embedding_model, input=[query])

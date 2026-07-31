@@ -8,6 +8,7 @@ import hashlib
 
 import pytest
 
+from x1_advisor import filters
 from x1_advisor.agent import queries
 from x1_advisor.agent.advisor import SYSTEM_PROMPT
 from x1_advisor.agent.evidence import EvidenceRegistry, validate_citations
@@ -54,6 +55,43 @@ def test_chunker_paged_mode_and_spans():
     assert [b.page_number for b in blocks] == [1, 2]
     for b in blocks:
         assert md[b.char_start:b.char_end].strip() == b.text
+
+
+def test_filter_registry_rejects_unknown_keys_and_injection():
+    # the F1 chain: a prompt-injected filter KEY must never reach SQL
+    for hostile in ("company_name') = '' OR 1=1 --",
+                    "x' , (SELECT 1) AS y --",
+                    "source_type; DROP TABLE advisor.documents",
+                    "SOURCE_TYPE",       # registry is exact-match, not fuzzy
+                    ""):
+        with pytest.raises(filters.FilterError):
+            filters.compile_filters(None, {hostile: "profile"})
+
+
+def test_filter_enum_aliases_and_validation():
+    c = filters.compile_filters(None, {"entity_type": "startup"})
+    assert c.applied == {"entity_type": "startup_company"}
+    assert c.sql == " AND c.metadata->>'entity_type' = %s"
+    assert c.params == ("startup_company",) and not c.notes
+    # list form → ANY(), still a single bound parameter
+    c = filters.compile_filters(None, {"source_type": ["eval_section", "eval_premium"]})
+    assert c.sql == " AND c.metadata->>'source_type' = ANY(%s)"
+    assert c.params == (["eval_section", "eval_premium"],)
+    with pytest.raises(filters.FilterError):
+        filters.compile_filters(None, {"source_type": "eval_sections"})
+    for bad in ({"section_key": []}, {"section_key": "  "}, {"section_key": True},
+                {"section_key": {"a": 1}}):
+        with pytest.raises(filters.FilterError):
+            filters.compile_filters(None, bad)
+
+
+def test_filter_schema_is_static_and_matches_registry():
+    schema = filters.filters_json_schema()
+    assert schema["additionalProperties"] is False
+    assert set(schema["properties"]) == set(filters.FIELDS)
+    assert schema["properties"]["source_type"]["anyOf"][0]["enum"] == \
+        list(filters.FIELDS["source_type"].values)
+    assert "enum" not in schema["properties"]["company_name"]["anyOf"][0]
 
 
 def test_structured_query_acl_predicates():
