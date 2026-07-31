@@ -71,12 +71,20 @@ acceptable-evidence groups, replay never trusts stored ACLs.
   fingerprints, retrieval explain, manifest immutability, non-git owner-only
   storage. It measured 1B's case on first run — **38% of "100% resolvable"
   citations point at record summaries** — and found that the lexical leg is
-  silent on 21 of 35 golden questions (Gate 5) → **1B evidence correction**
-  (record summaries retrieval-only with source-block expansion, whole-document
-  summary fix, calibrated claim/citation judge, full agent-suite rerun on the
-  current corpus) → **1C loop completion** (funnel classifier, three replay
-  modes, run comparator, teacher runbook). The small evidence-boundary fix is
-  never delayed by the full QA package.
+  silent on 21 of 35 golden questions (Gate 5) → **1B evidence correction —
+  ✅ DONE 2026-07-31** (`12e9bee`, `593ff23`, `4561bb2`, `362703b`, `40240cb`;
+  DECISIONS 2026-07-31): record summaries retrieval-only with source-block
+  expansion, whole-document summaries, calibrated claim/citation judge,
+  structured rows as citable platform data, full suite rerun. **Citations on
+  generated summaries 38% → 0; zero-citation answers 2 → 0; cost/turn flat.**
+  Answer quality measured for the first time: faithfulness 0.584, citation
+  coverage 0.813. ⚠️ Two carry-overs, neither blocking 1C: the judge is
+  **`synthetic-only` calibrated** — no faithfulness number may be quoted as
+  established until ≥30 human labels exist — and golden v1 exercises the new
+  platform-data path exactly once, so Gate 4 must add aggregate/list coverage
+  or 1B-4 stays effectively untested → **1C loop completion** (funnel
+  classifier, three replay modes, run comparator, teacher runbook). The small
+  evidence-boundary fix is never delayed by the full QA package.
 - **Gate 2 — security boundary end-to-end:** one request-auth context consumed
   by every data-bearing tool/endpoint; ACL-aware structured queries; thread
   ownership; **bundle-read + replay authorization and stale-ACL handling**;

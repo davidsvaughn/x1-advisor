@@ -4,6 +4,55 @@
 > engineering choices land here, newest first. Each entry names its evidence (spike
 > output, manifest path, or doc reference) and the revisit trigger if one exists.
 
+## 2026-07-31 — Gate 1B: the evidence boundary holds, and answer quality is finally measured
+
+All five 1B items landed (`12e9bee`, `593ff23`, `4561bb2`, `362703b`, `40240cb`).
+Full agent suite, 20 golden questions, corrected corpus
+(`experiments/runs/2026-07-31_agent_v1_40240cb_r1.jsonl`):
+
+| | before (`bef0bd0`) | after (`40240cb`) |
+|---|---|---|
+| citation resolvability | 73/73 (100%) | 72/72 (100%) |
+| **citations on record summaries** | **28 of 73 (38%)** | **0** |
+| zero-citation answers | g014, g020 | **none** |
+| faithfulness | *not measurable* | **0.584** |
+| citation coverage | *not measurable* | **0.813** |
+| cost/turn | $0.0083 | $0.0084 |
+| retrieval recall@10 / MRR (golden v1) | 0.833 / 0.746 | 0.847 / 0.759 |
+
+The headline is the row that used to be invisible. Resolvability was 100% before
+and after and told us nothing; underneath it, 38% of citations pointed at
+generated summaries and two whole answers cited nothing at all. Both are now zero,
+at unchanged cost per turn.
+
+**What the judge says about the answers themselves** (294 cited claims):
+186 supported, 78 partial, 30 unsupported, and 66 factual claims carrying no
+citation. 19 of 20 questions carry at least one judge label. So the honest
+statement is: the *evidence plumbing* is now correct, and the *answers* have a
+real quality gap that was previously unmeasurable. That gap is the work, and it
+is now visible.
+
+**Read 0.584 as a lower bound with a shape, not a number.** Faithfulness counts
+only full entailment; `partial` — supported in weaker terms than claimed — is the
+largest failure mode at 78 of 294, and the judge errs strict (calibration: 8/10,
+kappa 0.64, both errors partial→unsupported, zero false clean bills). The judge
+is also stochastic: the same turn scored 0.83 and 0.62 on two runs because claim
+decomposition varies, so per-question scores are noise and the suite aggregate is
+the unit.
+
+**Calibration is `synthetic-only` and that is a real limit.** 10 known-answer
+mutation cases prove the judge is not broken; they do not prove it agrees with a
+person on ambiguous text. No faithfulness number should be quoted as established
+until ≥30 human labels exist (`judge_calibrate --sample N` emits real pairs).
+
+**Judging costs more than answering:** $0.0321/question against a $0.0084 turn.
+Budget the QA loop accordingly — this is not a rounding error, and it argues for
+judging tiers (smoke every run, full suite on gates) rather than always-on.
+
+**Golden v1 barely exercises the new platform-data path** — exactly 1 of 72
+citations. The aggregate/list question class (g023/g024) is thin, so Gate 4 must
+add real coverage or 1B-4 stays effectively untested.
+
 ## 2026-07-30 — Gate 1A complete: the QA loop can now see, and it found three things
 
 All four Gate-1A items are in (`e19d8e5`, `bef0bd0`, `f90e37f`, plus manifest
