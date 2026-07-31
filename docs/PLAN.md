@@ -82,9 +82,15 @@ acceptable-evidence groups, replay never trusts stored ACLs.
   **`synthetic-only` calibrated** — no faithfulness number may be quoted as
   established until ≥30 human labels exist — and golden v1 exercises the new
   platform-data path exactly once, so Gate 4 must add aggregate/list coverage
-  or 1B-4 stays effectively untested → **1C loop completion** (funnel
-  classifier, three replay modes, run comparator, teacher runbook). The small
-  evidence-boundary fix is never delayed by the full QA package.
+  or 1B-4 stays effectively untested → **1C loop completion — ✅ DONE
+  2026-07-31** (`ba977d5`, `0e3a152`, `905f03f`; runbook
+  [`QA-RUNBOOK.md`](QA-RUNBOOK.md)): funnel classifier, run comparator with
+  suite-aware gating, three replay modes, teacher runbook. First funnel result
+  relocated the problem — retrieval stages are nearly clean (2 `retrieval_miss`,
+  3 `ranking_drop`, 1 `routing_error`) while `synthesis_error` (18) and
+  `citation_coverage_error` (14) dominate: evidence reaches the model and the
+  model then overstates or under-cites it. **Gate 1 is closed.** The small
+  evidence-boundary fix was never delayed by the full QA package.
 - **Gate 2 — security boundary end-to-end:** one request-auth context consumed
   by every data-bearing tool/endpoint; ACL-aware structured queries; thread
   ownership; **bundle-read + replay authorization and stale-ACL handling**;
