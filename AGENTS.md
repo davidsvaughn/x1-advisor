@@ -47,7 +47,7 @@ did, same-day, as review criteria were folded in).
 | `docs/QA-RUNBOOK.md` | **living** — QA operating manual |
 | `docs/QUESTION-BANK.md` | **living** — master question corpus; seed for golden v2 |
 | `docs/HANDOFF.md` | **point-in-time handoff** (2026-07-31) — brief for the Golden v2.0 + H1 build |
-| `docs/GOLDEN-V2-DESIGN-2026-07-31.md` | **adopted design** (Gate 4 spec; build paused by David 2026-07-31) |
+| `docs/GOLDEN-V2-DESIGN-2026-07-31.md` | **adopted design** (Gate 4 spec; build authorized by David 2026-07-31 for steps 1–4 + H1) |
 | `docs/CC-AGENTS-DESIGN-2026-07-31.md` | **adopted design** (Track H) |
 | `docs/CONTEXT-SNAPSHOT-DESIGN-2026-07-30.md` | **adopted design** (Gate 3B; not built) |
 | `docs/QA-LOOP-DESIGN-2026-07-30.md` | **adopted design — largely implemented** (Gate 1); kept as rationale |

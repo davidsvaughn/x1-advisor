@@ -5,7 +5,8 @@
 > diagnostics-first checkers §5.2, deterministic versioned truth sets §5.1,
 > execution/triage split per
 > [`CC-AGENTS-DESIGN-2026-07-31.md`](CC-AGENTS-DESIGN-2026-07-31.md) §9).
-> **Build start paused by David 2026-07-31 pending his go-ahead.**
+> **Build authorized by David 2026-07-31** for §9 build-order steps 1–4 plus
+> Track H1 — see [`HANDOFF.md`](HANDOFF.md) for the scoped brief.
 > This is the specification the PLAN's Gate 4 bullet only sketches. Inputs:
 > [`QUESTION-BANK.md`](QUESTION-BANK.md) (the designated seed; provenance,
 > readiness model, curation weighting), [`PLAN.md`](PLAN.md) §R Gate 4,
@@ -333,6 +334,6 @@ Steps 1–4 ≈ 3–4 working days. Nothing blocks on Gates 2/3A.
 1. ~~Approve this design as the Gate 4 spec~~ — **done 2026-07-31** (David +
    second-agent review, acceptance criteria folded in). The two-wave split and
    honesty-first SCAN-A grading were part of the approved design. **Build
-   start remains paused** pending David's go-ahead.
+   authorized 2026-07-31** for §9 steps 1–4 + Track H1 (H2/H3 not authorized).
 2. Author the held-out batch (~10–15 questions, ~30 min) once the runner
    exists.

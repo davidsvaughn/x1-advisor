@@ -165,8 +165,9 @@ acceptable-evidence groups, replay never trusts stored ACLs.
 - **Gate 4 — golden v2:** full specification in
   [`GOLDEN-V2-DESIGN-2026-07-31.md`](GOLDEN-V2-DESIGN-2026-07-31.md)
   (**approved 2026-07-31** — David + second-agent review; five acceptance
-  criteria folded into the docs; build start paused by David pending
-  go-ahead) — headline: two waves (v2.0 context-free now,
+  criteria folded into the docs; **build authorized by David 2026-07-31** for
+  §9 steps 1–4 + Track H1, brief in [`HANDOFF.md`](HANDOFF.md)) — headline:
+  two waves (v2.0 context-free now,
   v2.1 after Gate 3B), deterministic truth sets for the enumeration class
   (doubles as the `scan_text` prototype), truth-robustness classes, David-
   authored held-out batch. Motivated by the 2026-07-31 provenance finding:
