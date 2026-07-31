@@ -273,6 +273,10 @@ def run_script(conn, script: Script, *, fixtures: dict, seed: int | str,
         # `expected` matchers, so the corpus-funnel stages simply stay quiet
         labels = classify(conn, result["bundle"],
                           {"id": f"{script.id}t{turn.n}", "category": script.cls})
+        # names stay with the bundle (owner-only), counts go to the manifest
+        result["bundle"]["checks"] = {
+            "assertions": [a.to_dict() for a in assertions],
+            "diagnostics": [d.to_dict() for d in diagnostics]}
         bundle_path = export_bundle(result["bundle"],
                                     name=f"{script.id}t{turn.n}", subdir=run_id)
         turns_out.append({
@@ -280,8 +284,8 @@ def run_script(conn, script: Script, *, fixtures: dict, seed: int | str,
             "cost_usd": result["cost_usd"], "latency_ms": result["latency_ms"],
             "citation_stats": result["citation_stats"],
             "searched_documents": record.searched_documents,
-            "assertions": [d.to_dict() for d in assertions],
-            "diagnostics": [d.to_dict() for d in diagnostics],
+            "assertions": [checkers.countable(d) for d in assertions],
+            "diagnostics": [checkers.countable(d) for d in diagnostics],
             "labels": labels["labels"], "notes": labels["notes"],
             "judge": verdict,
             "bundle": bundle_path.name if bundle_path else None,
@@ -298,7 +302,7 @@ def run_script(conn, script: Script, *, fixtures: dict, seed: int | str,
         "script_id": script.id, "class": script.cls, "tier": script.tier,
         "bindings": {k: v.get("name") for k, v in bound.items()},
         "turns": turns_out,
-        "cross_turn": [d.to_dict() for d in cross],
+        "cross_turn": [checkers.countable(d) for d in cross],
         "cross_turn_pass": all(d.passed for d in cross),
         "deterministic_pass": turn_checks_pass,
         "pass": all(d.passed for d in cross) and turn_checks_pass,

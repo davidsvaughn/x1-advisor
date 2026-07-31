@@ -251,6 +251,25 @@ def check_absent_strings(answer: str, terms: Iterable[str]) -> Diagnostic:
                       detail={"present": present})
 
 
+# Detail keys whose VALUES are entity or phrase names rather than counts.
+# Manifests are committed and must stay body-free (QA-LOOP §4.1) — the same
+# reason truth sets are untracked. Full detail lives in the owner-only bundle.
+NAMED_DETAIL = ("ungrounded", "overclaimed", "intruders", "present", "missing",
+                "unfound", "matched_patterns")
+
+
+def countable(diagnostic: Any) -> dict[str, Any]:
+    """Manifest-safe projection of a diagnostic: counts, never names."""
+    d = diagnostic.to_dict() if hasattr(diagnostic, "to_dict") else dict(diagnostic)
+    detail = {k: v for k, v in (d.get("detail") or {}).items()
+              if k not in NAMED_DETAIL}
+    for key in NAMED_DETAIL:
+        value = (d.get("detail") or {}).get(key)
+        if isinstance(value, list):
+            detail[f"{key}_count"] = len(value)
+    return {**d, "detail": detail}
+
+
 # --- dispatch -------------------------------------------------------------
 
 # Which mechanical check answers which case-level assertion. `truth_set` and
