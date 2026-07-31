@@ -87,7 +87,12 @@ def ingest_bundle(conn, client, bucket_name, path, *, entity_id, is_published,
             _resolve_deck_visibility(conn, doc)
         _, action = upsert_document(
             conn, doc,
-            entity_type="startup_company" if entity_id is not None else None,
+            # entity_type is the KIND of thing the document is about; entity_id
+            # is the link to a local row. Conflating them left every bundle we
+            # could not link locally with entity_type NULL, which silently
+            # excluded it from any search filtering on entity_type — 75% of the
+            # corpus (Gate 1B).
+            entity_type="startup_company",
             entity_id=entity_id, source_ref=source_ref,
             is_published=is_published, eval_is_visible=eval_is_visible,
         )
@@ -146,7 +151,10 @@ def run_fixtures_mode(conn, client, limit, stats) -> None:
                     {"entity_ref_env": "prod", "prod_startup_company_id": prod_id}
                 )
                 _, action = upsert_document(
-                    conn, doc, entity_type=None, entity_id=None,
+                    conn, doc,
+                    # a prod fixture is a startup evaluation; only its local
+                    # entity id is unknown (the prod row has no test twin)
+                    entity_type="startup_company", entity_id=None,
                     source_ref=source_ref, is_published=True, eval_is_visible=True,
                 )
                 stats[f"{doc.source_type}:{action}"] += 1
