@@ -102,22 +102,65 @@ def _prune(directory: Path) -> None:
               + (" …" if len(removed) > 5 else ""))
 
 
-def export_bundle(bundle: dict, *, turn_id: int, thread_id: int) -> Path | None:
+def export_bundle(bundle: dict, *, name: str, subdir: str | None = None) -> Path | None:
     """Write the complete bundle to owner-only local storage. Never raises —
     an export problem must not fail the turn that produced it."""
     if not QA_EXPORT_ENABLED:
         return None
     try:
-        QA_ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
-        os.chmod(QA_ARTIFACTS_DIR, 0o700)
-        os.chmod(QA_ARTIFACTS_DIR.parent, 0o700)
-        path = QA_ARTIFACTS_DIR / f"turn_{turn_id:08d}_thread_{thread_id}.json"
-        fd = os.open(path, os.O_CREAT | os.O_WRONLY | os.O_EXCL, 0o600)
+        directory = QA_ARTIFACTS_DIR / subdir if subdir else QA_ARTIFACTS_DIR
+        directory.mkdir(parents=True, exist_ok=True)
+        for d in (directory, QA_ARTIFACTS_DIR, QA_ARTIFACTS_DIR.parent):
+            os.chmod(d, 0o700)
+        for n in range(1, 1000):
+            path = directory / (f"{name}.json" if n == 1 else f"{name}_{n}.json")
+            try:                       # exports are immutable, like manifests
+                fd = os.open(path, os.O_CREAT | os.O_WRONLY | os.O_EXCL, 0o600)
+                break
+            except FileExistsError:
+                continue
+        else:
+            raise RuntimeError(f"could not allocate a bundle filename for {name!r}")
         with os.fdopen(fd, "w") as fh:
             json.dump(bundle, fh, default=str, indent=1)
-        _prune(QA_ARTIFACTS_DIR)
+        _prune(directory)
         return path
     except Exception as exc:  # noqa: BLE001
-        print(f"[qa-artifacts] export failed for turn {turn_id}: "
+        print(f"[qa-artifacts] export failed for {name}: "
               f"{type(exc).__name__}: {exc}")
         return None
+
+
+def manifest_record(bundle: dict) -> dict[str, Any]:
+    """Body-free projection of a bundle for `experiments/runs/` (QA-LOOP §4.1
+    storage split): fingerprints, metrics, and opaque evidence identifiers —
+    no answer text, no evidence text, no source titles. The full bundle lives
+    in Postgres and in owner-only local storage; a committed manifest must
+    carry neither entitled text nor restricted-existence metadata.
+    """
+    fp = bundle.get("fingerprint", {})
+    val = bundle.get("validation", {})
+    return {
+        "schema_version": bundle.get("schema_version"),
+        "fingerprint": fp,
+        "summary": bundle.get("summary", {}),
+        "steps": [{k: s[k] for k in
+                   ("step", "input_tokens", "cached_tokens", "output_tokens",
+                    "cost_usd", "tool_calls") if k in s}
+                  for s in bundle.get("steps", [])],
+        "citations": [{k: c.get(k) for k in
+                       ("type", "document_id", "block_index", "page_number",
+                        "url", "n")}
+                      for c in val.get("citations", [])],
+        "citation_stats": {k: val.get(k) for k in ("emitted", "resolved", "dropped")},
+        "retrieval": [{"call": e["call"], "filters": e["filters"],
+                       "filter_notes": e["filter_notes"], "k": e["k"],
+                       "legs": {leg: len(rows) for leg, rows in e["legs"].items()},
+                       "fused": len(e["fused"]),
+                       "record_summary_in_fused": sum(
+                           1 for f in e["fused"] if f["granularity"] == "record_summary"),
+                       "dropped": {r: len(ids) for r, ids in e["dropped"].items()},
+                       "returned": e["returned"]}
+                      for e in bundle.get("retrieval_explain", [])],
+        "scores": bundle.get("scores", {}),
+    }

@@ -171,6 +171,9 @@ def run_turn(conn, question: str, *, acl: Any = "admin",
         raw_answer = reply.text or ""
         if not raw_answer.strip():
             verdict = "error"       # spent the budget and produced nothing
+        # the bundle must hold everything the model saw and said (P3), and the
+        # wrap-up exchange is part of that
+        messages = [*messages, wrap, reply]
     validated = validate_citations(raw_answer, registry)
 
     result = {
@@ -246,7 +249,7 @@ def save_turn(conn, result: dict, *, user_id: int = 0,
     ).fetchone()["id"]
     conn.commit()
     result["turn_id"] = turn_id
-    path = export_bundle(record, turn_id=turn_id, thread_id=thread_id)
+    path = export_bundle(record, name=f"turn_{turn_id:08d}_thread_{thread_id}")
     if path:
         result["bundle_path"] = str(path)
     return thread_id

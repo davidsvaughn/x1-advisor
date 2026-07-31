@@ -23,6 +23,7 @@ from pathlib import Path
 import yaml
 
 from experiments.manifest import code_fingerprint, git_sha, open_new_manifest
+from x1_advisor.agent.bundle import QA_ARTIFACTS_DIR, export_bundle, manifest_record
 from x1_advisor.cost import Tracker
 from x1_advisor.db import connect
 from x1_advisor.filters import FilterError
@@ -85,11 +86,16 @@ def run_agent_mode(questions: list[dict], limit: int) -> None:
             latencies.append(r["latency_ms"])
             if cs["resolved"] == 0:
                 no_citation.append(q["id"])
+            # storage split (QA-LOOP §4.1): the complete bundle — answer text,
+            # every tool result, evidence text — goes to owner-only local
+            # storage; the committed manifest gets the body-free projection
+            bundle_path = export_bundle(r["bundle"], name=q["id"], subdir=run_id)
             manifest.write(json.dumps({
                 "run_id": run_id, "experiment": "phase4-agent",
                 "git_sha": git_sha(), "code_fingerprint": code_fingerprint(),
-                "question_id": q["id"],
-                "category": q["category"], **r,
+                "question_id": q["id"], "category": q["category"],
+                "bundle": bundle_path.name if bundle_path else None,
+                **manifest_record(r["bundle"]),
             }, default=str) + "\n")
             print(f"  {q['id']} {q['category']:13s} cite {cs['resolved']}/{cs['emitted']}"
                   f"{' DROPPED:' + ','.join(cs['dropped']) if cs['dropped'] else ''}"
@@ -106,7 +112,8 @@ def run_agent_mode(questions: list[dict], limit: int) -> None:
     print(f"cost/turn: mean ${sum(costs)/n:.4f}, p50 ${costs[n//2]:.4f}, "
           f"max ${costs[-1]:.4f}, total ${sum(costs):.4f}")
     print(f"latency: p50 {latencies[n//2]}ms, max {latencies[-1]}ms")
-    print(f"manifest: {manifest_path}")
+    print(f"manifest (body-free): {manifest_path}")
+    print(f"bundles (owner-only): {QA_ARTIFACTS_DIR / run_id}")
 
 
 def main() -> None:
