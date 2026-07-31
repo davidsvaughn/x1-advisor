@@ -161,26 +161,38 @@ def corpus_watermark(conn, config_id: str) -> dict[str, Any]:
     return watermark
 
 
-def turn_fingerprint(conn, *, prompt: str, tools: Sequence[Any],
-                     agent_model: str, config_id: str,
-                     agent_model_resolved: str | None = None,
-                     feature_flags: dict[str, Any] | None = None) -> dict[str, Any]:
+def run_fingerprint(conn, *, config_id: str) -> dict[str, Any]:
+    """The part of a fingerprint that does not involve a model or a prompt.
+
+    Retrieval-only runs need this: recall moved 0.778 → 0.833 with no code
+    change at all when record summaries landed, so a manifest carrying just a
+    git sha cannot explain its own numbers.
+    """
     dirty = git_dirty()
     return {
         "git_sha": git_sha(),
         "worktree_dirty": dirty,
         # only meaningful when the SHA is not the whole story
         "source_tree_sha256": source_tree_sha256() if dirty else None,
-        "prompt_sha256": sha256_text(prompt),
-        "tool_schema_sha256": tool_schema_digest(tools),
         "config_id": config_id,
         "corpus_watermark": corpus_watermark(conn, config_id),
+        "filter_contract_version": FILTER_CONTRACT_VERSION,
+        "acl_policy_version": ACL_POLICY_VERSION,
+    }
+
+
+def turn_fingerprint(conn, *, prompt: str, tools: Sequence[Any],
+                     agent_model: str, config_id: str,
+                     agent_model_resolved: str | None = None,
+                     feature_flags: dict[str, Any] | None = None) -> dict[str, Any]:
+    return {
+        **run_fingerprint(conn, config_id=config_id),
+        "prompt_sha256": sha256_text(prompt),
+        "tool_schema_sha256": tool_schema_digest(tools),
         # `agent_model` is what we asked for ("gpt-5.1"); `agent_model_resolved`
         # is what the provider actually served ("gpt-5.1-2025-11-13"). A silent
         # snapshot bump moves behavior and only the resolved id shows it.
         "agent_model": agent_model,
         "agent_model_resolved": agent_model_resolved,
-        "filter_contract_version": FILTER_CONTRACT_VERSION,
-        "acl_policy_version": ACL_POLICY_VERSION,
         "feature_flags": feature_flags or {},
     }

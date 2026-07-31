@@ -30,6 +30,8 @@ from x1_advisor.telemetry import emit_judge_scores
 from x1_advisor.cost import JsonlSink, Tracker
 from x1_advisor.db import connect
 from x1_advisor.filters import FilterError
+from x1_advisor.fingerprint import run_fingerprint
+from x1_advisor.index import active_config
 from x1_advisor.retrieval import Hit, retrieve
 
 GOLDEN_DIR = Path(__file__).parent / "golden"
@@ -181,7 +183,9 @@ def main() -> None:
 
     recalls, mrrs, skipped, filter_errors = [], [], 0, []
     per_q_filter_error: list[str | None] = []
+    run_fp: dict = {}
     with connect() as conn, manifest_file as manifest:
+        run_fp = run_fingerprint(conn, config_id=args.config or active_config(conn).id)
         for q in questions:
             if q.get("web_required"):
                 skipped += 1
@@ -245,6 +249,10 @@ def main() -> None:
         "run_id": run_id, "experiment": "phase2-baseline", "record": "summary",
         "config_id": args.config or "active", "golden": args.golden, "k": args.k,
         "code_fingerprint": code_fingerprint(),
+        # the full fingerprint rides on the summary record, once: it is
+        # identical across questions, and without the corpus watermark a
+        # retrieval manifest cannot explain its own numbers
+        "fingerprint": run_fp,
         "graded": n, "web_skipped": skipped,
         "all_cases": {"n": n, "recall": sum(recalls) / n, "mrr": sum(mrrs) / n,
                       "full_recall": sum(1 for r in recalls if r == 1.0),
