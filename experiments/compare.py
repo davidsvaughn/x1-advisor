@@ -25,6 +25,17 @@ runs are stochastic: the model picks different search queries on identical
 input, so a single question flipping is noise and only a budget overrun is
 signal.
 
+**Stochastic runs gate on three things, because pass-flips alone are vacuous
+when every question already fails** (1E review, finding 1: with 0/20 passing,
+faithfulness could collapse to zero and flip nothing):
+
+  1. net pass-flips            ≤ --budget
+  2. net label worsening       ≤ --budget   (questions gaining failure labels
+                                             minus questions only losing them)
+  3. mean faithfulness / citation_coverage drop over shared questions
+                               ≤ --score-drop (default 0.05 — PROVISIONAL
+     until a replicate-run noise floor says otherwise; see runbook §4)
+
 Run: uv run python -m experiments.compare <before.jsonl> <after.jsonl>
 Exit: 0 pass · 1 fail · 2 not comparable
 """
@@ -135,6 +146,9 @@ def main() -> None:
     ap.add_argument("after")
     ap.add_argument("--budget", type=int, default=DEFAULT_REGRESSION_BUDGET,
                     help="net regressions tolerated on a stochastic suite")
+    ap.add_argument("--score-drop", type=float, default=0.05,
+                    help="max tolerated drop in mean faithfulness/coverage on "
+                         "a stochastic suite (provisional default)")
     args = ap.parse_args()
 
     paths = []
@@ -253,12 +267,43 @@ def main() -> None:
               f"{len(metric_regressions)} per-question metric regression(s); "
               "the bar is zero")
     else:
+        shared = set(a_by) & set(b_by)
+        # gate 1: pass-flips (vacuous when everything already fails — which is
+        # exactly why it cannot be the only gate)
         net = len(buckets["broken"]) - len(buckets["fixed"])
-        ok = net <= args.budget
+        # gate 2: label worsening — a question gaining any failure label
+        # counts against; one only shedding labels counts for
+        gained = [q for q in sorted(shared)
+                  if labels_of(b_by[q]) - labels_of(a_by[q])]
+        lost_only = [q for q in sorted(shared)
+                     if (labels_of(a_by[q]) - labels_of(b_by[q]))
+                     and not (labels_of(b_by[q]) - labels_of(a_by[q]))]
+        net_labels = len(gained) - len(lost_only)
+        # gate 3: mean score drops over the SHARED questions (paired sets —
+        # added/removed questions must not masquerade as movement)
+        score_fails = []
+        for name in ("faithfulness", "citation_coverage"):
+            pairs = [(metric(a_by[q], name), metric(b_by[q], name))
+                     for q in shared]
+            pairs = [(x, y) for x, y in pairs if x is not None and y is not None]
+            if not pairs:
+                continue
+            ma = sum(x for x, _ in pairs) / len(pairs)
+            mb = sum(y for _, y in pairs) / len(pairs)
+            if ma - mb > args.score_drop:
+                score_fails.append(f"{name} {ma:.3f} -> {mb:.3f} "
+                                   f"(drop {ma - mb:.3f} > {args.score_drop})")
+        ok = (net <= args.budget and net_labels <= args.budget
+              and not score_fails)
         print(f"  stochastic suite: {len(buckets['broken'])} broken, "
               f"{len(buckets['fixed'])} fixed, net {net:+d}; budget {args.budget}")
-        print("  (the model chooses its own search queries, so single flips are "
-              "noise — judge the net and the label shifts, not the individual)")
+        print(f"  labels: {len(gained)} question(s) gained labels "
+              f"({', '.join(gained) or '-'}), {len(lost_only)} only lost, "
+              f"net {net_labels:+d}; budget {args.budget}")
+        for f in score_fails:
+            print(f"  SCORE REGRESSION: {f}")
+        print("  (single flips are noise on a stochastic suite — the gates are "
+              "net flips, net label worsening, and mean score drops)")
         if buckets["ungraded"]:
             print(f"  ungraded (cannot say pass/fail): {buckets['ungraded']}")
     print(f"\nCOMPARE: {'PASS' if ok else 'FAIL'}")
