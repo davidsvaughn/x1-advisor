@@ -33,7 +33,14 @@ from x1_advisor.index import active_config
 # (`ADVISOR_AGENT_MODEL=... experiments.run --agent`) instead of edited in and
 # hoped about. The resolved value is stamped into every trace and bundle, so a
 # run always says which model produced it.
-AGENT_MODEL = os.environ.get("ADVISOR_AGENT_MODEL", "gpt-5.1")
+# gpt-5.6-terra since 2026-07-31 (E8). Both arms ran on the Responses
+# transport and were graded by the same judge, so the model was the only
+# variable. The honest reading: **quality is a wash, speed and cost are not.**
+# faithfulness +0.014 and coverage +0.045 are at or under the 0.07 noise floor
+# and prove nothing; mean latency 20.3s -> 8.7s and cost/turn $0.0196 ->
+# $0.0163 are real and repeatable. Terra is cheaper per turn despite higher
+# per-token prices because it reaches an answer in fewer, shorter steps.
+AGENT_MODEL = os.environ.get("ADVISOR_AGENT_MODEL", "gpt-5.6-terra")
 # Reasoning effort is a behavioural knob, so it rides the turn fingerprint
 # rather than sitting as an unrecorded default.
 AGENT_REASONING = os.environ.get("ADVISOR_AGENT_REASONING", "medium")
