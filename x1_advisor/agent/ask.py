@@ -44,9 +44,17 @@ def main() -> None:
     if result["citations"]:
         print("\nSources:")
         for c in result["citations"]:
-            loc = (f"doc {c['document_id']} block {c['block_index']}"
-                   + (f" p.{c['page_number']}" if c.get("page_number") is not None else "")
-                   ) if c["type"] == "internal" else c["url"]
+            if c["type"] == "internal":
+                loc = (f"doc {c['document_id']} block {c['block_index']}"
+                       + (f" p.{c['page_number']}" if c.get("page_number") is not None
+                          else ""))
+            elif c["type"] == "platform_data":
+                # a live database answer, not a document: show what to re-run
+                # and when it was true
+                loc = (f"{c['query']}({json.dumps(c.get('params') or {}, default=str)})"
+                       f" → {c['row_count']} row(s), as of {c.get('as_of')}")
+            else:
+                loc = c["url"]
             print(f"  [{c['n']}] {c.get('title', '')} — {loc}")
 
     print(f"\n-- per-step usage (context-bloat instrument) --")

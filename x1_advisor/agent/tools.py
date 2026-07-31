@@ -20,9 +20,10 @@ from typing import Any
 from haystack.tools import Tool
 
 from x1_advisor.agent.evidence import EvidenceRegistry
-from x1_advisor.agent.queries import catalog, run_query
+from x1_advisor.agent.queries import QUERIES, catalog, run_query
 from x1_advisor.cost import Tracker, Usage, estimate
 from x1_advisor.filters import FilterError, compile_filters, filters_json_schema
+from x1_advisor.fingerprint import ACL_POLICY_VERSION
 from x1_advisor.retrieval import retrieve
 
 SNIPPET_CHARS = 600
@@ -131,7 +132,20 @@ def build_tools(conn, *, acl: Any, registry: EvidenceRegistry,
             # bad query name / bad param value: an error the model can act on,
             # never an uncaught 500 out of the service
             return json.dumps({"error": str(exc)})
-        return json.dumps({"rows": rows, "row_count": len(rows)}, default=str)
+        # exact database answers are evidence too, and the most reproducible
+        # kind the system has (Gate 1B-4). Echoing name/params keeps the result
+        # self-describing for replay and for the claim/citation judge.
+        ref = registry.register_query(query_name=name, params=params or {},
+                                      rows=rows,
+                                      acl_policy_version=ACL_POLICY_VERSION)
+        return json.dumps({"ref": ref, "query": name, "params": params or {},
+                           # rows alone are not self-describing: "47" does not
+                           # say *what* was counted or under whose scope. The
+                           # description carries the predicates the SQL applied,
+                           # so the claim built on it can actually be checked.
+                           "description": QUERIES[name]["description"],
+                           "acl_scope": "admin" if acl == "admin" else "requesting user",
+                           "rows": rows, "row_count": len(rows)}, default=str)
 
     def web_research(question: str) -> str:
         from openai import OpenAI
@@ -201,7 +215,11 @@ def build_tools(conn, *, acl: Any, registry: EvidenceRegistry,
                          "required": ["ref"]},
              function=get_source),
         Tool(name="structured_query",
-             description=f"Run a named read-only aggregate/list query. Available: {catalog()}",
+             description=(
+                 "Run a named read-only aggregate/list query against the platform "
+                 "database. The result carries a citation `ref` like any other "
+                 "evidence — cite it for the counts, lists and rankings it "
+                 f"returns. Available: {catalog()}"),
              parameters={"type": "object",
                          "properties": {"name": {"type": "string"},
                                         "params": {"type": "object"}},

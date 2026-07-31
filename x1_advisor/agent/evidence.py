@@ -3,34 +3,69 @@
 Every evidence block shown to the model carries a tiny ref (`ref1`, `ref2`, …).
 The model is instructed to cite claims as `[ref3]` and to omit rather than guess.
 After the turn, `validate_citations` repairs/dedupes/resolves/renumbers and DROPS
-non-resolving refs: internal evidence resolves to (document_id, block_index,
-page_number), web evidence to {url}. The final answer shows `[1] [2] …` with a
-source list — the UI deep-links via get_source / the url.
+non-resolving refs. Three evidence kinds, three resolutions:
+
+  chunk  → (document_id, block_index, page_number) — the UI deep-links via get_source
+  web    → {url}
+  query  → a named registry query + its params, rendered as **platform data**
+
+The third kind exists because exact database answers used to carry no citation
+at all: "50 startups, 42 published" was unsourced prose, so that whole question
+class satisfied the citation bar trivially while looking perfect (Gate 1B-4).
+It is deliberately a distinct type — a live database answer is reproducible by
+re-running the query and is true only as of when it ran, which is a different
+kind of claim from "this document says X".
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any
 
 _REF_RE = re.compile(r"\[\s*(ref\d+)(?:\s*,\s*(ref\d+))*\s*\]", re.I)
 _REF_TOKEN = re.compile(r"ref\d+", re.I)
 
 
+def canonical_params(params: dict[str, Any] | None) -> str:
+    """Stable text form of query params — the identity half of a data citation."""
+    return json.dumps(params or {}, sort_keys=True, default=str,
+                      separators=(",", ":"))
+
+
+def rows_digest(rows: list[dict[str, Any]]) -> str:
+    """Fingerprint of a result set: tells you whether a re-run returned the same
+    thing without storing the rows in the citation."""
+    return hashlib.sha256(
+        json.dumps(rows, sort_keys=True, default=str).encode()).hexdigest()[:16]
+
+
 @dataclass
 class Evidence:
     ref: str
-    kind: str                       # 'chunk' | 'web'
+    kind: str                       # 'chunk' | 'web' | 'query'
     title: str | None = None
     document_id: int | None = None
     block_index: int | None = None
     page_number: int | None = None
     url: str | None = None
+    # 'query' evidence: a named registry query is reproducible, so its identity
+    # is (name, params) and its provenance is (digest, row count, when, policy)
+    query_name: str | None = None
+    query_params: dict[str, Any] | None = None
+    row_count: int | None = None
+    result_digest: str | None = None
+    acl_policy_version: int | None = None
+    executed_at: str | None = None
 
     def resolvable(self) -> bool:
         if self.kind == "chunk":
             return self.document_id is not None and self.block_index is not None
+        if self.kind == "query":
+            return bool(self.query_name)
         return bool(self.url)
 
     def to_citation(self) -> dict[str, Any]:
@@ -38,6 +73,16 @@ class Evidence:
             out = {"type": "internal", "document_id": self.document_id,
                    "block_index": self.block_index, "page_number": self.page_number,
                    "title": self.title}
+        elif self.kind == "query":
+            # rendered as platform data, deliberately NOT as a document: the
+            # reader needs to know this is a live database answer, reproducible
+            # by re-running the named query, and true only as of `as_of`
+            out = {"type": "platform_data", "title": self.title,
+                   "query": self.query_name,
+                   "params": self.query_params, "row_count": self.row_count,
+                   "result_digest": self.result_digest,
+                   "acl_policy_version": self.acl_policy_version,
+                   "as_of": self.executed_at}
         else:
             out = {"type": "web", "url": self.url, "title": self.title}
         return {k: v for k, v in out.items() if v is not None}
@@ -58,6 +103,29 @@ class EvidenceRegistry:
         ref = f"ref{len(self._items) + 1}"
         self._items[ref] = Evidence(ref, "chunk", title, document_id,
                                     block_index, page_number)
+        self._by_key[key] = ref
+        return ref
+
+    def register_query(self, *, query_name: str, params: dict[str, Any] | None,
+                       rows: list[dict[str, Any]],
+                       acl_policy_version: int | None = None) -> str:
+        """Register a structured-query result set as citable evidence.
+
+        Exact database answers ("50 startups, 42 published") used to carry no
+        citation at all, so that whole question class passed the citation bar
+        with zero evidence while looking perfect. A named registry query is the
+        most reproducible evidence the system has — re-run it and check.
+        """
+        key = ("query", query_name, canonical_params(params))
+        if key in self._by_key:
+            return self._by_key[key]
+        ref = f"ref{len(self._items) + 1}"
+        self._items[ref] = Evidence(
+            ref, "query", title=f"X1 platform data — {query_name}",
+            query_name=query_name, query_params=params or {},
+            row_count=len(rows), result_digest=rows_digest(rows),
+            acl_policy_version=acl_policy_version,
+            executed_at=datetime.now(timezone.utc).isoformat(timespec="seconds"))
         self._by_key[key] = ref
         return ref
 

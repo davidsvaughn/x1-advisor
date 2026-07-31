@@ -40,6 +40,7 @@ from typing import Any, Literal
 from openai import OpenAI
 from pydantic import BaseModel
 
+from x1_advisor.agent.evidence import canonical_params
 from x1_advisor.cost import Tracker, Usage
 
 JUDGE_MODEL = os.environ.get("ADVISOR_JUDGE_MODEL", "gpt-5.1")
@@ -170,6 +171,7 @@ def evidence_texts(conn, bundle: dict) -> dict[int, dict[str, Any]]:
     """
     out: dict[int, dict[str, Any]] = {}
     web_findings: list[str] = []
+    query_results: dict[tuple[str, str], str] = {}
     for m in bundle.get("messages", []):
         for content in m.get("content", []) or []:
             result = (content.get("tool_call_result") or {}).get("result")
@@ -181,6 +183,18 @@ def evidence_texts(conn, bundle: dict) -> dict[int, dict[str, Any]]:
                 continue
             if payload.get("findings"):
                 web_findings.append(payload["findings"])
+            if payload.get("query") and "rows" in payload:
+                # platform-data evidence: the rows the model was handed, plus
+                # what they mean. Rows alone are not checkable — "47" does not
+                # say what was counted or under whose scope. Keyed by
+                # (query, params) so it matches the citation's own identity.
+                query_results[(payload["query"],
+                               canonical_params(payload.get("params")))] = (
+                    f"X1 platform data — {payload['query']}"
+                    f"({canonical_params(payload.get('params'))})\n"
+                    f"What this query returns: {payload.get('description', '')}\n"
+                    f"Access scope: {payload.get('acl_scope', 'unknown')}\n"
+                    f"Rows:\n{json.dumps(payload['rows'], default=str, indent=1)}")
 
     for c in bundle.get("validation", {}).get("citations", []):
         n = c.get("n")
@@ -195,6 +209,11 @@ def evidence_texts(conn, bundle: dict) -> dict[int, dict[str, Any]]:
         elif c.get("type") == "web":
             out[n] = {"kind": "web", "text": "\n\n".join(web_findings),
                       "locator": c.get("url", "")}
+        elif c.get("type") == "platform_data":
+            key = (c.get("query"), canonical_params(c.get("params")))
+            out[n] = {"kind": "platform_data",
+                      "text": query_results.get(key, ""),
+                      "locator": f"{c.get('query')}({canonical_params(c.get('params'))})"}
     return out
 
 

@@ -20,8 +20,8 @@ from x1_advisor.ingest.chunker import chunk_markdown
 # message. Pinning only the prompt missed four tool-description edits in Phase 4
 # alone (DESIGN-REVIEW F4).
 SYSTEM_PROMPT_SHA256 = "dc236bb7a28dc61c3dde170aead6f7c328eaa10024bb763a30d6388a7ca3c13a"
-# 2026-07-30 Gate 1B: search_corpus documents `document_summary_not_citable`
-TOOL_SCHEMA_SHA256 = "5a92782e69c0468b35c3bbb8d5a9de07f6464ef35708d4da869075e97b8a8976"
+# 2026-07-31 Gate 1B-4: structured_query results carry a citation ref
+TOOL_SCHEMA_SHA256 = "9ccdfb692390ceb14a64ce6dac820e5bacf19c0fbae518d2fecce41fadf0cab7"
 
 
 def test_prompt_prefix_stability():
@@ -60,6 +60,33 @@ def test_citation_validator_resolves_dedupes_and_drops():
     assert out["citations"][0] == {"type": "internal", "document_id": 10,
                                    "block_index": 2, "title": "Doc A", "n": 1}
     assert out["citations"][1]["url"] == "https://example.com/x"
+
+
+def test_structured_query_results_are_citable_platform_data():
+    reg = EvidenceRegistry()
+    rows = [{"startups": 50, "published": 42}]
+    r1 = reg.register_query(query_name="count_startups", params={}, rows=rows,
+                            acl_policy_version=2)
+    # identical (query, params) dedupes to one ref; different params do not
+    assert reg.register_query(query_name="count_startups", params={}, rows=rows,
+                              acl_policy_version=2) == r1
+    r2 = reg.register_query(query_name="list_startups", params={"limit": 2},
+                            rows=[{"name": "A"}, {"name": "B"}], acl_policy_version=2)
+    assert r2 != r1 and len(reg) == 2
+
+    out = validate_citations(f"There are 50 startups [{r1}]; two are [{r2}].", reg)
+    assert out["resolved"] == 2 and out["dropped"] == []
+    c = out["citations"][0]
+    # rendered as platform data, never as a document
+    assert c["type"] == "platform_data" and c["query"] == "count_startups"
+    assert c["row_count"] == 1 and c["acl_policy_version"] == 2
+    assert c["as_of"] and c["result_digest"]
+    assert "document_id" not in c and "url" not in c
+    # the digest is identity, not decoration: different rows, different digest
+    reg2 = EvidenceRegistry()
+    reg2.register_query(query_name="count_startups", params={},
+                        rows=[{"startups": 51, "published": 42}], acl_policy_version=2)
+    assert reg2.get("ref1").result_digest != reg.get(r1).result_digest
 
 
 def test_chunk_dedup_registry_reuses_refs():
