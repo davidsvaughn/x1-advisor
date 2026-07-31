@@ -1,4 +1,5 @@
-"""Funnel classifier (Gate 1C) — *where* did this question fail?
+"""Funnel classifier (Gate 1C, route-aware since Gate 1D-2) — *where* did this
+question fail?
 
 A pass/fail per question tells a teacher nothing actionable. This localizes the
 failure to a stage by computing four sets and finding the first one that lost
@@ -13,14 +14,22 @@ E ⊄ R is a retrieval problem. E ⊆ R but E ⊄ S is a ranking/cap problem. E 
 but E ⊄ C means the model was handed the answer and did not use it. Each of
 those is a different fix, and before this they all looked like "recall is low".
 
+**Labels are route-aware.** The agent has three evidence routes — corpus
+search, structured platform queries, live web — and golden v1's matchers only
+describe the corpus one. The first version of this classifier judged every
+question by the corpus funnel alone, so a question correctly answered by a
+structured query with a valid platform citation was labelled `retrieval_miss`
+(g020: 22 rows, proper citation, called a miss — a classifier inventing a
+failure mode, again). Now: when expected corpus evidence never surfaced but a
+structured/web route produced *cited* evidence, that is recorded as the note
+`route_substituted:<route>`, not a failure — golden v1 cannot express
+route-equivalent evidence; Gate 4's golden v2 encodes it properly as
+acceptable-evidence groups.
+
 Labels are assigned in funnel order and are **not collapsed** — an earlier-stage
 label does not hide a later-stage one, because a question can fail twice and
 fixing only the first failure would look like progress while the answer stays
 wrong (QA-LOOP-DESIGN §4.3).
-
-Golden v1 has one required evidence set per question rather than v2's
-acceptable-evidence *groups*, so `E` here is "all expected matchers" and a
-question satisfying any strict subset is partial. Gate 4 replaces that.
 
 Run: uv run python -m experiments.funnel <run-directory-name>
 """
@@ -65,23 +74,49 @@ def matches(fact: dict, matcher: dict) -> bool:
     return all(key in checks and checks[key](value) for key, value in matcher.items())
 
 
+def tool_results(bundle: dict) -> list[dict[str, Any]]:
+    """(tool, arguments, parsed payload) for every tool result in the turn.
+    The serialized message's `origin` says which tool produced a result — shape
+    detection on the payload alone cannot attribute error results."""
+    out = []
+    for m in bundle.get("messages") or []:
+        for c in m.get("content") or []:
+            tcr = c.get("tool_call_result")
+            if not tcr:
+                continue
+            origin = tcr.get("origin") or {}
+            try:
+                payload = json.loads(tcr.get("result") or "")
+            except (TypeError, ValueError):
+                payload = None
+            out.append({"tool": origin.get("tool_name"),
+                        "arguments": origin.get("arguments") or {},
+                        "payload": payload if isinstance(payload, dict) else None})
+    return out
+
+
 def classify(conn, bundle: dict, question: dict) -> dict[str, Any]:
-    """One question → labels + the sets that produced them."""
+    """One question → failure labels + informational notes + the sets behind them."""
     explains = bundle.get("retrieval_explain") or []
     expected = question.get("expected") or []
+    calls = tool_results(bundle)
+    structured = [c for c in calls if c["tool"] == "structured_query"]
+    web_calls = [c for c in calls if c["tool"] == "web_research"]
 
-    # R: everything any leg surfaced, across every search this turn
-    r_ids = {f["chunk_id"] for e in explains for f in e["fused"]}
-    # S: what actually came back to the model
-    s_ids = {cid for e in explains for cid in e["returned"]}
-    facts = chunk_facts(conn, sorted(r_ids | s_ids))
-
+    citations = bundle.get("validation", {}).get("citations", [])
     # C: cited evidence. Citations carry (document_id, block_index), not chunk
     # ids, so join on that pair — the chunk's own columns, never its metadata,
     # which does not contain document_id at all.
     cited_pairs = {(c.get("document_id"), c.get("block_index"))
-                   for c in bundle.get("validation", {}).get("citations", [])
-                   if c.get("type") == "internal"}
+                   for c in citations if c.get("type") == "internal"}
+    platform_cited = any(c.get("type") == "platform_data" for c in citations)
+    web_cited = any(c.get("type") == "web" for c in citations)
+
+    # R: everything any leg surfaced, across every corpus search this turn
+    r_ids = {f["chunk_id"] for e in explains for f in e["fused"]}
+    # S: what actually came back to the model
+    s_ids = {cid for e in explains for cid in e["returned"]}
+    facts = chunk_facts(conn, sorted(r_ids | s_ids))
     cited_chunks = {cid for cid, f in facts.items()
                     if (f["document_id"], f["block_index"]) in cited_pairs}
 
@@ -93,15 +128,41 @@ def classify(conn, bundle: dict, question: dict) -> dict[str, Any]:
         per_matcher.append({"matcher": matcher, "in_R": len(in_r),
                             "in_S": len(in_s), "in_C": len(in_c)})
 
+    # the structured route succeeded only if it returned rows AND those rows
+    # were actually cited — rows the answer never used substitute for nothing
+    structured_rows = sum((c["payload"] or {}).get("row_count") or 0
+                          for c in structured)
+    structured_errors = sum(1 for c in structured
+                            if (c["payload"] or {}).get("error"))
+    structured_ok = structured_rows > 0 and platform_cited
+
     labels: list[str] = []
-    # --- mechanical stages, in funnel order -------------------------------
+    notes: list[str] = []
+    # --- mechanical stages, in funnel order, per route ---------------------
     if any(e.get("filter_notes") for e in explains):
         labels.append("routing_error")          # filters matched no known value
     if any(m["in_R"] == 0 for m in per_matcher):
-        labels.append("retrieval_miss")
+        # expected corpus evidence never surfaced. Whether that is a FAILURE
+        # depends on the other routes: cited structured/web evidence is a
+        # legitimate substitute golden v1 just cannot express (route-awareness,
+        # Gate 1D-2 — g020 was called a retrieval_miss for correctly using
+        # structured_query).
+        if structured_ok or web_cited:
+            notes.append("route_substituted:"
+                         + ("structured" if structured_ok else "web"))
+        elif not explains:
+            labels.append("no_evidence_gathered")   # never even searched
+        else:
+            labels.append("retrieval_miss")
     if any(m["in_R"] > 0 and m["in_S"] == 0 for m in per_matcher):
         labels.append("ranking_drop")
     if any(m["in_S"] > 0 and m["in_C"] == 0 for m in per_matcher):
+        labels.append("evidence_unused")
+    if structured_errors:
+        labels.append("structured_query_error")
+    if not explains and structured_rows > 0 and not platform_cited and expected:
+        # the structured route was the only evidence gathered and its rows
+        # went uncited — the structured-route twin of evidence_unused
         labels.append("evidence_unused")
     if bundle.get("validation", {}).get("dropped"):
         labels.append("validation_drop")
@@ -113,7 +174,10 @@ def classify(conn, bundle: dict, question: dict) -> dict[str, Any]:
     labels += (bundle.get("judge") or {}).get("labels", [])
 
     return {"question_id": question["id"], "category": question.get("category"),
-            "pass": not labels, "labels": labels, "matchers": per_matcher,
+            "pass": not labels, "labels": sorted(set(labels)), "notes": notes,
+            "routes": {"corpus": len(explains), "structured": len(structured),
+                       "web": len(web_calls)},
+            "matchers": per_matcher,
             "sets": {"R": len(r_ids), "S": len(s_ids), "C": len(cited_pairs)}}
 
 
@@ -141,10 +205,11 @@ def main() -> None:
     if args.json:
         print(json.dumps(rows, indent=2))
         return
-    print(f"{'qid':<7} {'verdict':<7} labels")
+    print(f"{'qid':<7} {'verdict':<7} labels / notes")
     for r in rows:
+        extra = "".join(f"  ({n})" for n in r.get("notes", []))
         print(f"{r['question_id']:<7} {'PASS' if r['pass'] else 'FAIL':<7} "
-              f"{', '.join(r['labels']) or '-'}")
+              f"{', '.join(r['labels']) or '-'}{extra}")
     counts: dict[str, int] = {}
     for r in rows:
         for label in r["labels"]:
