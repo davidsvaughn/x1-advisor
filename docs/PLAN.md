@@ -86,11 +86,30 @@ acceptable-evidence groups, replay never trusts stored ACLs.
   2026-07-31** (`ba977d5`, `0e3a152`, `905f03f`; runbook
   [`QA-RUNBOOK.md`](QA-RUNBOOK.md)): funnel classifier, run comparator with
   suite-aware gating, three replay modes, teacher runbook. First funnel result
-  relocated the problem — retrieval stages are nearly clean (2 `retrieval_miss`,
-  3 `ranking_drop`, 1 `routing_error`) while `synthesis_error` (18) and
-  `citation_coverage_error` (14) dominate: evidence reaches the model and the
-  model then overstates or under-cites it. **Gate 1 is closed.** The small
-  evidence-boundary fix was never delayed by the full QA package.
+  relocated the problem — retrieval stages are nearly clean while
+  `synthesis_error` (18) and `citation_coverage_error` (14) dominate: evidence
+  reaches the model and the model then overstates or under-cites it. Gate 1
+  was declared closed 2026-07-31 and **reopened the same day** by a
+  second-agent review (nine findings) that found correctness defects in the QA
+  machinery itself → **1D QA-machinery correctness pass — ✅ DONE 2026-07-31**
+  (`655cc04`, `0a85b2b`, `e343cb6`, `32844b5`, `0e77a3f`, `9b07ac9`, + this
+  commit): the judge now judges **per-ref snapshots of what the model saw**
+  (pure function of the bundle; pre-snapshot bundles flagged
+  `reconstructed-legacy`, `unverifiable` gets its own label); the funnel is
+  **route-aware** (g020's correct structured answer is
+  `route_substituted:structured`, not `retrieval_miss` — miss count on the
+  same run 2 → 1); the comparator is **scoring-contract-aware** (differing
+  contracts → NOT COMPARABLE exit 2, which replaces the 17 phantom
+  regressions) and the deterministic gate blocks on **any** per-question
+  recall/MRR decrease; calibration labeling is actually **blind** (strata
+  join back at ingest) and evidence bodies are never tracked; replay covers
+  `get_source` and compares structured digests then→now, and frozen mode
+  refuses pre-registry bundles; platform citations keep their identity in
+  manifests; every Langfuse trace carries the git sha as its `release`.
+  ⚠️ The 1B/1C judged numbers (faithfulness 0.584, coverage 0.813, and the
+  judge-derived funnel labels) were produced by the **legacy** judge against
+  the live DB — treated as void; re-established under snapshot judging by the
+  1D-8 rerun. **Gate 1 closes when the 1D-8 rerun lands.**
 - **Gate 2 — security boundary end-to-end:** one request-auth context consumed
   by every data-bearing tool/endpoint; ACL-aware structured queries; thread
   ownership; **bundle-read + replay authorization and stale-ACL handling**;
@@ -123,7 +142,8 @@ acceptable-evidence groups, replay never trusts stored ACLs.
   golden questions, so the hybrid is dense-only in the majority case — and
   **E6 chunk contextualization vs. document summaries**, which tests whether
   per-chunk context prefixes make the record-summary class unnecessary
-  altogether.
+  altogether. The 1D review added **E7 summary-context exposure** — whether
+  the routed summary's non-citable text feeds `synthesis_error` (§2 Phase 3).
 - **Gate 6 — non-admin exposure:** policy finalization (private docs, premium,
   existence disclosure), persona suite, audience opens only after every path
   consumes the same verified auth context.
@@ -409,6 +429,18 @@ repeatedly.
 entirely — no summary nodes means no summary/expansion machinery and no
 generated-text-as-citation hazard to police (Gate 1B-1 exists only because that class
 exists). Weigh that simplification alongside the recall numbers, not after them.
+
+**E7 — Summary-context exposure** *(added by the Gate 1D review, finding 7)*
+When a record summary routes retrieval to a document, its generated text currently rides
+into the model's context as `document_summary_not_citable`. The citability boundary holds
+mechanically (a summary has no ref), but the *evidence* boundary is enforcement-by-
+instruction: nothing structural stops a claim born in summary text from wearing the
+replacement block's citation. With `synthesis_error` the dominant failure label, that text
+is a live suspect. `ADVISOR_SUMMARY_CONTEXT=0` hides it (summaries route only); the flag
+rides the turn fingerprint as `feature_flags.summary_context`. Run the judged suite both
+ways, `compare` decides: if hiding the text cuts `synthesis_error` without costing answer
+quality, routing-only becomes the default and the instruction-based boundary retires. Entangled
+with E6 the same way summaries are: if E6's contextual chunks win outright, E7 is moot.
 
 - **Exit criteria for Phase 3:** four dated entries in `DECISIONS.md` (embedding, reranker,
   web search, per-role models), each with the manifest path and the runner-up named as

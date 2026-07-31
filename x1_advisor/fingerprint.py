@@ -92,28 +92,33 @@ _watermark_cache: tuple[tuple, dict[str, Any]] | None = None
 
 
 def _corpus_sentinel(conn, config_id: str) -> tuple:
-    """Cheap (~100 ms) "has anything changed?" probe over the three tables that
-    can move retrieval.
+    """Cheap (~100 ms) memoization KEY for the watermark below — the digests
+    are the truth; this only decides whether they must be recomputed.
 
-    `max(xmin)` is what makes it honest: counts and max-ids miss an **in-place**
-    update — a re-embed of the same chunk_ids, or an ACL/metadata correction —
-    and those change retrieval without changing anything countable. xmin is the
-    writing transaction id, in the tuple header, so scanning it never detoasts
-    the vectors.
+    Counts and max-ids miss an **in-place** update — a re-embed of the same
+    chunk_ids, or an ACL/metadata correction — so the sentinel also reads
+    xmin, the writing transaction id in the tuple header (never detoasts the
+    vectors). Both max(xmin) and sum(xmin) per table:
 
-    Caveat: `VACUUM FREEZE` and xid wraparound can move max(xmin) backwards.
-    That direction is safe — a mismatch only forces a recompute of the same
-    digests. A write always raises it, so a real change is never missed.
+    * max alone has a real window (Gate 1D review, finding 9): a long-running
+      transaction with a LOWER xid committing after a higher xid already
+      exists raises nothing. But its in-place update rewrites the tuple's
+      xmin, which moves the SUM even when the max stands still.
+    * `VACUUM FREEZE` / wraparound can move either backwards — safe direction,
+      a mismatch only forces recomputing identical digests.
+
+    Residual window, stated honestly: concurrent updates between two probes
+    whose xmin deltas exactly cancel in the sum. With single-writer,
+    admin-run ingest that requires an engineered coincidence; if writers ever
+    multiply, the upgrade path is an explicit corpus revision bumped by every
+    writer, not a cleverer sentinel.
     """
-    rows = [
-        conn.execute("SELECT count(*) AS n, coalesce(max(xmin::text::bigint),0) AS x "
-                     "FROM advisor.documents").fetchone(),
-        conn.execute("SELECT count(*) AS n, coalesce(max(xmin::text::bigint),0) AS x "
-                     "FROM advisor.doc_chunks").fetchone(),
-        conn.execute(f"SELECT count(*) AS n, coalesce(max(xmin::text::bigint),0) AS x "
-                     f"FROM advisor.emb_{config_id}").fetchone(),
-    ]
-    return (config_id, *[(r["n"], r["x"]) for r in rows])
+    q = ("SELECT count(*) AS n, coalesce(max(xmin::text::bigint),0) AS mx, "
+         "coalesce(sum(xmin::text::bigint),0) AS sx FROM {}")
+    rows = [conn.execute(q.format("advisor.documents")).fetchone(),
+            conn.execute(q.format("advisor.doc_chunks")).fetchone(),
+            conn.execute(q.format(f"advisor.emb_{config_id}")).fetchone()]
+    return (config_id, *[(r["n"], r["mx"], r["sx"]) for r in rows])
 
 
 def corpus_watermark(conn, config_id: str) -> dict[str, Any]:

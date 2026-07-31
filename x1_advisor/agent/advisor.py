@@ -182,15 +182,18 @@ def run_turn(conn, question: str, *, acl: Any = "admin",
         messages = [*messages, wrap, reply]
     validated = validate_citations(raw_answer, registry)
 
+    from x1_advisor.agent.tools import SUMMARY_CONTEXT_ENABLED
     from x1_advisor.fingerprint import turn_fingerprint
 
     config_id = active_config(conn).id
     # computed once, used twice: the Langfuse trace metadata (so a bad trace
     # names the code/prompt/corpus that produced it) and the turn bundle
-    fingerprint = turn_fingerprint(conn, prompt=SYSTEM_PROMPT, tools=tools,
-                                   agent_model=AGENT_MODEL,
-                                   agent_model_resolved=model_resolved,
-                                   config_id=config_id)
+    fingerprint = turn_fingerprint(
+        conn, prompt=SYSTEM_PROMPT, tools=tools, agent_model=AGENT_MODEL,
+        agent_model_resolved=model_resolved, config_id=config_id,
+        # flags that change what the model is shown must ride the fingerprint,
+        # or an E7 A/B run would be indistinguishable from noise
+        feature_flags={"summary_context": SUMMARY_CONTEXT_ENABLED})
 
     result = {
         "question": question,

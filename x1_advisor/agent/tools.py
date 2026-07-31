@@ -33,6 +33,17 @@ WEB_FINDINGS_CHARS = 1600
 SEARCH_K = 8
 WEB_MODEL = "gpt-5.1"
 
+# E7 (PLAN Gate 5): when a record summary routes retrieval to a document, is
+# its generated text shown to the model as labelled non-citable context
+# (default — current behavior), or does the summary influence ROUTING ONLY?
+# The "not citable" boundary is enforcement-by-instruction: nothing structural
+# stops a claim born in summary text from wearing the replacement block's ref
+# (Gate 1D review, finding 7). Whether hiding the text reduces synthesis_error
+# or just degrades answers is an empirical question — E7 runs the suite both
+# ways and lets compare decide. Rides the turn fingerprint as a feature flag.
+SUMMARY_CONTEXT_ENABLED = os.environ.get(
+    "ADVISOR_SUMMARY_CONTEXT", "1") not in ("0", "false", "")
+
 
 def _clip(text: str, limit: int) -> tuple[str, bool]:
     text = text.strip()
@@ -92,7 +103,7 @@ def build_tools(conn, *, acl: Any, registry: EvidenceRegistry,
                 item["page"] = h.page_number
             if truncated:
                 item["_truncated"] = True   # full text via get_source(ref)
-            if h.routed_by_summary:
+            if h.routed_by_summary and SUMMARY_CONTEXT_ENABLED:
                 # a generated summary routed us to this document. Context only:
                 # it has no ref of its own and must never be cited (Gate 1B).
                 item["document_summary_not_citable"], _ = _clip(
