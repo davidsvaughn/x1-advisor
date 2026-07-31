@@ -262,18 +262,42 @@ Measured 2026-07-31, 42 pairs, no human labels yet:
 Read it this way: **all four pass the synthetic set, so none is broken, and
 none of that says which is right.** What the run does establish is that the
 candidates disagree on about one real pair in five — so the judge is a real
-variable, not a detail. gpt-5.1 was the strict outlier (16 `unsupported`
-against 11 for each 5.6 tier), which is the direction that deflates
-faithfulness; the default moved to `gpt-5.6-terra` on that basis, *provisionally*.
+variable, not a detail.
 
-Two rules learned here:
+The candidates differ mainly in *where they put borderline claims*:
+
+| judge | leans | verdict mix (42 pairs) |
+|---|---|---|
+| gpt-5.1 | harshest | 16 unsupported, 12 partial, 14 supported |
+| gpt-5.6-luna | hedges to the middle | 11 unsupported, **17 partial**, 14 supported |
+| gpt-5.6-sol | balanced | 11 unsupported, 12 partial, 19 supported |
+| gpt-5.6-terra | most generous | 11 unsupported, 10 partial, **21 supported** |
+
+That ladder — nothing about the agent — is why swapping gpt-5.1 for terra moved
+suite faithfulness **+0.185** on identical answers. **No judge gave a false
+clean bill** (an `unsupported` claim called `supported`): zero, all four.
+
+Default: **`gpt-5.6-luna`**. Four rules learned getting there, two of them the
+hard way:
 
 1. **A bigger model is not automatically a better judge.** The job is applying
-   the rubric the way a careful person does. `gpt-5.6-luna` is the cheapest
-   *and* the budget tier — it is excluded for a task-specific reason (poor
-   long-context performance, and the judge is deliberately unclipped since
-   1E-3), not because it is small. `gpt-5.6-sol` is the flagship and agrees
-   with terra 0.86 of the time at 2.9× the price: no measured reason to pay it.
-2. **Until human labels exist this picks the least-bad option, not the right
-   one.** The bake-off scores every candidate against those labels the moment
-   they land — one command, and it can overturn the default.
+   the rubric the way a careful person does, not being smart. `gpt-5.6-sol` is
+   the flagship, agrees with terra 0.86 of the time, and costs 2.9× — no
+   measured reason to pay it.
+2. **Check that the weakness you are excluding on applies to the actual
+   workload.** luna was first excluded for long-context degradation. But the
+   judge reads *one claim's* cited sources — median 932 chars, p90 2,527, only
+   3 of 42 items over 3k. The regime that hurts luna is not the regime this
+   judge runs in.
+3. **Do not pick the judge that agrees with another model.** terra was then
+   chosen for matching an assistant's blind labels best (23/32 vs luna's 21/32
+   — two items, inside noise). Those labels skewed lenient and terra is the
+   most generous judge, so that comparison partly measured a *shared bias*, and
+   it happened to be the choice that made the headline number look best. When
+   the flattering option wins on a soft reference, distrust it.
+4. **The judge must not be the agent's model.** Otherwise it grades its own
+   answers and self-preference rides silently into every comparison. Agent on
+   terra ⇒ judge not terra.
+
+Until human labels exist this picks the least-bad option, not the right one.
+The bake-off scores every candidate against those labels the moment they land.
