@@ -7,8 +7,8 @@
 > evidence and a confidence level. Do not take the claims on trust — several are
 > exactly the kind of thing the author of the code is likely to be wrong about.
 >
-> Context to load first: [`PLAN.md`](PLAN.md) (the working plan; phases + §9 context
-> discipline), [`DECISIONS.md`](DECISIONS.md) (dated evidence log), then the modules
+> Context to load first: [`PLAN.md`](../PLAN.md) (the working plan; phases + §9 context
+> discipline), [`DECISIONS.md`](../DECISIONS.md) (dated evidence log), then the modules
 > cited below. The project: a conversational research agent over the X1
 > startup/investor CRM (Postgres entities → markdown profile docs, eval-report
 > bundles, pitch decks, web) returning source-grounded answers with validated

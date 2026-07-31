@@ -2,10 +2,10 @@
 
 > ⚠️ **STALE SNAPSHOT (2026-07-07).** The state table below predates the entire
 > build-out (ingestion, retrieval, agent, service all now exist on test) and the
-> 2026-07-30 reviews. **Current truth: [`PLAN.md`](PLAN.md) §R** (readiness
+> 2026-07-30 reviews. **Current truth: [`PLAN.md`](../PLAN.md) §R** (readiness
 > matrix + gate sequence + active proposal docs). Read order for a new agent:
 > `PLAN.md` §R → the three active proposals it lists → `DECISIONS.md` →
-> [`ARCHITECTURE.md`](ARCHITECTURE.md) / [`ARCHITECTURE-REVIEW.md`](ARCHITECTURE-REVIEW.md)
+> [`ARCHITECTURE.md`](../ARCHITECTURE.md) / [`ARCHITECTURE-REVIEW.md`](../ARCHITECTURE-REVIEW.md)
 > for base design rationale. The rest of this file is kept as historical record.
 
 ## What this project is

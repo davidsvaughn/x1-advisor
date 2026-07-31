@@ -51,10 +51,13 @@ did, same-day, as review criteria were folded in).
 | `docs/QA-LOOP-DESIGN-2026-07-30.md` | **adopted design — largely implemented** (Gate 1); kept as rationale |
 | `docs/ARCHITECTURE.md` | **historical design draft** (2026-06-12) — several `[DECIDED]` items since superseded; see its banner |
 | `docs/ARCHITECTURE-REVIEW.md` | **historical review** (2026-07-07) — PLAN follows it where it disagrees with ARCHITECTURE |
-| `docs/DESIGN-REVIEW-2026-07-30.md`, `docs/ARCHITECTURE-PLAN-REVIEW-2026-07-30.md`, `docs/QA-BANK-CONTEXT-REVIEW-2026-07-30.md` | **historical reviews** — conclusions absorbed into PLAN §R and the docs they reviewed |
-| `docs/HANDOFF.md` | **stale snapshot** (2026-07-07; loud banner inside) |
 | `docs/refs/` | reference-mining notes (pipeshub, chroma) cited by ARCHITECTURE |
-| `docs/chats/` | **artifact** — June kickoff transcripts (see its README) |
+| `docs/archive/` | **absorbed point-in-time docs** — the 2026-07-30 reviews, the stale HANDOFF snapshot, kickoff transcripts. Evidence trail only; see its README |
+
+**Archive convention:** when a dated doc's conclusions are fully absorbed and
+it is no longer consulted for current decisions, it moves to `docs/archive/`
+(git mv, links fixed) and this table is updated. Living docs and
+still-consulted rationale stay at the top level.
 
 ## Standing rules (non-negotiable)
 

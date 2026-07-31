@@ -1,7 +1,7 @@
 # Question Bank — master test-question corpus for X1 Advisor
 
 > Date: 2026-07-30, **revised same day** per
-> [`QA-BANK-CONTEXT-REVIEW-2026-07-30.md`](QA-BANK-CONTEXT-REVIEW-2026-07-30.md)
+> [`QA-BANK-CONTEXT-REVIEW-2026-07-30.md`](archive/QA-BANK-CONTEXT-REVIEW-2026-07-30.md)
 > §7 (orthogonal readiness dimensions; SCAN split into SCAN-T/SCAN-A;
 > tool-not-ready reclassifications; curation weighting; tiered golden-v2 plan).
 > Synthesized from **13+ places** where David wrote example/test

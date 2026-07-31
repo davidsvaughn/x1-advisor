@@ -5,15 +5,15 @@
 > modes, and snapshot judging are all live; [`QA-RUNBOOK.md`](QA-RUNBOOK.md) is
 > the operating manual, this document is the design rationale).
 > Originally: proposal, revised same day per
-> [`QA-BANK-CONTEXT-REVIEW-2026-07-30.md`](QA-BANK-CONTEXT-REVIEW-2026-07-30.md)
+> [`QA-BANK-CONTEXT-REVIEW-2026-07-30.md`](archive/QA-BANK-CONTEXT-REVIEW-2026-07-30.md)
 > §7 (all 13 requested changes adopted — headline: three replay modes, evidence
 > groups instead of one mandatory set, replay never trusts a stored ACL,
 > expanded fingerprints, genuinely-blind held-out cases). §8 records the
 > resolutions.
 >
-> Context: [`ARCHITECTURE-PLAN-REVIEW-2026-07-30.md`](ARCHITECTURE-PLAN-REVIEW-2026-07-30.md)
+> Context: [`ARCHITECTURE-PLAN-REVIEW-2026-07-30.md`](archive/ARCHITECTURE-PLAN-REVIEW-2026-07-30.md)
 > (the independent review; its Gates 1–6 are taken as the working sequence) and
-> [`DESIGN-REVIEW-2026-07-30.md`](DESIGN-REVIEW-2026-07-30.md) (fresh-eyes review;
+> [`DESIGN-REVIEW-2026-07-30.md`](archive/DESIGN-REVIEW-2026-07-30.md) (fresh-eyes review;
 > its step-0 fixes are assumed to land first).
 
 ## 1. The product requirement (David, 2026-07-30)

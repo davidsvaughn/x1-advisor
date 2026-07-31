@@ -1,7 +1,7 @@
 # Context Snapshot — carrying "what's on screen" into the advisor
 
 > Date: 2026-07-30. Status: **proposal, revised same day** per
-> [`QA-BANK-CONTEXT-REVIEW-2026-07-30.md`](QA-BANK-CONTEXT-REVIEW-2026-07-30.md)
+> [`QA-BANK-CONTEXT-REVIEW-2026-07-30.md`](archive/QA-BANK-CONTEXT-REVIEW-2026-07-30.md)
 > §7 (all requested changes adopted — headline: v1 scopes are **extensional**;
 > the original intensional re-materialization contradicted replayability).
 > §9 records the resolutions and the subsequent typed-reference refinement

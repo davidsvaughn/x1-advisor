@@ -739,7 +739,7 @@ The design's own "Next" step is correct; this sharpens it against everything abo
   `app/Http/Controllers/SharedDocumentController.php:37` (visibility semantics),
   `app/Models/StartupCompanyEvaluation.php:61` (raw_json = GCS path), migrations for enum
   drops and `visibility`.
-- References: `docs/refs/pipeshub-ai.md`, `docs/refs/chroma.md`, `docs/chats/chat1/2.md`,
+- References: `docs/refs/pipeshub-ai.md`, `docs/refs/chroma.md`, `docs/archive/chats/chat1/2.md`,
   `x1-link/docs/advisor/HERMES-LESSONS.md`, `x1_advisor/cost.py`.
 - July-2026 component research (embeddings/rerankers/web-search/pgvector/extraction/BM25):
   verified against official docs & pricing pages; key sources include

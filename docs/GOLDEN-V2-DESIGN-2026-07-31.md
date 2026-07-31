@@ -10,7 +10,7 @@
 > [`QUESTION-BANK.md`](QUESTION-BANK.md) (the designated seed; provenance,
 > readiness model, curation weighting), [`PLAN.md`](PLAN.md) §R Gate 4,
 > [`QA-LOOP-DESIGN-2026-07-30.md`](QA-LOOP-DESIGN-2026-07-30.md) (funnel labels,
-> `expected_route`), [`QA-BANK-CONTEXT-REVIEW-2026-07-30.md`](QA-BANK-CONTEXT-REVIEW-2026-07-30.md)
+> `expected_route`), [`QA-BANK-CONTEXT-REVIEW-2026-07-30.md`](archive/QA-BANK-CONTEXT-REVIEW-2026-07-30.md)
 > §7 (orthogonal readiness fields; SCAN-T/SCAN-A split; tiered plan),
 > [`CONTEXT-SNAPSHOT-DESIGN-2026-07-30.md`](CONTEXT-SNAPSHOT-DESIGN-2026-07-30.md)
 > (context fixtures, Gate 3B), and the 2026-07-31 provenance finding below.

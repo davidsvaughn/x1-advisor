@@ -4,15 +4,15 @@
 > Operationalizes [`ARCHITECTURE.md`](ARCHITECTURE.md)
 > (the design) as amended by [`ARCHITECTURE-REVIEW.md`](ARCHITECTURE-REVIEW.md) (the review).
 > Where the two disagree, this plan follows the review. Supersedes the "Suggested next step"
-> section of [`HANDOFF.md`](HANDOFF.md).
+> section of [`HANDOFF.md`](archive/HANDOFF.md).
 
 ---
 
 ## §R. Revision — 2026-07-30 (supersedes the phase-exit shorthand below)
 
 Two independent design reviews
-([`DESIGN-REVIEW-2026-07-30.md`](DESIGN-REVIEW-2026-07-30.md) self-audit,
-[`ARCHITECTURE-PLAN-REVIEW-2026-07-30.md`](ARCHITECTURE-PLAN-REVIEW-2026-07-30.md)
+([`DESIGN-REVIEW-2026-07-30.md`](archive/DESIGN-REVIEW-2026-07-30.md) self-audit,
+[`ARCHITECTURE-PLAN-REVIEW-2026-07-30.md`](archive/ARCHITECTURE-PLAN-REVIEW-2026-07-30.md)
 second-agent) converged on: the architecture is sound, but the project is a
 **validated admin prototype**, not "Phases 0–4 complete" — the phase exit
 criteria were met as written but were too weak to support the conclusions drawn
@@ -56,7 +56,7 @@ Page context flows **into** the advisor only (see context-snapshot design).
   2026-07-31 (David: all three).** See Track H below.
 
 All three were reviewed same-day
-([`QA-BANK-CONTEXT-REVIEW-2026-07-30.md`](QA-BANK-CONTEXT-REVIEW-2026-07-30.md):
+([`QA-BANK-CONTEXT-REVIEW-2026-07-30.md`](archive/QA-BANK-CONTEXT-REVIEW-2026-07-30.md):
 coherent bet, no fatal problems) and **revised per its §7** — headline
 corrections: extensional snapshots (replayability), `scan_text` vs
 `analyze_scope` split (two future capabilities, not one), three replay modes,
