@@ -1,0 +1,312 @@
+"""Claim/citation judge (Gate 1B-3) — does the cited evidence actually support
+the claim in front of it?
+
+`citation_resolvability` was the Phase-4 exit metric and it proved the wrong
+thing: that every `[n]` points at a block that exists. A model citing plausibly
+but wrongly scores a perfect 100%, and so does a model that cites nothing at all
+(0/0). Gate 1A then measured 38% of those "resolvable" citations landing on
+generated summaries. Resolvability is a liveness check, not a quality one.
+
+Two questions, judged separately because they fail separately:
+
+* **faithfulness** — of the factual claims that carry a citation, how many are
+  actually entailed by the cited text? A failure here is `synthesis_error`.
+* **citation coverage** — of the factual claims in the answer, how many carry a
+  citation at all? A failure here is `citation_coverage_error`.
+
+Evidence comes from what the model was actually shown, not from a fresh search:
+internal refs resolve to the full source block, web refs to the `web_research`
+findings text captured in the bundle. The question is whether the answer follows
+from the evidence it had.
+
+**The judge is itself unverified until calibrated.** The second review was
+explicit: do not turn the judge's score into another unverified proxy. So every
+score carries the calibration state it was produced under, and
+`experiments/judge_calibrate.py` is how that state is earned.
+
+Run: uv run python -m x1_advisor.agent.judge <turn_id> [--json]
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from typing import Any, Literal
+
+from openai import OpenAI
+from pydantic import BaseModel
+
+from x1_advisor.cost import Tracker, Usage
+
+JUDGE_MODEL = os.environ.get("ADVISOR_JUDGE_MODEL", "gpt-5.1")
+SCHEMA_VERSION = 1
+# a claim is judged against the text the model saw; blocks are bounded already
+EVIDENCE_CHARS = 8000
+
+# The judge owns the answer to "how far should you trust me". The labelled set
+# is data and the agreement measurement is a harness
+# (experiments/judge_calibrate.py), but the *state* travels with every score.
+CALIBRATION_SET = (Path(__file__).resolve().parents[2] / "experiments"
+                   / "judge_calibration.jsonl")
+LABELS = ("supported", "partial", "unsupported")
+MIN_HUMAN_LABELS = 30      # below this, agreement is not a meaningful estimate
+
+
+def load_calibration_set() -> list[dict]:
+    if not CALIBRATION_SET.exists():
+        return []
+    return [json.loads(line) for line in
+            CALIBRATION_SET.read_text().splitlines() if line.strip()]
+
+
+def calibration_state(items: list[dict] | None = None) -> dict:
+    """What a judged score is allowed to claim about itself.
+
+    `synthetic-only` means the judge has been shown to catch objective errors
+    (mutated numbers, swapped entities) but has never been checked against a
+    human on real, ambiguous text. That is a real distinction and the score
+    must carry it.
+    """
+    items = load_calibration_set() if items is None else items
+    human = [i for i in items if i.get("provenance") == "human" and i.get("label")]
+    synthetic = [i for i in items
+                 if i.get("provenance") == "synthetic" and i.get("label")]
+    state = ("human-calibrated" if len(human) >= MIN_HUMAN_LABELS
+             else "synthetic-only" if synthetic else "uncalibrated")
+    return {"state": state, "human_labels": len(human),
+            "synthetic_labels": len(synthetic),
+            "min_human_labels": MIN_HUMAN_LABELS, "judge_model": JUDGE_MODEL}
+
+
+# --------------------------------------------------------------------------
+# structured outputs
+
+class Claim(BaseModel):
+    text: str
+    is_factual: bool
+    citation_numbers: list[int]
+
+
+class ClaimInventory(BaseModel):
+    claims: list[Claim]
+
+
+class Entailment(BaseModel):
+    verdict: Literal["supported", "partial", "unsupported"]
+    reason: str
+
+
+INVENTORY_PROMPT = """\
+List every distinct assertion in this ANSWER.
+
+For each one give:
+- text: the assertion, quoted or closely paraphrased from the answer
+- is_factual: true if it states a checkable fact about the world (a number, a
+  name, an event, a conclusion attributed to a source). False for hedges,
+  questions, offers to help, restatements of the user's question, and pure
+  connective prose.
+- citation_numbers: the bracketed citation numbers attached to it, e.g. [1,3]
+  becomes [1, 3]. Empty list if it carries none.
+
+Split compound sentences into separate assertions when they make separate
+factual claims. Do not invent assertions that are not in the text.
+
+ANSWER:
+---
+{answer}
+"""
+
+ENTAILMENT_PROMPT = """\
+Decide whether the SOURCE text supports the CLAIM.
+
+- supported: every factual element of the claim follows from the source.
+- partial: the source supports part of the claim but not all of it, or supports
+  it in weaker terms than the claim states.
+- unsupported: the source does not establish the claim, contradicts it, or is
+  about something else.
+
+Judge only against the source given. Do not use outside knowledge. A claim that
+is true in the world but absent from the source is unsupported. Numbers, names
+and dates must match: "68" is not support for "78".
+
+Give a one-sentence reason naming the specific element that decided it.
+
+CLAIM:
+{claim}
+
+SOURCE:
+---
+{source}
+"""
+
+
+# --------------------------------------------------------------------------
+
+def _ask(client: OpenAI, tracker: Tracker | None, prompt: str,
+         schema: type[BaseModel], stage: str) -> BaseModel | None:
+    resp = client.chat.completions.parse(
+        model=JUDGE_MODEL,
+        messages=[{"role": "user", "content": prompt}],
+        response_format=schema,
+    )
+    if tracker:
+        tracker.log(provider="openai", model=JUDGE_MODEL, stage=stage,
+                    usage=Usage.from_haystack_meta("openai", resp.usage.model_dump()))
+    return resp.choices[0].message.parsed
+
+
+def evidence_texts(conn, bundle: dict) -> dict[int, dict[str, Any]]:
+    """Citation number → the text the model was shown for it.
+
+    Internal refs resolve to the full source block (the model may have seen only
+    a snippet, but the block is what the citation points at). Web refs resolve to
+    the `web_research` findings captured in the bundle — there is no stored page
+    text, and refetching would judge a different document than the one the model
+    read.
+    """
+    out: dict[int, dict[str, Any]] = {}
+    web_findings: list[str] = []
+    for m in bundle.get("messages", []):
+        for content in m.get("content", []) or []:
+            result = (content.get("tool_call_result") or {}).get("result")
+            if not result:
+                continue
+            try:
+                payload = json.loads(result)
+            except (TypeError, ValueError):
+                continue
+            if payload.get("findings"):
+                web_findings.append(payload["findings"])
+
+    for c in bundle.get("validation", {}).get("citations", []):
+        n = c.get("n")
+        if c.get("type") == "internal" and conn is not None:
+            row = conn.execute(
+                """SELECT c.text FROM advisor.doc_chunks c
+                   WHERE c.document_id = %s AND c.block_index = %s""",
+                (c["document_id"], c["block_index"]),
+            ).fetchone()
+            out[n] = {"kind": "internal", "text": (row or {}).get("text", ""),
+                      "locator": f"doc {c['document_id']} block {c['block_index']}"}
+        elif c.get("type") == "web":
+            out[n] = {"kind": "web", "text": "\n\n".join(web_findings),
+                      "locator": c.get("url", "")}
+    return out
+
+
+def judge_bundle(conn, bundle: dict, *, tracker: Tracker | None = None,
+                 calibration: dict | None = None) -> dict[str, Any]:
+    """Judge one turn bundle. Returns scores + per-claim verdicts."""
+    client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+    answer = bundle.get("validation", {}).get("answer", "")
+    sources = evidence_texts(conn, bundle)
+
+    inventory = _ask(client, tracker, INVENTORY_PROMPT.format(answer=answer),
+                     ClaimInventory, "judge.inventory")
+    claims = list(inventory.claims) if inventory else []
+    factual = [c for c in claims if c.is_factual]
+    cited = [c for c in factual if c.citation_numbers]
+    uncited = [c for c in factual if not c.citation_numbers]
+
+    def judge_one(claim: Claim) -> dict:
+        texts, locators, missing = [], [], []
+        for n in claim.citation_numbers:
+            src = sources.get(n)
+            if src and src["text"]:
+                texts.append(f"[{n}] {src['text'][:EVIDENCE_CHARS]}")
+                locators.append(src["locator"])
+            else:
+                missing.append(n)
+        if not texts:
+            # cited a number with no retrievable text behind it: not the model
+            # inventing a claim, but not verifiable either — never silently
+            # counted as support
+            return {"claim": claim.text, "citations": claim.citation_numbers,
+                    "verdict": "unverifiable", "reason": f"no evidence text for {missing}",
+                    "locators": []}
+        verdict = _ask(client, tracker,
+                       ENTAILMENT_PROMPT.format(claim=claim.text,
+                                                source="\n\n".join(texts)),
+                       Entailment, "judge.entailment")
+        return {"claim": claim.text, "citations": claim.citation_numbers,
+                "verdict": verdict.verdict if verdict else "unverifiable",
+                "reason": verdict.reason if verdict else "judge returned nothing",
+                "locators": locators}
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        verdicts = list(pool.map(judge_one, cited))
+
+    counts = {v: sum(1 for x in verdicts if x["verdict"] == v)
+              for v in ("supported", "partial", "unsupported", "unverifiable")}
+    judged = counts["supported"] + counts["partial"] + counts["unsupported"]
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "judge_model": JUDGE_MODEL,
+        # a score is only as trustworthy as the judge behind it; carry that state
+        # with the number so it can never be read as established fact
+        "calibration": calibration or {"state": "uncalibrated"},
+        "claims": {"total": len(claims), "factual": len(factual),
+                   "cited": len(cited), "uncited": len(uncited)},
+        "verdicts": verdicts,
+        "uncited_claims": [c.text for c in uncited],
+        "counts": counts,
+        "scores": {
+            # strict: only full entailment counts. `partial` is reported, never
+            # quietly folded into the numerator.
+            "faithfulness": (counts["supported"] / judged) if judged else None,
+            "citation_coverage": (len(cited) / len(factual)) if factual else None,
+        },
+        "labels": sorted(
+            ({"synthesis_error"} if counts["unsupported"] or counts["partial"] else set())
+            | ({"citation_coverage_error"} if uncited else set())),
+    }
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("turn_id", type=int)
+    ap.add_argument("--json", action="store_true")
+    args = ap.parse_args()
+
+    from x1_advisor.db import connect
+
+    tracker = Tracker(run_id=f"judge:{args.turn_id}")
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT research_record FROM advisor.turns WHERE id = %s",
+            (args.turn_id,)).fetchone()
+        if not row or not row["research_record"]:
+            sys.exit(f"turn {args.turn_id} has no research_record")
+        result = judge_bundle(conn, row["research_record"], tracker=tracker,
+                              calibration=calibration_state())
+
+    if args.json:
+        print(json.dumps(result, indent=2))
+        return
+    s, c = result["scores"], result["claims"]
+    print(f"turn {args.turn_id}  judge={result['judge_model']}  "
+          f"calibration={result['calibration']['state']}")
+    print(f"claims: {c['factual']} factual ({c['cited']} cited, {c['uncited']} uncited)")
+    def pct(v: float | None) -> str:
+        return "n/a" if v is None else format(v, ".2f")
+
+    n = result["counts"]
+    print(f"faithfulness      {pct(s['faithfulness'])}   "
+          f"({n['supported']} supported, {n['partial']} partial, "
+          f"{n['unsupported']} unsupported, {n['unverifiable']} unverifiable)")
+    print(f"citation coverage {pct(s['citation_coverage'])}")
+    for v in result["verdicts"]:
+        if v["verdict"] != "supported":
+            print(f"  ! {v['verdict']:<12} {v['claim'][:80]}")
+            print(f"    {v['reason'][:110]}")
+    for u in result["uncited_claims"]:
+        print(f"  ? uncited      {u[:80]}")
+    print(f"\nlabels: {result['labels'] or 'none'}   cost ${tracker.run_total:.4f}")
+
+
+if __name__ == "__main__":
+    main()

@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -24,7 +25,9 @@ import yaml
 
 from experiments.manifest import code_fingerprint, git_sha, open_new_manifest
 from x1_advisor.agent.bundle import QA_ARTIFACTS_DIR, export_bundle, manifest_record
-from x1_advisor.cost import Tracker
+from x1_advisor.agent.judge import calibration_state, judge_bundle
+from x1_advisor.telemetry import emit_judge_scores
+from x1_advisor.cost import JsonlSink, Tracker
 from x1_advisor.db import connect
 from x1_advisor.filters import FilterError
 from x1_advisor.retrieval import Hit, retrieve
@@ -59,7 +62,7 @@ def grade(hits: list[Hit], expected: list[dict]) -> dict:
     }
 
 
-def run_agent_mode(questions: list[dict], limit: int) -> None:
+def run_agent_mode(questions: list[dict], limit: int, judge: bool = False) -> None:
     """Phase-4 exit measurement: agent end-to-end over golden questions.
 
     Grades the CITATION contract mechanically (resolved/emitted refs — the >=95%
@@ -75,7 +78,10 @@ def run_agent_mode(questions: list[dict], limit: int) -> None:
     run_id, manifest_path, manifest_file = open_new_manifest(
         f"{dt.date.today()}_agent_v1")
     emitted = resolved = 0
-    costs, latencies, no_citation = [], [], []
+    costs, latencies, no_citation, judged = [], [], [], []
+    judge_tracker = Tracker(run_id=f"{run_id}:judge",
+                            sink=JsonlSink(os.environ.get("ADVISOR_COST_LEDGER",
+                                                          "cost_ledger.jsonl")))
     with connect() as conn, manifest_file as manifest:
         for q in subset:
             r = run_turn(conn, q["question"], acl="admin")
@@ -86,6 +92,17 @@ def run_agent_mode(questions: list[dict], limit: int) -> None:
             latencies.append(r["latency_ms"])
             if cs["resolved"] == 0:
                 no_citation.append(q["id"])
+            if judge:
+                # resolvability says a citation points somewhere real; this says
+                # whether the somewhere supports the claim (Gate 1B-3).
+                # Judge spend is real spend: it goes through cost.py like
+                # everything else, and is reported separately from turn cost.
+                verdict = judge_bundle(conn, r["bundle"], tracker=judge_tracker,
+                                       calibration=calibration_state())
+                r["bundle"]["scores"].update(verdict["scores"])
+                r["bundle"]["judge"] = verdict
+                emit_judge_scores(r.get("trace_id"), verdict)
+                judged.append(verdict)
             # storage split (QA-LOOP §4.1): the complete bundle — answer text,
             # every tool result, evidence text — goes to owner-only local
             # storage; the committed manifest gets the body-free projection
@@ -112,6 +129,27 @@ def run_agent_mode(questions: list[dict], limit: int) -> None:
     print(f"cost/turn: mean ${sum(costs)/n:.4f}, p50 ${costs[n//2]:.4f}, "
           f"max ${costs[-1]:.4f}, total ${sum(costs):.4f}")
     print(f"latency: p50 {latencies[n//2]}ms, max {latencies[-1]}ms")
+    if judged:
+        def mean_of(key):
+            vals = [j["scores"][key] for j in judged if j["scores"][key] is not None]
+            return sum(vals) / len(vals) if vals else None
+
+        tot = {k: sum(j["counts"][k] for j in judged)
+               for k in ("supported", "partial", "unsupported", "unverifiable")}
+        state = judged[0]["calibration"]
+        print(f"\n-- claim/citation judge ({judged[0]['judge_model']}, "
+              f"calibration: {state['state']}) --")
+        print(f"faithfulness      {mean_of('faithfulness'):.3f}   "
+              f"(claims: {tot['supported']} supported, {tot['partial']} partial, "
+              f"{tot['unsupported']} unsupported, {tot['unverifiable']} unverifiable)")
+        print(f"citation coverage {mean_of('citation_coverage'):.3f}   "
+              f"uncited factual claims: "
+              f"{sum(j['claims']['uncited'] for j in judged)}")
+        flagged = [j for j in judged if j["labels"]]
+        print(f"questions with judge labels: {len(flagged)}/{len(judged)}")
+        print(f"judge cost: ${judge_tracker.run_total:.4f} "
+              f"(${judge_tracker.run_total / len(judged):.4f}/question, "
+              "separate from turn cost above)")
     print(f"manifest (body-free): {manifest_path}")
     print(f"bundles (owner-only): {QA_ARTIFACTS_DIR / run_id}")
 
@@ -126,12 +164,15 @@ def main() -> None:
     ap.add_argument("--limit", type=int, default=20, help="agent mode: max questions")
     ap.add_argument("--rerank", action="store_true",
                     help="E2: Jina rerank blend over the fused candidate pool")
+    ap.add_argument("--judge", action="store_true",
+                    help="agent mode: run the claim/citation judge per question "
+                         "(Gate 1B-3; adds ~$0.01/question)")
     args = ap.parse_args()
 
     golden = yaml.safe_load((GOLDEN_DIR / f"{args.golden}.yaml").read_text())
     questions = golden["questions"]
     if args.agent:
-        run_agent_mode(questions, args.limit)
+        run_agent_mode(questions, args.limit, judge=args.judge)
         return
     run_id, manifest_path, manifest_file = open_new_manifest(
         f"{dt.date.today()}_{args.config or 'active'}_{args.golden}"

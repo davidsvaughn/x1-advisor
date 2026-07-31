@@ -76,3 +76,26 @@ def emit_turn_trace(result: dict[str, Any], *, model: str) -> str | None:
     except Exception as exc:  # noqa: BLE001 — telemetry must never break a turn
         print(f"  [telemetry] Langfuse emission failed: {type(exc).__name__}: {exc}")
         return None
+
+
+def emit_judge_scores(trace_id: str | None, judgement: dict[str, Any]) -> None:
+    """Attach claim/citation judge scores to an existing turn trace.
+
+    The judge runs offline (Gate 1B-3), so these land after the trace exists.
+    `comment` carries the calibration state with every value — a faithfulness
+    number read without knowing how trustworthy the judge is would be exactly
+    the unverified proxy the review warned against.
+    """
+    try:
+        langfuse = _client()
+        if langfuse is None or not trace_id:
+            return
+        state = judgement.get("calibration", {}).get("state", "uncalibrated")
+        comment = f"judge={judgement.get('judge_model')} calibration={state}"
+        for name, value in (judgement.get("scores") or {}).items():
+            if value is not None:
+                langfuse.create_score(trace_id=trace_id, name=name,
+                                      value=value, comment=comment)
+        langfuse.flush()
+    except Exception as exc:  # noqa: BLE001
+        print(f"  [telemetry] judge score emission failed: {type(exc).__name__}: {exc}")
