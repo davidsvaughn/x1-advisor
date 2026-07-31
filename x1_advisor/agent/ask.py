@@ -23,6 +23,9 @@ def main() -> None:
     ap.add_argument("question")
     ap.add_argument("--save", action="store_true", help="persist to advisor.threads/turns")
     ap.add_argument("--json", action="store_true", help="dump the raw result object")
+    ap.add_argument("--bundle", action="store_true",
+                    help="include the full turn bundle in --json (large: every "
+                         "message the model saw + retrieval explain)")
     args = ap.parse_args()
 
     with connect() as conn:
@@ -31,7 +34,9 @@ def main() -> None:
             save_turn(conn, result)
 
     if args.json:
-        print(json.dumps(result, indent=2, default=str))
+        payload = result if args.bundle else {k: v for k, v in result.items()
+                                              if k != "bundle"}
+        print(json.dumps(payload, indent=2, default=str))
         return
 
     print(f"\n{'=' * 72}\nQ: {result['question']}\n{'=' * 72}")
@@ -56,6 +61,8 @@ def main() -> None:
           f" distinct refs resolved"
           + (f" (DROPPED: {', '.join(cs['dropped'])})" if cs["dropped"] else "")
           + f" | evidence registered: {cs['evidence_registered']}")
+    if result.get("bundle_path"):
+        print(f"bundle: turn {result['turn_id']} → {result['bundle_path']}")
     sys.exit(0)
 
 

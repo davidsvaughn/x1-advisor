@@ -79,6 +79,11 @@ async def ask(req: AskRequest, x_user_id: str | None = Header(default=None)) -> 
                 conn, result,
                 user_id=0 if acl == "admin" else acl["user_id"],
                 thread_id=req.thread_id)
+            # the bundle is persisted and exported, not returned: it is a
+            # separate access surface (bundle.py P5) and far larger than an
+            # answer. A bundle-read endpoint is Gate 2 work.
+            result.pop("bundle", None)
+            result.pop("bundle_path", None)
             return result
 
     # run_turn is synchronous (psycopg + tool loop): keep the event loop free

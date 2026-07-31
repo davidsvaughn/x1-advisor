@@ -38,7 +38,11 @@ def _clip(text: str, limit: int) -> tuple[str, bool]:
 
 
 def build_tools(conn, *, acl: Any, registry: EvidenceRegistry,
-                tracker: Tracker) -> list[Tool]:
+                tracker: Tracker,
+                explain_out: list[dict] | None = None) -> list[Tool]:
+    """`explain_out` collects one retrieval explain per search (QA-LOOP §4.2).
+    It rides to the turn bundle, never into the model's context."""
+
     def search_corpus(query: str, filters: dict | None = None) -> str:
         # validate + compile at the model-facing boundary: retrieval only ever
         # applies an already-typed filter (filters.py — F1)
@@ -47,7 +51,7 @@ def build_tools(conn, *, acl: Any, registry: EvidenceRegistry,
         except FilterError as exc:
             return json.dumps({"error": str(exc)})
         hits = retrieve(conn, query, acl=acl, filters=compiled, k=SEARCH_K,
-                        tracker=tracker)
+                        tracker=tracker, explain_out=explain_out)
         # gated-vs-absent: on an empty result for a NON-admin, check (count/class
         # only — no titles, no content) whether access-restricted material exists,
         # so the agent can say "restricted" instead of the misleading "not found"

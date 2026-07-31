@@ -22,9 +22,11 @@ from haystack.components.agents import Agent
 from haystack.components.generators.chat import OpenAIChatGenerator
 from haystack.dataclasses import ChatMessage
 
+from x1_advisor.agent.bundle import build_bundle, export_bundle
 from x1_advisor.agent.evidence import EvidenceRegistry, validate_citations
 from x1_advisor.agent.tools import build_tools
 from x1_advisor.cost import JsonlSink, Tracker, Usage
+from x1_advisor.index import active_config
 
 AGENT_MODEL = "gpt-5.1"
 MAX_STEPS = 8
@@ -108,9 +110,14 @@ def run_turn(conn, question: str, *, acl: Any = "admin",
                                  sink=JsonlSink(ledger),
                                  per_run_soft_cap_usd=PER_TURN_SOFT_CAP_USD)
     registry = EvidenceRegistry()
+    # side channel for retrieval explains: goes to the turn bundle, never into
+    # the model's context (QA-LOOP §4.2)
+    retrieval_explain: list[dict] = []
+    tools = build_tools(conn, acl=acl, registry=registry, tracker=tracker,
+                        explain_out=retrieval_explain)
     agent = Agent(
         chat_generator=OpenAIChatGenerator(model=AGENT_MODEL),
-        tools=build_tools(conn, acl=acl, registry=registry, tracker=tracker),
+        tools=tools,
         system_prompt=SYSTEM_PROMPT,
         exit_conditions=["text"],
         max_agent_steps=MAX_STEPS,
@@ -143,7 +150,9 @@ def run_turn(conn, question: str, *, acl: Any = "admin",
                 tool_calls.append({"tool": tc.tool_name, "arguments": tc.arguments})
 
     raw_answer = messages[-1].text or ""
+    verdict = "answered"
     if not raw_answer.strip():
+        verdict = "wrapped_up"
         # step cap hit mid-research: synthesize from gathered evidence rather than
         # returning nothing for the money spent (honest degradation, §9)
         wrap = ChatMessage.from_user(
@@ -160,6 +169,8 @@ def run_turn(conn, question: str, *, acl: Any = "admin",
                       "output_tokens": u.output_tokens,
                       "cost_usd": round(rec.cost_usd, 6), "tool_calls": ["(wrapup)"]})
         raw_answer = reply.text or ""
+        if not raw_answer.strip():
+            verdict = "error"       # spent the budget and produced nothing
     validated = validate_citations(raw_answer, registry)
 
     result = {
@@ -183,31 +194,59 @@ def run_turn(conn, question: str, *, acl: Any = "admin",
     from x1_advisor.telemetry import emit_turn_trace
 
     result["trace_id"] = emit_turn_trace(result, model=AGENT_MODEL)
+
+    # the full replayable record. Kept OUT of the caller's user-facing fields:
+    # it is an access surface (bundle.py P5) and far too large for a response
+    # body, so the service pops it and save_turn persists it.
+    result["bundle"] = build_bundle(
+        conn, question=question, history=history, thread_id=None, acl=acl,
+        prompt=SYSTEM_PROMPT, tools=tools, agent_model=AGENT_MODEL,
+        config_id=active_config(conn).id, messages=messages,
+        retrieval_explain=retrieval_explain, raw_answer=raw_answer,
+        validated=validated, steps=steps,
+        summary={"verdict": verdict, "steps": len(steps),
+                 "cost_usd": result["cost_usd"], "latency_ms": latency_ms,
+                 "over_soft_cap": result["over_soft_cap"],
+                 "trace_id": result["trace_id"],
+                 "citations": result["citation_stats"]})
     return result
 
 
 def save_turn(conn, result: dict, *, user_id: int = 0,
               thread_id: int | None = None) -> int:
-    """Persist to advisor.threads/turns (research_record feeds the eval set)."""
+    """Persist to advisor.threads/turns.
+
+    `research_record` holds the v2 turn bundle (bundle.py) — the canonical,
+    transactional copy. A complete export also lands in owner-only local
+    storage, which is what the teacher loop reads.
+    """
     if thread_id is None:
         thread_id = conn.execute(
             "INSERT INTO advisor.threads (user_id, title) VALUES (%s, %s) RETURNING id",
             (user_id, result["question"][:120]),
         ).fetchone()["id"]
-    # `content` holds the validated answer; `raw_answer` preserves what the
-    # model actually wrote, so a dropped ref can still be explained later (F5)
-    record = {k: result[k] for k in
-              ("raw_answer", "citations", "citation_stats", "steps", "tool_calls",
-               "latency_ms")}
+    # `content` holds the validated answer; the bundle preserves what the model
+    # actually wrote and everything it saw (F5 + Gate 1A)
+    record = dict(result.get("bundle") or {})
+    if record:
+        record["request"] = {**record["request"], "thread_id": thread_id}
+    else:   # a caller that built no bundle still gets the v1 fields, not silence
+        record = {k: result[k] for k in
+                  ("raw_answer", "citations", "citation_stats", "steps",
+                   "tool_calls", "latency_ms") if k in result}
     conn.execute(
         """INSERT INTO advisor.turns (thread_id, role, content) VALUES (%s,'user',%s)""",
         (thread_id, result["question"]),
     )
-    conn.execute(
+    turn_id = conn.execute(
         """INSERT INTO advisor.turns (thread_id, role, content, research_record, cost_usd)
-           VALUES (%s,'assistant',%s,%s,%s)""",
+           VALUES (%s,'assistant',%s,%s,%s) RETURNING id""",
         (thread_id, result["answer"], json.dumps(record, default=str),
          result["cost_usd"]),
-    )
+    ).fetchone()["id"]
     conn.commit()
+    result["turn_id"] = turn_id
+    path = export_bundle(record, turn_id=turn_id, thread_id=thread_id)
+    if path:
+        result["bundle_path"] = str(path)
     return thread_id

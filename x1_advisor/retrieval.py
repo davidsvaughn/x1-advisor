@@ -43,6 +43,9 @@ class Hit:
     metadata: dict[str, Any]
     title: str
     source_type: str
+    # 'block' | 'record_summary' — record summaries are generated text ABOUT a
+    # document, so the evidence boundary (Gate 1B) turns on this field
+    granularity: str = "block"
     dense_rank: int | None = None
     lex_rank: int | None = None
     rrf_score: float = 0.0
@@ -146,7 +149,11 @@ def retrieve(
     k: int = 10,
     rerank: bool = False,
     tracker: Tracker | None = None,
+    explain_out: list[dict[str, Any]] | None = None,
 ) -> list[Hit]:
+    """Hybrid retrieve. Pass `explain_out` to collect a per-call retrieval
+    explain (QA-LOOP-DESIGN §4.2) — it goes to the turn bundle, never into the
+    model's context, so it costs nothing in tokens."""
     cfg: IndexConfig = CONFIGS[config_id] if config_id else active_config(conn)
     acl_sql, acl_params = _acl_sql(acl)
     # filters are compiled — never interpolated. Callers that need the
@@ -168,7 +175,7 @@ def retrieve(
 
     dense_rows = conn.execute(
         f"""SELECT c.id, c.document_id, c.block_index, c.page_number, c.text,
-                   c.metadata, d.title, d.source_type
+                   c.metadata, c.granularity, d.title, d.source_type
             {_BASE_FROM} {where_tail}
               AND EXISTS (SELECT 1 FROM advisor.emb_{cfg.id} e WHERE e.chunk_id = c.id)
             ORDER BY (SELECT e.embedding <=> %s::vector
@@ -179,11 +186,12 @@ def retrieve(
     for rank, r in enumerate(dense_rows, 1):
         hits[r["id"]] = Hit(r["id"], r["document_id"], r["block_index"],
                             r["page_number"], r["text"], r["metadata"],
-                            r["title"], r["source_type"], dense_rank=rank)
+                            r["title"], r["source_type"], r["granularity"],
+                            dense_rank=rank)
 
     lex_rows = conn.execute(
         f"""SELECT c.id, c.document_id, c.block_index, c.page_number, c.text,
-                   c.metadata, d.title, d.source_type,
+                   c.metadata, c.granularity, d.title, d.source_type,
                    ts_rank_cd(to_tsvector('english', c.text), q) AS score
             {_BASE_FROM.replace('WHERE', ', websearch_to_tsquery(%s) q WHERE')} {where_tail}
               AND to_tsvector('english', c.text) @@ q
@@ -197,7 +205,8 @@ def retrieve(
         else:
             hits[r["id"]] = Hit(r["id"], r["document_id"], r["block_index"],
                                 r["page_number"], r["text"], r["metadata"],
-                                r["title"], r["source_type"], lex_rank=rank)
+                                r["title"], r["source_type"], r["granularity"],
+                                lex_rank=rank)
 
     for h in hits.values():
         h.rrf_score = sum(1.0 / (RRF_K + rank)
@@ -209,17 +218,49 @@ def retrieve(
     out: list[Hit] = []
     per_doc: dict[int, int] = {}
     seen_text: set[int] = set()
+    # why a fused candidate did not make it into the results. Everything else
+    # that fell short is derivable from `fused` minus `returned` (rank order).
+    dropped: dict[str, list[int]] = {"dedup_text": [], "per_doc_cap": []}
     for h in ranked:
+        if len(out) == k:
+            break
         # cross-document near-duplicate guard: sibling eval bundles for the same
-        # company yield near-identical deck/section chunks as distinct documents
+        # company yield near-identical deck/section chunks as distinct documents.
+        # NB: hash() is per-process salted — fine per call, never persist it.
         text_key = hash(h.text.strip().lower())
         if text_key in seen_text:
+            dropped["dedup_text"].append(h.chunk_id)
             continue
         if per_doc.get(h.document_id, 0) >= PER_DOC_CAP:
+            dropped["per_doc_cap"].append(h.chunk_id)
             continue
         seen_text.add(text_key)
         out.append(h)
         per_doc[h.document_id] = per_doc.get(h.document_id, 0) + 1
-        if len(out) == k:
-            break
+
+    if explain_out is not None:
+        explain_out.append({
+            "call": len(explain_out) + 1,
+            "query": query,
+            "filters": dict(compiled.applied),
+            "filter_notes": list(compiled.notes),
+            # forensic snapshot of the ACL this search ran under; replay must
+            # re-resolve authorization rather than feed this back (QA-LOOP §4.4)
+            "acl": acl if acl == "admin" else dict(acl),
+            "config_id": cfg.id,
+            "k": k,
+            "rerank": rerank,
+            "legs": {
+                "dense": [{"chunk_id": r["id"], "document_id": r["document_id"],
+                           "rank": i} for i, r in enumerate(dense_rows, 1)],
+                "lexical": [{"chunk_id": r["id"], "document_id": r["document_id"],
+                             "rank": i} for i, r in enumerate(lex_rows, 1)],
+            },
+            "fused": [{"chunk_id": h.chunk_id, "document_id": h.document_id,
+                       "rrf": round(h.rrf_score, 6), "dense_rank": h.dense_rank,
+                       "lex_rank": h.lex_rank, "granularity": h.granularity}
+                      for h in ranked],
+            "dropped": {reason: ids for reason, ids in dropped.items() if ids},
+            "returned": [h.chunk_id for h in out],
+        })
     return out
