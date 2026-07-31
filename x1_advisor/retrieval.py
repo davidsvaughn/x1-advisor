@@ -49,6 +49,10 @@ class Hit:
     dense_rank: int | None = None
     lex_rank: int | None = None
     rrf_score: float = 0.0
+    # set when this block took the place of a record-summary hit: the generated
+    # summary that routed us to this document. Context for the model, NEVER
+    # citable — see expand_summaries below.
+    routed_by_summary: str | None = None
 
 
 def _acl_sql(acl: Any) -> tuple[str, list]:
@@ -88,11 +92,98 @@ def _acl_sql(acl: Any) -> tuple[str, list]:
     return sql, params
 
 
+SUMMARY_EXPANSION_PER_DOC = 1   # 1:1 substitution — result size and context stay flat
+
 _BASE_FROM = """
     FROM advisor.doc_chunks c
     JOIN advisor.documents d ON d.id = c.document_id
     WHERE d.superseded_by IS NULL
 """
+
+
+def _row_to_hit(r: dict) -> "Hit":
+    return Hit(r["id"], r["document_id"], r["block_index"], r["page_number"],
+               r["text"], r["metadata"], r["title"], r["source_type"],
+               r["granularity"])
+
+
+def _expand_summaries(conn, out: list["Hit"], *, cfg: IndexConfig, qvec: str,
+                      where_tail: str, tail_params: list,
+                      ) -> tuple[list["Hit"], list[dict]]:
+    """Evidence boundary (Gate 1B): a record summary identifies a document, it
+    is never the terminal citation.
+
+    Record summaries are LLM-written text *about* a document — the review found
+    the agent citing them as if they were source blocks, and the first Gate-1A
+    measurement put 38% of "resolvable" citations on them. But they are also the
+    single best recall lever we have (+0.055), precisely because they give dense
+    retrieval a whole-document handle.
+
+    So: keep the routing, drop the citability. Each summary hit is replaced,
+    in its own rank position, by the best-matching **source block** of the same
+    document, and that block carries the summary text as labelled context the
+    model can read but cannot cite. A document with no eligible source block
+    loses the hit entirely — a summary must never survive as evidence.
+    """
+    summary_hits = [h for h in out if h.granularity == "record_summary"]
+    if not summary_hits:
+        return out, []
+
+    doc_ids = sorted({h.document_id for h in summary_hits})
+    have = [h.chunk_id for h in out]
+    rows = conn.execute(
+        f"""SELECT * FROM (
+              SELECT c.id, c.document_id, c.block_index, c.page_number, c.text,
+                     c.metadata, c.granularity, d.title, d.source_type,
+                     row_number() OVER (
+                         PARTITION BY c.document_id
+                         ORDER BY (SELECT e.embedding <=> %s::vector
+                                   FROM advisor.emb_{cfg.id} e
+                                   WHERE e.chunk_id = c.id)) AS rn
+              {_BASE_FROM} {where_tail}
+                AND c.granularity = 'block'
+                AND c.document_id = ANY(%s)
+                AND NOT (c.id = ANY(%s))
+                AND EXISTS (SELECT 1 FROM advisor.emb_{cfg.id} e
+                            WHERE e.chunk_id = c.id)
+            ) t WHERE rn <= %s""",
+        (qvec, *tail_params, doc_ids, have, SUMMARY_EXPANSION_PER_DOC),
+    ).fetchall()
+
+    by_doc: dict[int, list[Hit]] = {}
+    for r in rows:
+        by_doc.setdefault(r["document_id"], []).append(_row_to_hit(r))
+
+    expanded: list[Hit] = []
+    substitutions: list[dict] = []
+    for h in out:
+        if h.granularity != "record_summary":
+            expanded.append(h)
+            continue
+        replacements = by_doc.get(h.document_id, [])
+        for b in replacements:
+            # inherit the summary's rank position: the document earned it
+            b.dense_rank, b.lex_rank = h.dense_rank, h.lex_rank
+            b.rrf_score = h.rrf_score
+            b.routed_by_summary = h.text
+            expanded.append(b)
+        outcome = "expanded"
+        if not replacements:
+            # two very different reasons for no replacement, and the funnel
+            # classifier needs to tell them apart: the document is already in
+            # the result via a real block (nothing lost), or it has no eligible
+            # source block at all (the hit is dropped — a summary is never
+            # downgraded into evidence)
+            outcome = ("already_represented"
+                       if any(o.document_id == h.document_id
+                              and o.granularity == "block" for o in out)
+                       else "dropped_no_source_block")
+        substitutions.append({
+            "summary_chunk_id": h.chunk_id, "document_id": h.document_id,
+            "replaced_by": [b.chunk_id for b in replacements],
+            "outcome": outcome,
+        })
+    return expanded, substitutions
 
 
 def _rerank_jina(query: str, candidates: list["Hit"],
@@ -150,10 +241,21 @@ def retrieve(
     rerank: bool = False,
     tracker: Tracker | None = None,
     explain_out: list[dict[str, Any]] | None = None,
+    expand_summaries: bool = False,
 ) -> list[Hit]:
-    """Hybrid retrieve. Pass `explain_out` to collect a per-call retrieval
-    explain (QA-LOOP-DESIGN §4.2) — it goes to the turn bundle, never into the
-    model's context, so it costs nothing in tokens."""
+    """Hybrid retrieve.
+
+    `explain_out` collects a per-call retrieval explain (QA-LOOP-DESIGN §4.2) —
+    it goes to the turn bundle, never into the model's context, so it costs
+    nothing in tokens.
+
+    `expand_summaries` enforces the Gate-1B evidence boundary (see
+    `_expand_summaries`). It is **off by default** so that this function stays
+    the raw retrieval primitive the bake-offs measure, and on for the agent
+    path, where the boundary belongs: nothing that reaches the model may be a
+    generated summary. `experiments.run --expand-summaries` measures the
+    corrected path against the same golden set.
+    """
     cfg: IndexConfig = CONFIGS[config_id] if config_id else active_config(conn)
     acl_sql, acl_params = _acl_sql(acl)
     # filters are compiled — never interpolated. Callers that need the
@@ -238,6 +340,12 @@ def retrieve(
         out.append(h)
         per_doc[h.document_id] = per_doc.get(h.document_id, 0) + 1
 
+    substitutions: list[dict] = []
+    if expand_summaries:
+        out, substitutions = _expand_summaries(
+            conn, out, cfg=cfg, qvec=qvec, where_tail=where_tail,
+            tail_params=tail_params)
+
     if explain_out is not None:
         explain_out.append({
             "call": len(explain_out) + 1,
@@ -261,6 +369,7 @@ def retrieve(
                        "lex_rank": h.lex_rank, "granularity": h.granularity}
                       for h in ranked],
             "dropped": {reason: ids for reason, ids in dropped.items() if ids},
+            "summary_expansion": substitutions,
             "returned": [h.chunk_id for h in out],
         })
     return out

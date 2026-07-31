@@ -27,6 +27,7 @@ from x1_advisor.retrieval import retrieve
 
 SNIPPET_CHARS = 600
 SOURCE_CHARS = 6000
+SUMMARY_CONTEXT_CHARS = 400
 WEB_FINDINGS_CHARS = 1600
 SEARCH_K = 8
 WEB_MODEL = "gpt-5.1"
@@ -51,7 +52,8 @@ def build_tools(conn, *, acl: Any, registry: EvidenceRegistry,
         except FilterError as exc:
             return json.dumps({"error": str(exc)})
         hits = retrieve(conn, query, acl=acl, filters=compiled, k=SEARCH_K,
-                        tracker=tracker, explain_out=explain_out)
+                        tracker=tracker, explain_out=explain_out,
+                        expand_summaries=True)
         # gated-vs-absent: on an empty result for a NON-admin, check (count/class
         # only — no titles, no content) whether access-restricted material exists,
         # so the agent can say "restricted" instead of the misleading "not found"
@@ -86,6 +88,11 @@ def build_tools(conn, *, acl: Any, registry: EvidenceRegistry,
                 item["page"] = h.page_number
             if truncated:
                 item["_truncated"] = True   # full text via get_source(ref)
+            if h.routed_by_summary:
+                # a generated summary routed us to this document. Context only:
+                # it has no ref of its own and must never be cited (Gate 1B).
+                item["document_summary_not_citable"], _ = _clip(
+                    h.routed_by_summary, SUMMARY_CONTEXT_CHARS)
             items.append(item)
         out = {"results": items, "k": len(items)}
         if compiled.notes:
@@ -175,7 +182,12 @@ def build_tools(conn, *, acl: Any, registry: EvidenceRegistry,
                  "Returns ranked snippets with citation refs. Filters are optional "
                  "and narrow the search; each accepts one value or a list of "
                  "values. Prefer NO filters for broad discovery questions; add "
-                 "filters only to narrow a specific document class."),
+                 "filters only to narrow a specific document class. A result may "
+                 "carry `document_summary_not_citable`: an auto-generated gist of "
+                 "the document, useful for judging relevance but NOT evidence — "
+                 "cite the result's `ref`, which points at the source text, and "
+                 "call get_source(ref) if you need to verify a detail the summary "
+                 "asserts."),
              parameters={"type": "object",
                          "properties": {"query": {"type": "string"},
                                         "filters": filters_json_schema()},

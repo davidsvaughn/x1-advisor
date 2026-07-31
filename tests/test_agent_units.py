@@ -20,7 +20,8 @@ from x1_advisor.ingest.chunker import chunk_markdown
 # message. Pinning only the prompt missed four tool-description edits in Phase 4
 # alone (DESIGN-REVIEW F4).
 SYSTEM_PROMPT_SHA256 = "dc236bb7a28dc61c3dde170aead6f7c328eaa10024bb763a30d6388a7ca3c13a"
-TOOL_SCHEMA_SHA256 = "9c50db4e0267c443ae576f0bd4f95c22b03545c28d1ff38bdbe4e102c061a34f"
+# 2026-07-30 Gate 1B: search_corpus documents `document_summary_not_citable`
+TOOL_SCHEMA_SHA256 = "5a92782e69c0468b35c3bbb8d5a9de07f6464ef35708d4da869075e97b8a8976"
 
 
 def test_prompt_prefix_stability():
