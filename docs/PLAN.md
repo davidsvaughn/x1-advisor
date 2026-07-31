@@ -114,12 +114,32 @@ acceptable-evidence groups, replay never trusts stored ACLs.
   actually saw (`turn-snapshot`; the comparator refuses to gate them against
   legacy scores, verified exit 2). Funnel: `synthesis_error` 19,
   `citation_coverage_error` 15, `ranking_drop` 3, `evidence_unused` 1,
-  `retrieval_miss` 0 — the 1C conclusion stands and sharpens: mechanical
-  stages are clean, the loss is synthesis and citation discipline. 32 fresh
-  **blind** calibration pairs drawn from this run sit in
-  `.qa-artifacts/calibration/pending.jsonl` awaiting David's labels
-  (RUNBOOK §7). **Gate 1 is closed**; both numbers stay `synthetic-only`
-  until ≥30 human labels land.
+  `retrieval_miss` 1 (g017, real — see 1E route consent): the 1C conclusion
+  stands: mechanical stages are nearly clean, the loss is synthesis and
+  citation discipline. Reopened NARROWLY the same day by a third review
+  (five findings) → **1E QA-machinery second pass — ✅ DONE 2026-07-31**
+  (`c92cdac`, `5fa6f39`, `67d8c61`, + this commit): comparator gates on mean
+  score drops and label worsening, not just pass-flips (at 0/20 passing the
+  flip gate was vacuous — a simulated collapse of faithfulness to zero
+  PASSED; it now fails); judge evidence unclipped by default (the 8k clip
+  cut an 11.1k structured payload mid-list; the cap is now an opt-in env
+  knob); route substitution requires golden consent (`acceptable_routes`
+  classifier metadata — a names/rounds listing had "substituted" for g017's
+  healthcare classification); live-tools replay dispatches through the real
+  `build_tools` closures under the replaying principal with
+  recorded-ref→identity→new-ref chain rebuild; calibration sampling is
+  diverse and snapshot-only enforced (was 23/32 items from g001 with nine
+  unique payloads; now all 20 questions, cap 2, 32/32 unique payloads).
+  **Measured (1E-4):** re-judging the SAME 20 answers moved mean
+  faithfulness 0.569 → 0.499 with the clip-affected questions barely moving
+  — judge re-inventory variance dominates, ±0.2–0.4 per question; a full
+  replicate run scored 0.502. Working numbers: **faithfulness ≈ 0.5,
+  coverage ≈ 0.83–0.88, ±0.05–0.07 at n=20**; `--score-drop` 0.10 is set
+  from this measured floor and nothing finer than one decimal is quotable
+  until Gate 4 grows the suite. Fresh blind calibration pairs regenerated in
+  `.qa-artifacts/calibration/pending.jsonl`. **Gate 1 is closed**; the
+  faithfulness number stays `synthetic-only` until ≥30 human labels land
+  (RUNBOOK §7 — David).
 - **Gate 2 — security boundary end-to-end:** one request-auth context consumed
   by every data-bearing tool/endpoint; ACL-aware structured queries; thread
   ownership; **bundle-read + replay authorization and stale-ACL handling**;

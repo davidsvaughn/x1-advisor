@@ -33,8 +33,14 @@ faithfulness could collapse to zero and flip nothing):
   2. net label worsening       ≤ --budget   (questions gaining failure labels
                                              minus questions only losing them)
   3. mean faithfulness / citation_coverage drop over shared questions
-                               ≤ --score-drop (default 0.05 — PROVISIONAL
-     until a replicate-run noise floor says otherwise; see runbook §4)
+                               ≤ --score-drop (default 0.10)
+
+The 0.10 default is MEASURED, not guessed (1E-4, 2026-07-31): re-judging the
+same 20 answers moved mean faithfulness by 0.070 (per-question swings ±0.2–0.4
+— the judge re-inventories claims each pass), and a full replicate run moved
+it 0.067. A threshold below the judge's own noise floor flags noise as
+regression; one at 0.10 catches collapse while riding out the wobble. The
+real shrink comes from a bigger suite (Gate 4) — n=20 puts ~±0.05 on any mean.
 
 Run: uv run python -m experiments.compare <before.jsonl> <after.jsonl>
 Exit: 0 pass · 1 fail · 2 not comparable
@@ -146,9 +152,10 @@ def main() -> None:
     ap.add_argument("after")
     ap.add_argument("--budget", type=int, default=DEFAULT_REGRESSION_BUDGET,
                     help="net regressions tolerated on a stochastic suite")
-    ap.add_argument("--score-drop", type=float, default=0.05,
+    ap.add_argument("--score-drop", type=float, default=0.10,
                     help="max tolerated drop in mean faithfulness/coverage on "
-                         "a stochastic suite (provisional default)")
+                         "a stochastic suite (default measured from the "
+                         "2026-07-31 rejudge/replicate noise floor)")
     args = ap.parse_args()
 
     paths = []
