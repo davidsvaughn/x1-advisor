@@ -2,13 +2,17 @@
 
 Run locally:  uv run uvicorn x1_advisor.service:app --port 8100 --workers 1
 
-Deploy notes (DECISIONS 2026-07-07): one DB connection per worker process
-(per-worker store instances, no PgBouncer at this scale); Cloud Run + Cloud SQL
-Python connector at cutover. Auth: `X-User-Id` header is a DEV STUB — production
-replaces it with the signed user token from the Laravel session (PLAN Phase 5),
-resolved to an ACL class-dict; until then non-admin requests get the least-
-privileged ACL. SSE token streaming lands with the UI phase; /ask returns the
-full validated result JSON (answer, citations, per-step usage, cost, trace_id).
+Deploy notes (DECISIONS 2026-07-07, amended Step 0.3): a bounded in-process
+connection pool per worker — one checkout and one transaction boundary per
+request (db.pool(); the F2 rationale lives there). Still no PgBouncer at this
+scale. Cloud Run + Cloud SQL Python connector at cutover, with Cloud Run
+concurrency set to match ADVISOR_DB_POOL_MAX (Gate 3A).
+
+Auth: `X-User-Id` header is a DEV STUB — production replaces it with the signed
+user token from the Laravel session (PLAN Phase 5), resolved to an ACL
+class-dict; until then non-admin requests get the least-privileged ACL. SSE
+token streaming lands with the UI phase; /ask returns the full validated result
+JSON (answer, citations, per-step usage, cost, trace_id).
 """
 
 from __future__ import annotations
@@ -18,17 +22,20 @@ from typing import Any
 
 import anyio
 from fastapi import FastAPI, Header, HTTPException
+from psycopg_pool import PoolTimeout
 from pydantic import BaseModel
 
 from x1_advisor.agent.advisor import run_turn, save_turn
-from x1_advisor.db import connect
+from x1_advisor.db import POOL_MAX, close_pool, pool
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.conn = connect()          # one connection per worker process
-    yield
-    app.state.conn.close()
+    app.state.pool = pool()
+    try:
+        yield
+    finally:
+        close_pool()
 
 
 app = FastAPI(title="x1-advisor", lifespan=lifespan)
@@ -53,23 +60,33 @@ def _acl_for(user_id: str | None) -> Any:
 
 @app.get("/health")
 def health() -> dict:
-    row = app.state.conn.execute("SELECT count(*) AS docs FROM advisor.documents "
-                                 "WHERE superseded_by IS NULL").fetchone()
+    with app.state.pool.connection() as conn:
+        row = conn.execute("SELECT count(*) AS docs FROM advisor.documents "
+                           "WHERE superseded_by IS NULL").fetchone()
     return {"ok": True, "live_documents": row["docs"]}
 
 
 @app.post("/ask")
 async def ask(req: AskRequest, x_user_id: str | None = Header(default=None)) -> dict:
     acl = _acl_for(x_user_id)
-    conn = app.state.conn
 
     def _run() -> dict:
-        result = run_turn(conn, req.question, acl=acl, history=req.history)
-        result["thread_id"] = save_turn(
-            conn, result,
-            user_id=0 if acl == "admin" else acl["user_id"],
-            thread_id=req.thread_id)
-        return result
+        # one checkout per request: the turn and its persisted rows share a
+        # transaction that belongs to this request and nobody else
+        with app.state.pool.connection() as conn:
+            result = run_turn(conn, req.question, acl=acl, history=req.history)
+            result["thread_id"] = save_turn(
+                conn, result,
+                user_id=0 if acl == "admin" else acl["user_id"],
+                thread_id=req.thread_id)
+            return result
 
     # run_turn is synchronous (psycopg + tool loop): keep the event loop free
-    return await anyio.to_thread.run_sync(_run)
+    try:
+        return await anyio.to_thread.run_sync(_run)
+    except PoolTimeout:
+        # a turn holds its connection for its whole duration, so the pool is
+        # the concurrency bound. Say "too busy, retry" rather than 500.
+        raise HTTPException(
+            503, f"advisor is at capacity ({POOL_MAX} concurrent turns); retry shortly",
+            headers={"Retry-After": "10"}) from None
