@@ -1,14 +1,28 @@
 """Seeded ACL probe suite (PLAN Phase-4 exit: zero ACL violations).
 
-Probes retrieval directly (the enforcement point — the agent can only cite what
-retrieval returns) with adversarial queries under non-privileged ACLs, then asserts
-no gated class leaks. Run: uv run python -m experiments.acl_probes
+Two enforcement points, probed separately because they are separate SQL surfaces:
+
+  1. **Retrieval** — adversarial queries under non-privileged ACLs; assert no
+     gated class appears in the hits (the agent can only cite what retrieval
+     returns).
+  2. **Structured queries** — the `queries.py` registry, which reads app tables
+     directly and therefore cannot inherit retrieval's predicates.
+
+Every negative probe is paired with an **admin-scope positive control**: proof
+that the gated target is actually reachable when the gate is opened. Without it a
+probe can pass because the sensitive row does not exist at all
+(ARCHITECTURE-PLAN-REVIEW-2026-07-30, P0 "authorization is not end-to-end").
+Targets are discovered from the data, not hard-coded, so the suite ports to prod.
+
+Run: uv run python -m experiments.acl_probes
 """
 
 from __future__ import annotations
 
 import sys
+from typing import Any
 
+from x1_advisor.agent.queries import run_query
 from x1_advisor.db import connect
 from x1_advisor.retrieval import retrieve
 
@@ -41,6 +55,96 @@ def violations_for(conn, acl, purchased: set[int]) -> list[str]:
     return out
 
 
+def structured_probes(conn) -> tuple[list[str], list[str]]:
+    """Probe the structured-query registry. Returns (violations, notes).
+
+    Notes record probes that were SKIPPED for want of a target class in the data
+    — a skipped probe is not a passing probe, and must never read as one.
+    """
+    violations: list[str] = []
+    notes: list[str] = []
+
+    def rows(name: str, params: dict | None, acl: Any) -> list[dict]:
+        return run_query(conn, name, params, acl=acl)
+
+    # --- class: draft (unpublished) startup companies -----------------------
+    draft = conn.execute(
+        """SELECT s.id, s.name, count(e.id) AS n_evals
+           FROM startup_companies s
+           JOIN startup_company_evaluations e ON e.startup_company_id = s.id
+           WHERE s.is_published = false
+           GROUP BY s.id, s.name ORDER BY n_evals DESC, s.name LIMIT 1"""
+    ).fetchone()
+    if not draft:
+        notes.append("SKIPPED draft-company probes: no unpublished company with "
+                     "evaluations exists in this database")
+    else:
+        # positive control first: admin must actually see the target
+        admin_rows = rows("evaluations_for_company", {"company_name": draft["name"]}, "admin")
+        if not admin_rows:
+            violations.append(
+                f"positive control FAILED: admin sees no evaluations for draft "
+                f"company {draft['name']!r} — the negative probe below is vacuous")
+        # negative: a user who owns nothing must see none of them
+        leaked = rows("evaluations_for_company", {"company_name": draft["name"]}, NOBODY)
+        if leaked:
+            violations.append(
+                f"evaluations_for_company: {len(leaked)} draft-company evaluation(s) "
+                f"leaked for {draft['name']!r}")
+        # owner carve-out positive control: the owner SHOULD see their own draft
+        owner = {"user_id": 999_997,
+                 "owned_entity_ids": {"startup_company": [draft["id"]]}}
+        if not rows("evaluations_for_company", {"company_name": draft["name"]}, owner):
+            violations.append(
+                f"owner carve-out FAILED: owner of draft {draft['name']!r} cannot see "
+                "its own evaluations")
+
+        for r in rows("top_startups_by_score", {"limit": 50}, NOBODY):
+            if r.get("is_published") is False:
+                violations.append(f"top_startups_by_score: draft company {r['name']!r} leaked")
+        for r in rows("list_startups", {"limit": 50}, NOBODY):
+            if r.get("is_published") is False:
+                violations.append(f"list_startups: draft company {r['name']!r} leaked")
+        counts = rows("count_startups", None, NOBODY)[0]
+        if counts["startups"] != counts["published"]:
+            violations.append(
+                f"count_startups: draft count disclosed to a non-owner "
+                f"({counts['startups']} total vs {counts['published']} published)")
+
+    # --- class: platform-hidden evaluations ---------------------------------
+    hidden = conn.execute(
+        """SELECT s.name, count(*) AS n
+           FROM startup_company_evaluations e
+           JOIN startup_companies s ON s.id = e.startup_company_id
+           WHERE e.is_visible = false
+           GROUP BY s.name ORDER BY n DESC LIMIT 1"""
+    ).fetchone()
+    if not hidden:
+        notes.append("SKIPPED hidden-evaluation probes: no is_visible=false "
+                     "evaluation exists in this database")
+    else:
+        if not rows("evaluations_for_company", {"company_name": hidden["name"]}, "admin"):
+            violations.append(
+                f"positive control FAILED: admin sees no evaluations for {hidden['name']!r}")
+        for r in rows("evaluations_for_company", {"company_name": hidden["name"]}, NOBODY):
+            if r.get("is_visible") is False:
+                violations.append(
+                    f"evaluations_for_company: hidden evaluation leaked for {r['name']!r}")
+        for r in rows("top_startups_by_score", {"limit": 50}, NOBODY):
+            if r.get("is_visible") is False:
+                violations.append(f"top_startups_by_score: hidden evaluation leaked "
+                                  f"for {r['name']!r}")
+
+    # --- the ACL argument itself is mandatory -------------------------------
+    try:
+        run_query(conn, "count_startups", None, acl="everyone")   # type: ignore[arg-type]
+        violations.append("run_query accepted a bogus acl value instead of raising")
+    except ValueError:
+        pass
+
+    return violations, notes
+
+
 def main() -> None:
     with connect() as conn:
         # a real evaluation id to grant the purchaser persona
@@ -64,10 +168,18 @@ def main() -> None:
             purchased_visible = any(
                 int(h.metadata.get("evaluation_id") or -1) in granted for h in hits)
 
+        v_structured, notes = structured_probes(conn)
+
+    print("== retrieval ==")
     print(f"nobody persona violations:    {v_nobody or 'NONE'}")
     print(f"purchaser persona violations: {v_purchaser or 'NONE'}")
     print(f"positive control (purchaser sees purchased premium): {purchased_visible}")
-    ok = not v_nobody and not v_purchaser and (purchased_visible or not granted)
+    print("\n== structured queries ==")
+    print(f"violations: {v_structured or 'NONE'}")
+    for n in notes:
+        print(f"  note: {n}")
+    ok = (not v_nobody and not v_purchaser and not v_structured
+          and (purchased_visible or not granted))
     print("\nACL PROBES:", "PASS" if ok else "FAIL")
     sys.exit(0 if ok else 1)
 

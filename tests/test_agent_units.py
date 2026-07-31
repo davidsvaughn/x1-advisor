@@ -1,10 +1,14 @@
-"""Unit tests: prompt-prefix stability (§9 CI assertion), citation validator, chunker.
+"""Unit tests: prompt-prefix stability (§9 CI assertion), citation validator,
+chunker, structured-query ACL predicates.
 
 Run: uv run pytest -q
 """
 
 import hashlib
 
+import pytest
+
+from x1_advisor.agent import queries
 from x1_advisor.agent.advisor import SYSTEM_PROMPT
 from x1_advisor.agent.evidence import EvidenceRegistry, validate_citations
 from x1_advisor.ingest.chunker import chunk_markdown
@@ -50,6 +54,40 @@ def test_chunker_paged_mode_and_spans():
     assert [b.page_number for b in blocks] == [1, 2]
     for b in blocks:
         assert md[b.char_start:b.char_end].strip() == b.text
+
+
+def test_structured_query_acl_predicates():
+    # admin is unrestricted; everyone else is gated on both classes
+    assert queries._company_acl("admin") == ("", [])
+    assert queries._eval_acl("admin") == ("", [])
+    assert queries._company_acl({"user_id": 1}) == (" AND s.is_published", [])
+    assert queries._eval_acl({"user_id": 1}) == (" AND e.is_visible", [])
+    # drafts have an owner carve-out; hidden evaluations deliberately do not
+    sql, args = queries._company_acl(
+        {"user_id": 1, "owned_entity_ids": {"startup_company": [3, 4]}})
+    assert sql == " AND (s.is_published OR s.id = ANY(%s))" and args == [[3, 4]]
+    assert queries._eval_acl(
+        {"user_id": 1, "owned_entity_ids": {"startup_company": [3]}}) == (
+            " AND e.is_visible", [])
+    for bad in ("everyone", None, 7):
+        with pytest.raises(ValueError):
+            queries._company_acl(bad)
+
+
+def test_structured_query_limit_validation():
+    assert queries._limit({}, 10) == 10
+    assert queries._limit({"limit": "7"}, 10) == 7
+    assert queries._limit({"limit": 9999}, 10) == queries.MAX_ROWS   # capped, not silent
+    for bad in ({"limit": "many"}, {"limit": None}, {"limit": 0}, {"limit": -3}):
+        with pytest.raises(ValueError):
+            queries._limit(bad, 10)
+
+
+def test_run_query_requires_a_valid_acl():
+    with pytest.raises(ValueError):
+        queries.run_query(None, "count_startups", None, acl="everyone")
+    with pytest.raises(KeyError):
+        queries.run_query(None, "no_such_query", None, acl="admin")
 
 
 def test_chunker_groups_paragraphs_under_headings():

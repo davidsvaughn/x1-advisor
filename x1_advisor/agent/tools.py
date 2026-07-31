@@ -113,8 +113,12 @@ def build_tools(conn, *, acl: Any, registry: EvidenceRegistry,
 
     def structured_query(name: str, params: dict | None = None) -> str:
         try:
-            rows = run_query(conn, name, params)
-        except KeyError as exc:
+            # same ACL the retriever enforces — the two evidence paths must not
+            # disagree about what this requester may see (queries.py header)
+            rows = run_query(conn, name, params, acl=acl)
+        except (KeyError, ValueError, TypeError) as exc:
+            # bad query name / bad param value: an error the model can act on,
+            # never an uncaught 500 out of the service
             return json.dumps({"error": str(exc)})
         return json.dumps({"rows": rows, "row_count": len(rows)}, default=str)
 
