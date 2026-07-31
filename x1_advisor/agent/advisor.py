@@ -19,7 +19,8 @@ import time
 from typing import Any
 
 from haystack.components.agents import Agent
-from haystack.components.generators.chat import OpenAIChatGenerator
+from haystack.components.generators.chat import (OpenAIChatGenerator,
+                                                 OpenAIResponsesChatGenerator)
 from haystack.dataclasses import ChatMessage
 
 from x1_advisor.agent.bundle import build_bundle, export_bundle
@@ -33,6 +34,31 @@ from x1_advisor.index import active_config
 # hoped about. The resolved value is stamped into every trace and bundle, so a
 # run always says which model produced it.
 AGENT_MODEL = os.environ.get("ADVISOR_AGENT_MODEL", "gpt-5.1")
+# Reasoning effort is a behavioural knob, so it rides the turn fingerprint
+# rather than sitting as an unrecorded default.
+AGENT_REASONING = os.environ.get("ADVISOR_AGENT_REASONING", "medium")
+
+
+def agent_generator(model: str = AGENT_MODEL) -> OpenAIResponsesChatGenerator:
+    """The agent's LLM transport: OpenAI's **Responses** API, for every model.
+
+    Not a preference — a constraint. From gpt-5.6 on, function tools and
+    reasoning are mutually exclusive on Chat Completions: the API rejects the
+    pair outright and offers `reasoning_effort: "none"` as the only way to keep
+    tools there. Grading a model with its reasoning switched off would have
+    measured a crippled version of it and called that the model.
+
+    Responses serves tools+reasoning for every model we might run (verified
+    2026-07-31 across gpt-5.1 and the 5.6 tiers), so this stays one code path
+    instead of a per-model fork that would confound transport with model in
+    every future comparison.
+    """
+    return OpenAIResponsesChatGenerator(
+        model=model,
+        generation_kwargs={"reasoning": {"effort": AGENT_REASONING}},
+    )
+
+
 MAX_STEPS = 8
 PER_TURN_SOFT_CAP_USD = 0.50
 
@@ -120,7 +146,7 @@ def run_turn(conn, question: str, *, acl: Any = "admin",
     tools = build_tools(conn, acl=acl, registry=registry, tracker=tracker,
                         explain_out=retrieval_explain)
     agent = Agent(
-        chat_generator=OpenAIChatGenerator(model=AGENT_MODEL),
+        chat_generator=agent_generator(),
         tools=tools,
         system_prompt=SYSTEM_PROMPT,
         exit_conditions=["text"],
@@ -168,7 +194,7 @@ def run_turn(conn, question: str, *, acl: Any = "admin",
             "You have reached the tool-step limit. Write your final answer NOW from "
             "the evidence already gathered: cite refs you have, state plainly which "
             "parts you could not verify or complete, and do not call any more tools.")
-        reply = OpenAIChatGenerator(model=AGENT_MODEL).run(
+        reply = agent_generator().run(
             [ChatMessage.from_system(SYSTEM_PROMPT), *messages, wrap])["replies"][0]
         u = Usage.from_haystack_meta("openai", reply.meta)
         rec = tracker.log(provider="openai", model=AGENT_MODEL,
@@ -197,7 +223,8 @@ def run_turn(conn, question: str, *, acl: Any = "admin",
         agent_model_resolved=model_resolved, config_id=config_id,
         # flags that change what the model is shown must ride the fingerprint,
         # or an E7 A/B run would be indistinguishable from noise
-        feature_flags={"summary_context": SUMMARY_CONTEXT_ENABLED})
+        feature_flags={"summary_context": SUMMARY_CONTEXT_ENABLED,
+                       "agent_reasoning": AGENT_REASONING})
 
     result = {
         "question": question,
