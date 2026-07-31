@@ -2,11 +2,13 @@
 
 Run:  uv run python -m experiments.run --config te3s_1536_ck1 --golden v1 [--k 10]
 
-Writes one JSONL line per question to experiments/runs/{date}_{config}_{golden}.jsonl
-(model outputs never truncated) plus a summary line, and prints aggregate
-recall@k / MRR. Web-required questions are skipped here (E3 grades those).
-Answer-quality / judge columns land with Phase 3 (E4); this harness grades
-retrieval only, which is what E1/E2 decide on.
+Writes one JSONL line per question to
+experiments/runs/{date}_{config}_{golden}_{sha}_r{n}.jsonl (model outputs never
+truncated) plus a summary line, and prints aggregate recall@k / MRR. Manifests
+are immutable — a rerun allocates the next sequence number rather than
+overwriting (experiments/manifest.py). Web-required questions are skipped here
+(E3 grades those). Answer-quality / judge columns land with Phase 3 (E4); this
+harness grades retrieval only, which is what E1/E2 decide on.
 """
 
 from __future__ import annotations
@@ -14,19 +16,19 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
-import subprocess
 import sys
 import time
 from pathlib import Path
 
 import yaml
 
+from experiments.manifest import code_fingerprint, git_sha, open_new_manifest
 from x1_advisor.cost import Tracker
 from x1_advisor.db import connect
+from x1_advisor.filters import FilterError
 from x1_advisor.retrieval import Hit, retrieve
 
 GOLDEN_DIR = Path(__file__).parent / "golden"
-RUNS_DIR = Path(__file__).parent / "runs"
 
 
 def hit_matches(hit: Hit, matcher: dict) -> bool:
@@ -56,15 +58,6 @@ def grade(hits: list[Hit], expected: list[dict]) -> dict:
     }
 
 
-def git_sha() -> str:
-    try:
-        return subprocess.run(["git", "rev-parse", "--short", "HEAD"],
-                              capture_output=True, text=True, timeout=5,
-                              cwd=Path(__file__).parent).stdout.strip()
-    except Exception:  # noqa: BLE001
-        return "unknown"
-
-
 def run_agent_mode(questions: list[dict], limit: int) -> None:
     """Phase-4 exit measurement: agent end-to-end over golden questions.
 
@@ -78,12 +71,11 @@ def run_agent_mode(questions: list[dict], limit: int) -> None:
     web = [q for q in questions if q.get("web_required")]
     subset = (non_web + web[:2])[:limit]
 
-    run_id = f"{dt.date.today()}_agent_v1"
-    RUNS_DIR.mkdir(parents=True, exist_ok=True)
-    manifest_path = RUNS_DIR / f"{run_id}.jsonl"
+    run_id, manifest_path, manifest_file = open_new_manifest(
+        f"{dt.date.today()}_agent_v1")
     emitted = resolved = 0
     costs, latencies, no_citation = [], [], []
-    with connect() as conn, open(manifest_path, "w") as manifest:
+    with connect() as conn, manifest_file as manifest:
         for q in subset:
             r = run_turn(conn, q["question"], acl="admin")
             cs = r["citation_stats"]
@@ -95,7 +87,8 @@ def run_agent_mode(questions: list[dict], limit: int) -> None:
                 no_citation.append(q["id"])
             manifest.write(json.dumps({
                 "run_id": run_id, "experiment": "phase4-agent",
-                "git_sha": git_sha(), "question_id": q["id"],
+                "git_sha": git_sha(), "code_fingerprint": code_fingerprint(),
+                "question_id": q["id"],
                 "category": q["category"], **r,
             }, default=str) + "\n")
             print(f"  {q['id']} {q['category']:13s} cite {cs['resolved']}/{cs['emitted']}"
@@ -133,22 +126,32 @@ def main() -> None:
     if args.agent:
         run_agent_mode(questions, args.limit)
         return
-    run_id = (f"{dt.date.today()}_{args.config or 'active'}_{args.golden}"
-              + ("_rerank" if args.rerank else ""))
-    RUNS_DIR.mkdir(parents=True, exist_ok=True)
-    manifest_path = RUNS_DIR / f"{run_id}.jsonl"
+    run_id, manifest_path, manifest_file = open_new_manifest(
+        f"{dt.date.today()}_{args.config or 'active'}_{args.golden}"
+        + ("_rerank" if args.rerank else ""))
     tracker = Tracker(run_id=run_id)
 
-    recalls, mrrs, skipped = [], [], 0
-    with connect() as conn, open(manifest_path, "w") as manifest:
+    recalls, mrrs, skipped, filter_errors = [], [], 0, []
+    with connect() as conn, manifest_file as manifest:
         for q in questions:
             if q.get("web_required"):
                 skipped += 1
                 continue
             t0 = time.monotonic()
-            hits = retrieve(conn, q["question"], acl="admin",
-                            filters=q.get("filters"), config_id=args.config,
-                            k=args.k, rerank=args.rerank, tracker=tracker)
+            filter_error = None
+            try:
+                hits = retrieve(conn, q["question"], acl="admin",
+                                filters=q.get("filters"), config_id=args.config,
+                                k=args.k, rerank=args.rerank, tracker=tracker)
+            except FilterError as exc:
+                # a golden case whose filter names a field the corpus does not
+                # stamp is a ROUTING failure, not a retrieval failure. Before
+                # the typed filter layer this scored a silent zero-recall and
+                # was counted as a retrieval miss (g020 in the 2026-07-08
+                # baseline: 0 hits, 0 recall, indistinguishable from a real
+                # miss). Record it as its own class; never crash the suite.
+                filter_error, hits = str(exc), []
+                filter_errors.append(q["id"])
             latency_ms = int((time.monotonic() - t0) * 1000)
             g = grade(hits, q["expected"])
             recalls.append(g["recall"])
@@ -156,8 +159,10 @@ def main() -> None:
             manifest.write(json.dumps({
                 "run_id": run_id, "experiment": "phase2-baseline",
                 "config_id": args.config or "active", "git_sha": git_sha(),
+                "code_fingerprint": code_fingerprint(),
                 "question_id": q["id"], "category": q["category"],
                 "question": q["question"], **g,
+                "filter_error": filter_error,
                 "retrieved": [
                     {"document_id": h.document_id, "block_index": h.block_index,
                      "page_number": h.page_number, "source_type": h.source_type,
@@ -168,9 +173,11 @@ def main() -> None:
                 "latency_ms": latency_ms,
                 "cost_usd": tracker.run_total,
             }) + "\n")
-            flag = "✓" if g["recall"] == 1.0 else ("~" if g["matched"] else "✗")
+            flag = ("!" if filter_error else
+                    "✓" if g["recall"] == 1.0 else "~" if g["matched"] else "✗")
             print(f"  {flag} {q['id']} {q['category']:13s} recall={g['recall']:.2f} "
-                  f"mrr={g['mrr']:.2f} {latency_ms}ms")
+                  f"mrr={g['mrr']:.2f} {latency_ms}ms"
+                  + (f"  FILTER: {filter_error}" if filter_error else ""))
 
     n = len(recalls)
     print(f"\n== {run_id} ==")
@@ -179,6 +186,9 @@ def main() -> None:
     print(f"mean MRR:        {sum(mrrs)/n:.3f}")
     print(f"full recall:     {sum(1 for r in recalls if r == 1.0)}/{n}")
     print(f"zero recall:     {sum(1 for r in recalls if r == 0.0)}/{n}")
+    print(f"filter errors:   {filter_errors or 'none'}"
+          "  (routing failures, not retrieval misses — they are inside the"
+          " zero-recall count above)")
     print(f"total cost:      ${tracker.run_total:.4f}")
     print(f"manifest:        {manifest_path}")
     sys.exit(0)

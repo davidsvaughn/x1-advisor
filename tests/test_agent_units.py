@@ -49,6 +49,28 @@ def test_chunk_dedup_registry_reuses_refs():
     assert a == b and len(reg) == 1
 
 
+def test_manifests_never_overwrite(tmp_path):
+    from experiments.manifest import open_new_manifest
+
+    ids, paths = [], []
+    for _ in range(3):
+        run_id, path, fh = open_new_manifest("2026-07-30_cfg_v1", runs_dir=tmp_path)
+        fh.write(run_id + "\n")
+        fh.close()
+        ids.append(run_id)
+        paths.append(path)
+    assert len(set(paths)) == 3, "a rerun overwrote an existing manifest"
+    assert [p.name.rsplit("_r", 1)[1] for p in paths] == ["1.jsonl", "2.jsonl", "3.jsonl"]
+    # the run_id inside the file identifies the file it lives in
+    for run_id, path in zip(ids, paths):
+        assert path.read_text().strip() == run_id == path.stem
+    # a pre-existing file at the next sequence number is stepped over, not clobbered
+    (tmp_path / paths[0].name).write_text("original")
+    _, path, fh = open_new_manifest("2026-07-30_cfg_v1", runs_dir=tmp_path)
+    fh.close()
+    assert path != paths[0] and (tmp_path / paths[0].name).read_text() == "original"
+
+
 def test_chunker_paged_mode_and_spans():
     md = "# Page 1\n\nSlide one body.\n\n# Page 2\n\nSlide two body with more text."
     blocks = chunk_markdown(md)
