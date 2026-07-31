@@ -36,7 +36,8 @@ from typing import Any
 from haystack.components.generators.chat import OpenAIChatGenerator
 from haystack.dataclasses import ChatMessage
 
-from x1_advisor.agent.evidence import EvidenceRegistry, rows_digest, validate_citations
+from x1_advisor.agent.evidence import (EvidenceRegistry, canonical_params,
+                                       rows_digest, validate_citations)
 from x1_advisor.cost import Tracker, Usage
 from x1_advisor.fingerprint import turn_fingerprint
 
@@ -98,6 +99,17 @@ def _messages_through_last_tool(bundle: dict) -> list[ChatMessage]:
 def replay_frozen_tools(conn, bundle: dict, tracker: Tracker) -> dict[str, Any]:
     from x1_advisor.agent.advisor import AGENT_MODEL
 
+    # a bundle without the evidence registry cannot have its citations
+    # re-validated: every ref the fresh synthesis emits would resolve to
+    # nothing and be silently dropped, scoring zero citations on a turn that
+    # may have cited perfectly. Refusing loudly beats replaying wrong
+    # (Gate 1D-5 — pre-registry schema-v2 bundles were accepted and zeroed).
+    if not bundle.get("evidence") and bundle.get("validation", {}).get("citations"):
+        return {"mode": "frozen-tools", "contract_error":
+                "bundle predates the evidence registry: recorded citations "
+                "cannot be re-validated, every replayed ref would silently "
+                "drop. Re-run the turn to produce a replayable bundle."}
+
     messages = _messages_through_last_tool(bundle)
     reply = OpenAIChatGenerator(model=AGENT_MODEL).run(
         [*messages, ChatMessage.from_user(NO_MORE_TOOLS)])["replies"][0]
@@ -132,10 +144,47 @@ def _cite_keys(citations: list[dict]) -> list[str]:
 
 
 def replay_live_tools(conn, bundle: dict, acl: Any, tracker: Tracker) -> dict[str, Any]:
-    """Re-execute the recorded tool calls against today's code and data."""
+    """Re-execute the recorded tool calls against today's code and data.
+
+    ALL of them (Gate 1D-5): the first version ignored get_source entirely —
+    a turn whose full-block fetch drifted reported IDENTICAL because only the
+    search leg was compared — and printed structured-query digests without
+    ever comparing them to the stored ones.
+    """
+    import hashlib
+
     from x1_advisor.agent.queries import run_query
+    from x1_advisor.agent.tools import SOURCE_CHARS, _clip
     from x1_advisor.filters import FilterError, compile_filters
     from x1_advisor.retrieval import retrieve
+
+    registry = EvidenceRegistry.from_list(bundle.get("evidence") or [])
+    # stored structured results, keyed the way citations identify them
+    stored_queries = {
+        (ev.get("query_name"), canonical_params(ev.get("query_params"))):
+            (ev.get("result_digest"), ev.get("row_count"))
+        for ev in bundle.get("evidence") or [] if ev.get("kind") == "query"}
+    # what get_source actually showed the model, per ref (from the recorded
+    # tool results — works for pre-snapshot bundles too)
+    stored_sources: dict[str, str] = {}
+    for m in bundle.get("messages") or []:
+        for content in m.get("content") or []:
+            tcr = content.get("tool_call_result")
+            if not tcr:
+                continue
+            origin = tcr.get("origin") or {}
+            if origin.get("tool_name") != "get_source":
+                continue
+            try:
+                payload = json.loads(tcr.get("result") or "")
+            except (TypeError, ValueError):
+                continue
+            if isinstance(payload, dict) and payload.get("text"):
+                stored_sources[(origin.get("arguments") or {}).get("ref")] = \
+                    payload["text"]
+
+    def _sha(text: str) -> str:
+        return hashlib.sha256(text.encode()).hexdigest()[:12]
 
     stored = {e["call"]: e for e in bundle.get("retrieval_explain") or []}
     diffs, search_n = [], 0
@@ -165,16 +214,53 @@ def replay_live_tools(conn, bundle: dict, acl: Any, tracker: Tracker) -> dict[st
                     "lost": [c for c in then if c not in now],
                     "gained": [c for c in now if c not in then],
                     "identical": then == now})
+            elif name == "get_source":
+                ref = args.get("ref")
+                ev = registry.get(ref) if ref else None
+                then_text = stored_sources.get(ref)
+                if ev is None or ev.kind != "chunk":
+                    diffs.append({"call": None, "tool": name, "ref": ref,
+                                  "error_now": "ref not resolvable from the "
+                                  "bundle's evidence registry (pre-registry "
+                                  "bundle?) — cannot compare"})
+                    continue
+                row = conn.execute(
+                    """SELECT c.text FROM advisor.doc_chunks c
+                       WHERE c.document_id = %s AND c.block_index = %s""",
+                    (ev.document_id, ev.block_index)).fetchone()
+                if not row:
+                    diffs.append({"call": None, "tool": name, "ref": ref,
+                                  "locator": f"doc{ev.document_id}#{ev.block_index}",
+                                  "error_now": "block no longer exists"})
+                    continue
+                now_text, _ = _clip(row["text"], SOURCE_CHARS)  # as the tool shows it
+                diffs.append({
+                    "call": None, "tool": name, "ref": ref,
+                    "locator": f"doc{ev.document_id}#{ev.block_index}",
+                    "sha_then": _sha(then_text) if then_text else None,
+                    "sha_now": _sha(now_text),
+                    "chars_then": len(then_text) if then_text else None,
+                    "chars_now": len(now_text),
+                    "identical": (then_text == now_text) if then_text else None})
             elif name == "structured_query":
+                key = (args.get("name"), canonical_params(args.get("params")))
+                digest_then, rows_then = stored_queries.get(key, (None, None))
                 try:
                     rows = run_query(conn, args.get("name"), args.get("params"),
                                      acl=acl)
+                    digest_now = rows_digest(rows)
                     diffs.append({"call": None, "tool": name,
                                   "query": args.get("name"),
+                                  "row_count_then": rows_then,
                                   "row_count_now": len(rows),
-                                  "digest_now": rows_digest(rows)})
+                                  "digest_then": digest_then,
+                                  "digest_now": digest_now,
+                                  "identical": (digest_then == digest_now
+                                                if digest_then else None)})
                 except Exception as exc:  # noqa: BLE001
                     diffs.append({"call": None, "tool": name,
+                                  "query": args.get("name"),
+                                  "digest_then": digest_then,
                                   "error_now": f"{type(exc).__name__}: {exc}"})
             elif name == "web_research":
                 diffs.append({"call": None, "tool": name,
@@ -252,18 +338,29 @@ def main() -> None:
     for r in runs:
         print(f"\n== {r['mode']} ==")
         if r.get("contract_error"):
-            print(f"  CONTRACT ERROR: {r['contract_error']} ({r['attempted']})")
+            attempted = f" ({r['attempted']})" if r.get("attempted") else ""
+            print(f"  CONTRACT ERROR: {r['contract_error']}{attempted}")
             continue
         if r["mode"] == "live-tools":
             print(f"  acl used: {r['acl_used']} (stored ACL deliberately ignored)")
             for c in r["calls"]:
+                state = ("IDENTICAL" if c.get("identical")
+                         else "DRIFTED" if c.get("identical") is False
+                         else "NO STORED BASELINE")
                 if c.get("skipped"):
                     print(f"  {c['tool']:<17} SKIPPED — {c['skipped']}")
                 elif c.get("error_now"):
-                    print(f"  {c['tool']:<17} ERROR NOW — {c['error_now']}")
+                    print(f"  {c['tool']:<17} ERROR NOW — {c['error_now']}"
+                          + (f" (stored digest {c['digest_then']})"
+                             if c.get("digest_then") else ""))
                 elif c.get("tool") == "structured_query":
-                    print(f"  {c['tool']:<17} {c['query']}: {c['row_count_now']} row(s), "
-                          f"digest {c['digest_now']}")
+                    print(f"  {c['tool']:<17} {c['query']}: {state}  "
+                          f"rows {c['row_count_then']} -> {c['row_count_now']}  "
+                          f"digest {c['digest_then']} -> {c['digest_now']}")
+                elif c.get("tool") == "get_source":
+                    print(f"  {c['tool']:<17} {c['ref']} ({c['locator']}): {state}  "
+                          f"sha {c['sha_then']} -> {c['sha_now']}  "
+                          f"chars {c['chars_then']} -> {c['chars_now']}")
                 else:
                     print(f"  search #{c['call']:<9} "
                           f"{'IDENTICAL' if c['identical'] else 'DRIFTED'}  "
