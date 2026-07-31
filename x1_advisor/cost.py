@@ -71,10 +71,14 @@ PRICING: dict[str, dict[str, dict[str, float]]] = {
         # gpt-5.6 family, verified 2026-07-31 against developers.openai.com/api/docs/pricing
         # (the 2026-07-30 price cut is included). Tiers are sol > terra > luna on
         # capability AND on price; luna is the budget tier, not a stronger model.
-        "gpt-5.6-sol":       {"input": 5.00, "cache_read": 0.500, "output": 30.00},
-        "gpt-5.6-terra":     {"input": 2.00, "cache_read": 0.200, "output": 12.00},
-        "gpt-5.6-luna":      {"input": 0.20, "cache_read": 0.020, "output":  1.20},
-        "gpt-5.5":           {"input": 5.00, "cache_read": 0.500, "output": 30.00},  # <=272K ctx
+        # cache_write = 1.25 x input on this family, billed separately (verified
+        # 2026-07-31 on the model pricing pages). Older OpenAI models do not
+        # report or bill it; they inherit the input rate as a default and report
+        # zero write tokens, so the default never actually charges.
+        "gpt-5.6-sol":       {"input": 5.00, "cache_read": 0.500, "cache_write": 6.25, "output": 30.00},
+        "gpt-5.6-terra":     {"input": 2.00, "cache_read": 0.200, "cache_write": 2.50, "output": 12.00},
+        "gpt-5.6-luna":      {"input": 0.20, "cache_read": 0.020, "cache_write": 0.25, "output":  1.20},
+        "gpt-5.5":           {"input": 5.00, "cache_read": 0.500, "cache_write": 6.25, "output": 30.00},  # <=272K ctx
         "gpt-5.1":           {"input": 1.25, "cache_read": 0.125, "output": 10.00},
         "gpt-5.2":           {"input": 1.75, "cache_read": 0.175, "output": 14.00},
         "gpt-5.4":           {"input": 2.50, "cache_read": 0.250, "output": 15.00},  # verify
@@ -186,14 +190,21 @@ class Usage:
         details = (usage.get("prompt_tokens_details")
                    or usage.get("input_tokens_details") or {})
         cached = int(details.get("cached_tokens", 0))
+        # Responses reports cache_write_tokens, and from gpt-5.6 they ARE billed
+        # separately — 1.25x the uncached input rate (verified 2026-07-31 against
+        # the model pricing page). An earlier revision of this function asserted
+        # the opposite and hard-zeroed the field, which undercounted every
+        # cache-warming call. Chat Completions never reports the field, so it
+        # stays 0 there by absence rather than by assumption.
+        written = int(details.get("cache_write_tokens", 0))
         return cls(
-            input_tokens=max(0, prompt - cached),
+            # prompt counts cached reads but NOT cache writes (writes are the
+            # uncached tokens being stored, already inside `prompt`), so only
+            # `cached` comes off the top.
+            input_tokens=max(0, prompt - cached - written),
             output_tokens=completion,
             cache_read_tokens=cached,
-            # Responses additionally reports cache_write_tokens; OpenAI does not
-            # bill cache writes separately, so this stays 0 for pricing and is
-            # not invented into a charge.
-            cache_write_tokens=0,
+            cache_write_tokens=written,
         )
 
 

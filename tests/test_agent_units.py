@@ -319,3 +319,24 @@ def test_usage_reads_cached_tokens_from_both_openai_wire_shapes():
     assert completions == responses
     assert responses.cache_read_tokens == 800
     assert responses.input_tokens == 200        # uncached remainder, not 1000
+
+
+def test_cache_writes_are_counted_and_billed_on_gpt_5_6():
+    """gpt-5.6 bills cache writes at 1.25x input; an earlier revision zeroed them.
+
+    A test that only ever passes `cache_write_tokens: 0` cannot see this, which
+    is how the defect survived its first test.
+    """
+    from x1_advisor.cost import PRICING, Usage, estimate
+
+    u = Usage.from_haystack_meta("openai", {"usage": {
+        "input_tokens": 1000, "output_tokens": 0,
+        "input_tokens_details": {"cached_tokens": 100, "cache_write_tokens": 400}}})
+    assert (u.cache_write_tokens, u.cache_read_tokens, u.input_tokens) == (400, 100, 500)
+
+    rates = PRICING["openai"]["gpt-5.6-terra"]
+    assert rates["cache_write"] == rates["input"] * 1.25
+
+    b = estimate(provider="openai", model="gpt-5.6-terra", usage=u)
+    assert b.cache_write_cost == 400 * rates["cache_write"] / 1_000_000
+    assert b.cache_write_cost > 0        # the bug: silently 0

@@ -46,7 +46,8 @@ x1-db-test; retrieval baseline recall@10 0.778 / MRR 0.727
 (`experiments/runs/2026-07-08_active_v1.jsonl`). **Context discipline is the testing
 acceptance bar (David)** — keep the per-step usage table green: flat uncached input,
 growing cached tokens, compact tool results.
-Working defaults: gpt-5.1 (agent), text-embedding-3-small (1536d), OpenAI server-side web
+Working defaults: gpt-5.6-terra (agent, Responses API, reasoning=medium; E8 2026-07-31),
+gpt-5.6-terra (judge), text-embedding-3-small (1536d), OpenAI server-side web
 search (`include=["web_search_call.action.sources"]` for citations). Know before touching
 eval data: **test-env drift** — 75/79 test bundles are an experimental shape (skipped
 loudly at ingest) and test dropped redundant eval score columns; 24 original-shape prod

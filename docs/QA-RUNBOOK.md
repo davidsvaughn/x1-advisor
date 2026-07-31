@@ -133,13 +133,20 @@ Gating is suite-aware, not uniformly zero:
   ANY per-question recall/MRR decrease is listed and blocks — not just
   pass-flips; recall 0.8 → 0.4 is a regression even though both "fail".
 - **Agent runs are stochastic** — the model chooses its own search queries, so a
-  single question flipping is noise. Three gates: net pass-flips and net label
-  worsening against `--budget` (default 2), and mean faithfulness/coverage
+  single question flipping is noise. **Four** gates: net pass-flips and net
+  label worsening against `--budget` (default 2), mean faithfulness/coverage
   drops against `--score-drop` (default 0.10 — **measured**, 2026-07-31:
   re-judging identical answers moves the 20-question mean by ~0.07, so a
-  tighter bar flags the judge's own wobble as regression). Label shifts ride
-  in the manifest (funnel + judge labels per question), so they diff between
-  committed runs.
+  tighter bar flags the judge's own wobble as regression), and **completeness**.
+  Label shifts ride in the manifest (funnel + judge labels per question), so
+  they diff between committed runs.
+
+  Completeness exists because the other three only compare questions present
+  and graded on BOTH sides: an after-run that loses questions, or that carries
+  judge metadata but no scores, would otherwise shrink the evidence instead of
+  failing on it and report "no regressions". Missing questions, ungraded pairs,
+  or absent faithfulness/coverage on a judged contract now FAIL. An incomplete
+  run is not a passing run; it is a run that did not finish.
 
 ## 5. The rules that keep this honest
 
@@ -277,8 +284,14 @@ That ladder — nothing about the agent — is why swapping gpt-5.1 for terra mo
 suite faithfulness **+0.185** on identical answers. **No judge gave a false
 clean bill** (an `unsupported` claim called `supported`): zero, all four.
 
-Default: **`gpt-5.6-luna`**. Four rules learned getting there, two of them the
-hard way:
+Default: **`gpt-5.6-terra`** — picked against the 32 human labels
+(`judge_bakeoff --labeled-only`): terra 25/32 (kappa 0.63), sol 24/32 (0.58),
+luna 21/32 (0.45), gpt-5.1 20/32 (0.44), zero false clean bills for all four.
+Terra is both the best-agreeing and the cheaper of the two leaders
+(~$0.72 a suite against sol's ~$1.50). Those labels carry `assist_shown`,
+so this is evidence, not proof — an unassisted batch is pending.
+
+Four rules learned getting there, two of them the hard way:
 
 1. **A bigger model is not automatically a better judge.** The job is applying
    the rubric the way a careful person does, not being smart. `gpt-5.6-sol` is

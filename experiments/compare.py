@@ -312,8 +312,33 @@ def main() -> None:
             if ma - mb > args.score_drop:
                 score_fails.append(f"{name} {ma:.3f} -> {mb:.3f} "
                                    f"(drop {ma - mb:.3f} > {args.score_drop})")
+        # gate 4: COMPLETENESS. The three gates above only look at questions
+        # present and graded on both sides, so a run that loses questions or
+        # comes back ungraded shrinks the evidence instead of failing on it —
+        # the after-run with half its questions missing, or with judge metadata
+        # but no scores, would sail through with "no regressions". An
+        # incomplete run is not a passing run; it is a run that did not finish.
+        incomplete = []
+        if buckets["removed"]:
+            incomplete.append(f"{len(buckets['removed'])} question(s) present "
+                              f"before and missing after "
+                              f"({', '.join(buckets['removed'])})")
+        if buckets["ungraded"]:
+            incomplete.append(f"{len(buckets['ungraded'])} question(s) could "
+                              f"not be graded on one or both sides "
+                              f"({', '.join(buckets['ungraded'])})")
+        if ca.startswith("judged"):
+            for name in ("faithfulness", "citation_coverage"):
+                missing = [q for q in sorted(shared)
+                           if metric(a_by[q], name) is None
+                           or metric(b_by[q], name) is None]
+                if missing:
+                    incomplete.append(
+                        f"{len(missing)} shared question(s) missing {name} "
+                        f"({', '.join(missing[:5])}"
+                        f"{', …' if len(missing) > 5 else ''})")
         ok = (net <= args.budget and net_labels <= args.budget
-              and not score_fails)
+              and not score_fails and not incomplete)
         print(f"  stochastic suite: {len(buckets['broken'])} broken, "
               f"{len(buckets['fixed'])} fixed, net {net:+d}; budget {args.budget}")
         print(f"  labels: {len(gained)} question(s) gained labels "
@@ -321,8 +346,11 @@ def main() -> None:
               f"net {net_labels:+d}; budget {args.budget}")
         for f in score_fails:
             print(f"  SCORE REGRESSION: {f}")
+        for f in incomplete:
+            print(f"  INCOMPLETE: {f}")
         print("  (single flips are noise on a stochastic suite — the gates are "
-              "net flips, net label worsening, and mean score drops)")
+              "net flips, net label worsening, mean score drops, and "
+              "completeness)")
         if buckets["ungraded"]:
             print(f"  ungraded (cannot say pass/fail): {buckets['ungraded']}")
     print(f"\nCOMPARE: {'PASS' if ok else 'FAIL'}")

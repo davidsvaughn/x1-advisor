@@ -486,7 +486,11 @@ Judge-independent: mean latency **20.3s → 8.7s**, cost/turn **$0.0196 → $0.0
 
 Self-preference was measurable and small, in the predicted direction: judged by terra,
 terra's faithfulness edge read +0.014; judged neutrally, +0.003. Both inside noise — but it
-is why agent and judge are now deliberately different models.
+is why a model A/B must be regraded by a judge that wrote neither arm before it is
+believed. Agent and judge are both `gpt-5.6-terra` in normal operation (terra won the
+judge bake-off on human labels, and sol cost double for one item less); the bias is a
+constant that cancels when both sides share an agent model, and QA-RUNBOOK §8 carries
+the rule for when it does not.
 
 Two larger effects showed up alongside, and both dwarf the model change:
 *judge* (gpt-5.1 → terra on identical answers) moved faithfulness **+0.185**, and

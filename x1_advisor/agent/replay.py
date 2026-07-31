@@ -33,7 +33,6 @@ import json
 import sys
 from typing import Any
 
-from haystack.components.generators.chat import OpenAIChatGenerator
 from haystack.dataclasses import ChatMessage
 
 from x1_advisor.agent.evidence import (EvidenceRegistry, canonical_params,
@@ -97,7 +96,11 @@ def _messages_through_last_tool(bundle: dict) -> list[ChatMessage]:
 
 
 def replay_frozen_tools(conn, bundle: dict, tracker: Tracker) -> dict[str, Any]:
-    from x1_advisor.agent.advisor import AGENT_MODEL
+    # Same generator factory production uses — Responses transport and the
+    # configured reasoning effort. Replaying through a different transport
+    # would change synthesis while claiming to hold everything but synthesis
+    # randomness still, which is the one promise this mode makes.
+    from x1_advisor.agent.advisor import AGENT_MODEL, agent_generator
 
     # a bundle without the evidence registry cannot have its citations
     # re-validated: every ref the fresh synthesis emits would resolve to
@@ -111,7 +114,7 @@ def replay_frozen_tools(conn, bundle: dict, tracker: Tracker) -> dict[str, Any]:
                 "drop. Re-run the turn to produce a replayable bundle."}
 
     messages = _messages_through_last_tool(bundle)
-    reply = OpenAIChatGenerator(model=AGENT_MODEL).run(
+    reply = agent_generator().run(
         [*messages, ChatMessage.from_user(NO_MORE_TOOLS)])["replies"][0]
     if reply.tool_calls:
         return {"mode": "frozen-tools", "contract_error":

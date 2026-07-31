@@ -160,7 +160,13 @@ def sample_pairs(limit: int, run: str | None = None) -> int:
                     f"[{n}] {sources[n]['text'][:EVIDENCE_CHARS]}"
                     for n in v["citations"]
                     if sources.get(n) and sources[n]["text"])
-                item_id = f"{path.stem}_v{k}"
+                # Run-qualified: `g001_v19` names a DIFFERENT (claim, evidence)
+                # pair in every run, so the bare form collided across runs.
+                # Nothing was corrupted — the `existing` check simply skipped
+                # the new pair as already-seen, quietly shrinking each later
+                # draw and biasing it away from questions labeled before.
+                # Legacy bare ids stay as they are; labels reference them.
+                item_id = f"{path.parent.name}:{path.stem}_v{k}"
                 if not text or item_id in existing:
                     continue
                 buckets.setdefault(v["verdict"], []).append({
