@@ -472,7 +472,27 @@ ways, `compare` decides: if hiding the text cuts `synthesis_error` without costi
 quality, routing-only becomes the default and the instruction-based boundary retires. Entangled
 with E6 the same way summaries are: if E6's contextual chunks win outright, E7 is moot.
 
-**E8 — Agent model** *(opened 2026-07-31, blocked on DB access)*
+**E8 — Agent model** *(closed 2026-07-31: switched to `gpt-5.6-terra` on cost and latency)*
+Result first: `compare` PASS, 2 questions fixed / 1 broken, labels net −3, but **quality is a
+wash** — faithfulness +0.014 and coverage +0.045 both sit at or under the 0.07 noise floor
+and are not claimed as improvements. What is real: mean latency **20.3s → 8.7s** and
+cost/turn **$0.0196 → $0.0163**, cheaper despite higher per-token prices because terra
+reaches an answer in fewer, shorter steps. Both arms ran on the Responses transport and
+were graded by the same judge, so the model was the only variable.
+
+Two larger effects showed up alongside, and both dwarf the model change:
+*judge* (gpt-5.1 → terra on identical answers) moved faithfulness **+0.185**, and
+*transport+explicit reasoning* (5.1 on Chat Completions → 5.1 on Responses at
+`effort=medium`) moved it **+0.147**. The agent model was worth +0.014. Anyone reading a
+faithfulness number should ask which judge and which reasoning config produced it before
+asking which model did.
+
+The migration was forced, not chosen: from gpt-5.6 on, function tools and reasoning are
+mutually exclusive on Chat Completions, so testing terra there would have measured it with
+reasoning switched off. It also surfaced a silent billing bug — the Responses API reports
+cached tokens under `input_tokens_details`, so every such call was being billed as zero-cached.
+
+*Original entry (opened 2026-07-31, then blocked on DB access):*
 The judge moved to `gpt-5.6-terra` on measured evidence (`judge_bakeoff`: all candidates
 pass the synthetic set, but they disagree on ~20% of real pairs, and gpt-5.1 was the strict
 outlier at 16 `unsupported` vs 11 for each 5.6 tier). The agent model is the same question
