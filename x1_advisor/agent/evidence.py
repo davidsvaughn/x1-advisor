@@ -60,6 +60,12 @@ class Evidence:
     result_digest: str | None = None
     acl_policy_version: int | None = None
     executed_at: str | None = None
+    # The exact text the model was shown for this ref — snippet, get_source
+    # upgrade, per-call web findings, or the structured-query result payload.
+    # This is what the claim/citation judge must judge against: the current
+    # database row is a different document than the one the model read, and
+    # judging against it made scores drift with corpus changes (Gate 1D-1).
+    snapshot: str | None = None
 
     def resolvable(self) -> bool:
         if self.kind == "chunk":
@@ -96,15 +102,26 @@ class EvidenceRegistry:
     _by_key: dict[tuple, str] = field(default_factory=dict)
 
     def register_chunk(self, *, document_id: int, block_index: int,
-                       page_number: int | None, title: str | None) -> str:
+                       page_number: int | None, title: str | None,
+                       snapshot: str | None = None) -> str:
         key = ("chunk", document_id, block_index)
         if key in self._by_key:
-            return self._by_key[key]
+            ref = self._by_key[key]
+            self.upgrade_snapshot(ref, snapshot)
+            return ref
         ref = f"ref{len(self._items) + 1}"
         self._items[ref] = Evidence(ref, "chunk", title, document_id,
-                                    block_index, page_number)
+                                    block_index, page_number, snapshot=snapshot)
         self._by_key[key] = ref
         return ref
+
+    def upgrade_snapshot(self, ref: str, text: str | None) -> None:
+        """Keep the most complete view the model has had of this evidence —
+        a get_source call shows more of the same block than the search snippet
+        did, and the judge should see everything the model saw."""
+        ev = self._items.get(ref.lower())
+        if ev is not None and text and len(text) > len(ev.snapshot or ""):
+            ev.snapshot = text
 
     def register_query(self, *, query_name: str, params: dict[str, Any] | None,
                        rows: list[dict[str, Any]],
@@ -129,12 +146,22 @@ class EvidenceRegistry:
         self._by_key[key] = ref
         return ref
 
-    def register_web(self, *, url: str, title: str | None = None) -> str:
+    def register_web(self, *, url: str, title: str | None = None,
+                     snapshot: str | None = None) -> str:
         key = ("web", url)
         if key in self._by_key:
-            return self._by_key[key]
+            ref = self._by_key[key]
+            # a second web_research call may list the same URL under new
+            # findings: both texts were shown for this ref, so both are its
+            # evidence — append, never replace (distinct from the chunk case,
+            # where longer text is a superset of shorter)
+            ev = self._items[ref]
+            if snapshot and snapshot not in (ev.snapshot or ""):
+                ev.snapshot = (f"{ev.snapshot}\n\n{snapshot}" if ev.snapshot
+                               else snapshot)
+            return ref
         ref = f"ref{len(self._items) + 1}"
-        self._items[ref] = Evidence(ref, "web", title, url=url)
+        self._items[ref] = Evidence(ref, "web", title, url=url, snapshot=snapshot)
         self._by_key[key] = ref
         return ref
 
@@ -195,7 +222,10 @@ def validate_citations(answer: str, registry: EvidenceRegistry) -> dict[str, Any
 
     cleaned = _REF_RE.sub(_sub, answer)
     cleaned = re.sub(r" +([.,;:])", r"\1", cleaned)          # tidy dangling space
-    citations = [{**registry.get(ref).to_citation(), "n": i + 1}
+    # `ref` is the join key back to the evidence registry (and its snapshot of
+    # what the model saw) — without it the judge cannot pair citation n with
+    # its per-ref evidence and had to re-derive it from the live database
+    citations = [{**registry.get(ref).to_citation(), "ref": ref, "n": i + 1}
                  for i, ref in enumerate(order)]
     return {"answer": cleaned.strip(), "citations": citations,
             "emitted": len(distinct_emitted), "resolved": len(citations),

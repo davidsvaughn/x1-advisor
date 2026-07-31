@@ -58,8 +58,10 @@ def test_citation_validator_resolves_dedupes_and_drops():
     assert out["dropped"] == ["ref99"]
     assert "[ref" not in out["answer"] and "[1]" in out["answer"] and "[1,2]" in out["answer"]
     assert out["citations"][0] == {"type": "internal", "document_id": 10,
-                                   "block_index": 2, "title": "Doc A", "n": 1}
+                                   "block_index": 2, "title": "Doc A",
+                                   "ref": r1, "n": 1}
     assert out["citations"][1]["url"] == "https://example.com/x"
+    assert out["citations"][1]["ref"] == r2   # the join key to evidence snapshots
 
 
 def test_structured_query_results_are_citable_platform_data():
@@ -94,6 +96,63 @@ def test_chunk_dedup_registry_reuses_refs():
     a = reg.register_chunk(document_id=1, block_index=1, page_number=3, title="T")
     b = reg.register_chunk(document_id=1, block_index=1, page_number=3, title="T")
     assert a == b and len(reg) == 1
+
+
+def test_evidence_snapshots_record_what_the_model_saw():
+    # Gate 1D-1: the judge must judge against these, never the live database
+    reg = EvidenceRegistry()
+    r = reg.register_chunk(document_id=1, block_index=1, page_number=None,
+                           title="T", snapshot="short snippet …")
+    # get_source shows MORE of the same block → snapshot upgrades to the
+    # fuller view; a later, shorter view never downgrades it
+    reg.upgrade_snapshot(r, "the full block text, much longer than the snippet")
+    reg.upgrade_snapshot(r, "tiny")
+    assert reg.get(r).snapshot == "the full block text, much longer than the snippet"
+    # a re-search returning the same chunk upgrades through register too
+    reg2 = EvidenceRegistry()
+    a = reg2.register_chunk(document_id=1, block_index=1, page_number=None,
+                            title="T", snapshot="123")
+    reg2.register_chunk(document_id=1, block_index=1, page_number=None,
+                        title="T", snapshot="123456")
+    assert reg2.get(a).snapshot == "123456"
+    # web evidence APPENDS across calls: both findings texts were shown for
+    # this ref, and neither is a superset of the other
+    w = reg.register_web(url="https://x.test/a", snapshot="findings from call 1")
+    reg.register_web(url="https://x.test/a", snapshot="findings from call 2")
+    reg.register_web(url="https://x.test/a", snapshot="findings from call 1")
+    assert reg.get(w).snapshot == "findings from call 1\n\nfindings from call 2"
+    # snapshots ride the bundle round-trip that replay and the judge rely on
+    back = EvidenceRegistry.from_list(reg.to_list())
+    assert back.get(r).snapshot == reg.get(r).snapshot
+    assert back.get(w).snapshot == reg.get(w).snapshot
+    # but they are turn-bundle data, never part of the outward citation
+    assert "snapshot" not in reg.get(r).to_citation()
+
+
+def test_judge_evidence_provenance_detection():
+    from x1_advisor.agent.judge import evidence_provenance, evidence_texts
+
+    reg = EvidenceRegistry()
+    r = reg.register_chunk(document_id=7, block_index=0, page_number=None,
+                           title="T", snapshot="what the model saw")
+    validated = validate_citations(f"Claim [{r}].", reg)
+    bundle = {"evidence": reg.to_list(), "validation": validated, "messages": []}
+    assert evidence_provenance(bundle) == "turn-snapshot"
+    # snapshot path needs no database connection at all
+    texts = evidence_texts(None, bundle)
+    assert texts[1]["text"] == "what the model saw"
+    assert texts[1]["kind"] == "internal"
+    # a pre-snapshot (schema v2) bundle is detected, not silently mis-judged
+    legacy = {"evidence": [{"ref": "ref1", "kind": "chunk", "document_id": 7,
+                            "block_index": 0}],
+              "validation": validated, "messages": []}
+    assert evidence_provenance(legacy) == "reconstructed-legacy"
+    # zero-citation bundles go by their schema contract, not by resolution
+    assert evidence_provenance({"evidence": [], "validation": {"citations": []},
+                                "messages": []}) == "reconstructed-legacy"
+    assert evidence_provenance({"schema_version": 3, "evidence": [],
+                                "validation": {"citations": []},
+                                "messages": []}) == "turn-snapshot"
 
 
 def test_summary_windows_cover_the_whole_document():

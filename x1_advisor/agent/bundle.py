@@ -28,7 +28,11 @@ from typing import Any, Sequence
 
 from x1_advisor.fingerprint import REPO_ROOT, turn_fingerprint
 
-SCHEMA_VERSION = 2
+# v3 (Gate 1D-1): the evidence registry carries per-ref SNAPSHOTS of the text
+# the model was shown, and validated citations carry their `ref` join key.
+# v2 bundles lack both — the judge falls back to legacy reconstruction (flagged)
+# and frozen-tools replay refuses them rather than silently dropping citations.
+SCHEMA_VERSION = 3
 
 # Full bundle exports never enter git: they carry entitled evidence text and
 # untrusted corpus/web content. Owner-only, outside the tree the repo tracks.

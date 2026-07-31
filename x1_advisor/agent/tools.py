@@ -79,10 +79,13 @@ def build_tools(conn, *, acl: Any, registry: EvidenceRegistry,
                               "— do not say it doesn't exist.")
         items = []
         for h in hits:
+            snippet, truncated = _clip(h.text, SNIPPET_CHARS)
+            # snapshot = the snippet as shown, truncation marker and all: the
+            # judge must judge against what the model read, not the full block
             ref = registry.register_chunk(document_id=h.document_id,
                                           block_index=h.block_index,
-                                          page_number=h.page_number, title=h.title)
-            snippet, truncated = _clip(h.text, SNIPPET_CHARS)
+                                          page_number=h.page_number, title=h.title,
+                                          snapshot=snippet)
             item = {"ref": ref, "title": h.title, "source_type": h.source_type,
                     "snippet": snippet}
             if h.page_number is not None:
@@ -117,6 +120,9 @@ def build_tools(conn, *, acl: Any, registry: EvidenceRegistry,
         if not row:
             return json.dumps({"error": f"{ref} no longer resolves"})
         text, truncated = _clip(row["text"], SOURCE_CHARS)
+        # the model has now seen more of this block than the search snippet —
+        # the ref's snapshot upgrades to the fuller view
+        registry.upgrade_snapshot(ref, text)
         out = {"ref": ref, "title": row["title"], "source_type": row["source_type"],
                "page": row["page_number"], "text": text}
         if truncated:
@@ -138,14 +144,16 @@ def build_tools(conn, *, acl: Any, registry: EvidenceRegistry,
         ref = registry.register_query(query_name=name, params=params or {},
                                       rows=rows,
                                       acl_policy_version=ACL_POLICY_VERSION)
-        return json.dumps({"ref": ref, "query": name, "params": params or {},
-                           # rows alone are not self-describing: "47" does not
-                           # say *what* was counted or under whose scope. The
-                           # description carries the predicates the SQL applied,
-                           # so the claim built on it can actually be checked.
-                           "description": QUERIES[name]["description"],
-                           "acl_scope": "admin" if acl == "admin" else "requesting user",
-                           "rows": rows, "row_count": len(rows)}, default=str)
+        payload = json.dumps({"ref": ref, "query": name, "params": params or {},
+                              # rows alone are not self-describing: "47" does not
+                              # say *what* was counted or under whose scope. The
+                              # description carries the predicates the SQL applied,
+                              # so the claim built on it can actually be checked.
+                              "description": QUERIES[name]["description"],
+                              "acl_scope": "admin" if acl == "admin" else "requesting user",
+                              "rows": rows, "row_count": len(rows)}, default=str)
+        registry.upgrade_snapshot(ref, payload)   # verbatim what the model saw
+        return payload
 
     def web_research(question: str) -> str:
         from openai import OpenAI
@@ -165,6 +173,9 @@ def build_tools(conn, *, acl: Any, registry: EvidenceRegistry,
                     usage=usage, tool_calls=["web_search"])
         # citations must be ATTRIBUTABLE: the model needs (ref, url, title) to know
         # which ref backs which claim — bare ref ids force it to omit citations.
+        # Each ref's snapshot is THIS call's findings — not a pool of every web
+        # call in the turn, which credited one URL with another's evidence.
+        findings, truncated = _clip(resp.output_text or "", WEB_FINDINGS_CHARS)
         sources: dict[str, dict] = {}
         for item in resp.output:
             itype = getattr(item, "type", "")
@@ -173,16 +184,16 @@ def build_tools(conn, *, acl: Any, registry: EvidenceRegistry,
                     for ann in getattr(content, "annotations", []) or []:
                         if getattr(ann, "type", "") == "url_citation" and getattr(ann, "url", None):
                             ref = registry.register_web(url=ann.url,
-                                                        title=getattr(ann, "title", None))
+                                                        title=getattr(ann, "title", None),
+                                                        snapshot=findings)
                             sources.setdefault(ref, {"ref": ref, "url": ann.url,
                                                      "title": getattr(ann, "title", None)})
             elif itype == "web_search_call":
                 for src in getattr(getattr(item, "action", None), "sources", None) or []:
                     if getattr(src, "type", "") == "url" and getattr(src, "url", None):
-                        ref = registry.register_web(url=src.url)
+                        ref = registry.register_web(url=src.url, snapshot=findings)
                         sources.setdefault(ref, {"ref": ref, "url": src.url,
                                                  "title": None})
-        findings, truncated = _clip(resp.output_text or "", WEB_FINDINGS_CHARS)
         out = {"findings": findings, "sources": list(sources.values())[:8]}
         if truncated:
             out["_truncated"] = True

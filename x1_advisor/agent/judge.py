@@ -14,10 +14,15 @@ Two questions, judged separately because they fail separately:
 * **citation coverage** — of the factual claims in the answer, how many carry a
   citation at all? A failure here is `citation_coverage_error`.
 
-Evidence comes from what the model was actually shown, not from a fresh search:
-internal refs resolve to the full source block, web refs to the `web_research`
-findings text captured in the bundle. The question is whether the answer follows
-from the evidence it had.
+Evidence comes from what the model was actually shown — the per-ref snapshots
+the evidence registry captured at tool time (Gate 1D-1). Judging against the
+live database judged a *different document* than the one the model read: a
+600-char snippet could be scored "supported" using text the model never saw,
+and a corpus change could silently rewrite historical scores. With snapshots
+the judge is a pure function of the bundle. Bundles that predate snapshots are
+still judgeable via DB reconstruction, but every such score carries
+`evidence_provenance: "reconstructed-legacy"` so it can never be quoted as if
+it measured synthesis.
 
 **The judge is itself unverified until calibrated.** The second review was
 explicit: do not turn the judge's score into another unverified proxy. So every
@@ -44,8 +49,10 @@ from x1_advisor.agent.evidence import canonical_params
 from x1_advisor.cost import Tracker, Usage
 
 JUDGE_MODEL = os.environ.get("ADVISOR_JUDGE_MODEL", "gpt-5.1")
-SCHEMA_VERSION = 1
-# a claim is judged against the text the model saw; blocks are bounded already
+# v2 (Gate 1D-1): claims are judged against per-ref snapshots of what the model
+# saw, not against the current database; scores from v1 are not comparable
+SCHEMA_VERSION = 2
+# guard on judge input size; snapshots are bounded by construction (tools.py)
 EVIDENCE_CHARS = 8000
 
 # The judge owns the answer to "how far should you trust me". The labelled set
@@ -160,14 +167,51 @@ def _ask(client: OpenAI, tracker: Tracker | None, prompt: str,
     return resp.choices[0].message.parsed
 
 
-def evidence_texts(conn, bundle: dict) -> dict[int, dict[str, Any]]:
-    """Citation number → the text the model was shown for it.
+def evidence_provenance(bundle: dict) -> str:
+    """Can this bundle be judged against what the model actually saw?
 
-    Internal refs resolve to the full source block (the model may have seen only
-    a snippet, but the block is what the citation points at). Web refs resolve to
-    the `web_research` findings captured in the bundle — there is no stored page
-    text, and refetching would judge a different document than the one the model
-    read.
+    `turn-snapshot` — the evidence registry carries per-ref snapshots (bundle
+    schema v3+): the judge is a pure function of the bundle.
+    `reconstructed-legacy` — pre-snapshot bundle: evidence is re-derived from
+    the current database and pooled web findings, which measures citation
+    audit-worthiness *today*, not synthesis fidelity *then*. Scores under this
+    provenance must never be compared against snapshot-judged scores.
+    """
+    by_ref = {e.get("ref"): e for e in bundle.get("evidence") or []}
+    cits = bundle.get("validation", {}).get("citations", [])
+    if not cits:   # nothing to resolve — go by the bundle's own contract
+        return ("turn-snapshot" if (bundle.get("schema_version") or 0) >= 3
+                else "reconstructed-legacy")
+    if all(c.get("ref") in by_ref
+           and by_ref[c["ref"]].get("snapshot") for c in cits):
+        return "turn-snapshot"
+    return "reconstructed-legacy"
+
+
+def evidence_texts(conn, bundle: dict) -> dict[int, dict[str, Any]]:
+    """Citation number → the text the model was shown for it."""
+    if evidence_provenance(bundle) == "turn-snapshot":
+        by_ref = {e["ref"]: e for e in bundle.get("evidence") or []}
+        out: dict[int, dict[str, Any]] = {}
+        for c in bundle.get("validation", {}).get("citations", []):
+            ev = by_ref[c["ref"]]
+            locator = (f"doc {ev.get('document_id')} block {ev.get('block_index')}"
+                       if ev.get("kind") == "chunk" else
+                       f"{ev.get('query_name')}({canonical_params(ev.get('query_params'))})"
+                       if ev.get("kind") == "query" else ev.get("url", ""))
+            out[c["n"]] = {"kind": c.get("type"), "text": ev["snapshot"],
+                           "locator": locator}
+        return out
+    return _legacy_evidence_texts(conn, bundle)
+
+
+def _legacy_evidence_texts(conn, bundle: dict) -> dict[int, dict[str, Any]]:
+    """Pre-snapshot reconstruction — kept ONLY so old bundles stay judgeable.
+
+    Known-wrong in two documented ways (the Gate 1D review): internal refs
+    resolve to the full CURRENT block (the model may have seen a snippet of an
+    earlier version), and web refs each receive every web finding in the turn.
+    Callers surface this via `evidence_provenance`.
     """
     out: dict[int, dict[str, Any]] = {}
     web_findings: list[str] = []
@@ -184,10 +228,6 @@ def evidence_texts(conn, bundle: dict) -> dict[int, dict[str, Any]]:
             if payload.get("findings"):
                 web_findings.append(payload["findings"])
             if payload.get("query") and "rows" in payload:
-                # platform-data evidence: the rows the model was handed, plus
-                # what they mean. Rows alone are not checkable — "47" does not
-                # say what was counted or under whose scope. Keyed by
-                # (query, params) so it matches the citation's own identity.
                 query_results[(payload["query"],
                                canonical_params(payload.get("params")))] = (
                     f"X1 platform data — {payload['query']}"
@@ -268,6 +308,8 @@ def judge_bundle(conn, bundle: dict, *, tracker: Tracker | None = None,
         # a score is only as trustworthy as the judge behind it; carry that state
         # with the number so it can never be read as established fact
         "calibration": calibration or {"state": "uncalibrated"},
+        # snapshot-judged or legacy-reconstructed — the two are NOT comparable
+        "evidence_provenance": evidence_provenance(bundle),
         "claims": {"total": len(claims), "factual": len(factual),
                    "cited": len(cited), "uncited": len(uncited)},
         "verdicts": verdicts,
@@ -275,13 +317,17 @@ def judge_bundle(conn, bundle: dict, *, tracker: Tracker | None = None,
         "counts": counts,
         "scores": {
             # strict: only full entailment counts. `partial` is reported, never
-            # quietly folded into the numerator.
+            # quietly folded into the numerator. `unverifiable` stays out of the
+            # denominator (there is nothing to entail against) but is NEVER
+            # silent: it gets its own label below, so a turn full of dead
+            # citations cannot score clean by having nothing judgeable.
             "faithfulness": (counts["supported"] / judged) if judged else None,
             "citation_coverage": (len(cited) / len(factual)) if factual else None,
         },
         "labels": sorted(
             ({"synthesis_error"} if counts["unsupported"] or counts["partial"] else set())
-            | ({"citation_coverage_error"} if uncited else set())),
+            | ({"citation_coverage_error"} if uncited else set())
+            | ({"unverifiable_citation"} if counts["unverifiable"] else set())),
     }
 
 
@@ -308,7 +354,11 @@ def main() -> None:
         return
     s, c = result["scores"], result["claims"]
     print(f"turn {args.turn_id}  judge={result['judge_model']}  "
-          f"calibration={result['calibration']['state']}")
+          f"calibration={result['calibration']['state']}  "
+          f"evidence={result['evidence_provenance']}")
+    if result["evidence_provenance"] == "reconstructed-legacy":
+        print("  ⚠ pre-snapshot bundle: judged against the CURRENT database, "
+              "not what the model saw — do not compare with snapshot-judged scores")
     print(f"claims: {c['factual']} factual ({c['cited']} cited, {c['uncited']} uncited)")
     def pct(v: float | None) -> str:
         return "n/a" if v is None else format(v, ".2f")
