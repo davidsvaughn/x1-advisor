@@ -15,6 +15,7 @@ import pytest
 import yaml
 
 from experiments.cases import (
+    CLASSES,
     CaseValidationError,
     compile_suite,
     load_suite,
@@ -127,16 +128,44 @@ def errors_from(tmp_path, **kwargs) -> str:
 
 
 def test_shipped_v2_suite_compiles():
-    """The design's own worked example (§4) is the schema's executable
-    reference — if it stops compiling, one of the two is wrong."""
+    """The authored suite is the schema's executable reference — if it stops
+    compiling, one of the two is wrong."""
     suite = load_suite("v2")
     assert suite.version == "v2.0"
     identity = suite.identity()
     assert identity["scoring_contract"].startswith("golden-v2.0/modes-")
     assert len(identity["suite_digest"]) == 64
-    v2c017 = suite.by_id("v2c017")
-    assert v2c017 is not None and v2c017.grading_mode == "honesty"
-    assert v2c017.truth_set == "truth/v2c017.json"
+    assert len(suite.cases) >= 50 and len(suite.scripts) >= 4
+
+    # the design's §4 worked example, now v2c008: honesty-graded until
+    # scan_text exists, oracle computed, not authored
+    v2c008 = suite.by_id("v2c008")
+    assert v2c008.grading_mode == "honesty" and v2c008.blocked_on == "scan_text"
+    assert v2c008.truth_set == "truth/v2c008.json"
+
+
+def test_shipped_suite_covers_every_design_class():
+    """§3's composition table plus §6. The injection canary is the one
+    deliberate gap — it needs a planted corpus document (a Gate 2 fixture and
+    a corpus write), which is David's call, not the build's."""
+    suite = load_suite("v2")
+    present = {u.cls for u in suite.units}
+    assert set(CLASSES) - present == {"injection_canary"}
+
+
+def test_every_case_carries_provenance():
+    """The provenance finding that motivated v2 cannot be repeated silently:
+    every case traces to a bank row, a real thread, or the design §6."""
+    suite = load_suite("v2")
+    assert all(u.provenance for u in suite.units)
+
+
+def test_enumeration_oracles_are_all_computed():
+    suite = load_suite("v2")
+    for case in suite.cases:
+        if case.cls in ("enumeration_text", "known_absence"):
+            assert case.truth_set and case.truth_spec, case.id
+            assert "must_mention_all" not in case.grade.deterministic, case.id
 
 
 # --- suite identity (review criterion 3) ----------------------------------

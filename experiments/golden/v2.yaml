@@ -7,55 +7,1211 @@
 # matcher shape; v2 uses `cases:` + `scripts:` and grades answers, not hits.
 # The two are different scoring contracts and are never averaged (§10).
 #
-# Every case carries provenance back to QUESTION-BANK.md or a real captured
-# thread (LFT). Wording is preserved verbatim wherever possible — the phrasing
-# is the test. Curate, don't copy: a question repeated across historical
-# sources counts once (the compiler enforces this).
+# Provenance is mandatory: `bank#N` is a row of docs/QUESTION-BANK.md, `P4
+# compact #N` is the Phase-4 compact smoke set (bank Script C), `§6` is a
+# truth-robustness case defined by the design itself. Wording is verbatim
+# wherever the source is a real user turn or a real test list — the phrasing is
+# the test. Where a case parameterizes an entity slot (§7.1) the `notes:` field
+# says so.
 #
-# Authoring lands in build step 3 (§9). The case below is the design's own
-# worked example (§4), kept as the schema's executable reference.
+# Curation, not copying (bank §0): a question repeated across historical
+# sources counts once, and the compiler rejects duplicate question text.
+#
+# Corpus reality this suite is authored against (measured 2026-07-31):
+#   * 25 of 64 company names have evaluation documents; 39 test startups have
+#     none, so a corpus-wide enumeration's honest denominator is 25, not 50.
+#   * 9 company names exist as BOTH a prod fixture bundle and a test entity,
+#     which is why every truth set records two denominators (entity_key).
+#   * the investor/organization profiles are nearly empty of thematic language
+#     (biotech/medtech/climate ≈ 0 hits), so those enumeration cases are
+#     honesty tests with verified-empty oracles, not recall tests.
+#   * `PhD` has zero hits in the CVs while `Ph.D` has three — v2c040 exists
+#     because reporting "no founders have PhDs" from a lexical no-match is
+#     precisely the honesty failure bank §3.2 forbids.
 
 version: v2.0
 
 cases:
-  - id: v2c017
+
+  # ======================================================================
+  # SMOKE (P4 compact set, bank Script C) — deterministic-only, every CI run.
+  # Compact #7, #8 and #11 are working-set questions and wait for v2.1 (§2).
+  # ======================================================================
+
+  - id: v2c001
+    class: single_entity_evidence
+    tier: smoke
+    provenance: P4 compact #1
+    question: "What risks are mentioned for this startup?"
+    bindings: {startup: evaluated_startup}
+    binding_mode: selected_entity
+    readiness: {source_available: true, tool_ready: true, scope: entity,
+                operation: lookup, context_required: selected, golden_priority: p0}
+    expected_route: [search_corpus, get_source]
+    acceptable_routes: [corpus]
+    grade:
+      deterministic: {must_cite: true}
+
+  - id: v2c002
+    class: single_entity_evidence
+    tier: smoke
+    provenance: P4 compact #2
+    question: "What strengths are highlighted for this startup?"
+    bindings: {startup: evaluated_startup}
+    binding_mode: selected_entity
+    readiness: {source_available: true, tool_ready: true, scope: entity,
+                operation: lookup, context_required: selected, golden_priority: p0}
+    expected_route: [search_corpus, get_source]
+    acceptable_routes: [corpus]
+    grade:
+      deterministic: {must_cite: true}
+
+  - id: v2c003
+    class: structured_aggregate
+    tier: smoke
+    provenance: P4 compact #5
+    question: "What industry is this startup in?"
+    bindings: {startup: evaluated_startup}
+    binding_mode: selected_entity
+    readiness: {source_available: true, tool_ready: true, scope: entity,
+                operation: lookup, context_required: selected, golden_priority: p1}
+    expected_route: [search_corpus]
+    acceptable_routes: [corpus, structured]
+    grade:
+      deterministic: {must_cite: true}
+
+  - id: v2c004
+    class: structured_aggregate
+    tier: smoke
+    provenance: P4 compact #6
+    question: "What is the current score for this startup?"
+    bindings: {startup: evaluated_startup}
+    binding_mode: selected_entity
+    readiness: {source_available: true, tool_ready: true, scope: entity,
+                operation: lookup, context_required: selected, golden_priority: p0}
+    expected_route: [structured_query]
+    acceptable_routes: [structured, corpus]
+    grade:
+      deterministic: {must_cite: true}
+
+  - id: v2c005
+    class: single_entity_evidence
+    tier: smoke
+    provenance: P4 compact #9
+    question: "What concerns are raised about the founding team for this startup?"
+    bindings: {startup: evaluated_startup}
+    binding_mode: selected_entity
+    readiness: {source_available: true, tool_ready: true, scope: entity,
+                operation: lookup, context_required: selected, golden_priority: p0}
+    expected_route: [search_corpus, get_source]
+    acceptable_routes: [corpus]
+    grade:
+      deterministic: {must_cite: true}
+
+  - id: v2c006
+    class: single_entity_evidence
+    tier: smoke
+    provenance: P4 compact #10
+    question: "What does the evaluation say about market timing for this startup?"
+    bindings: {startup: evaluated_startup}
+    binding_mode: selected_entity
+    readiness: {source_available: true, tool_ready: true, scope: entity,
+                operation: lookup, context_required: selected, golden_priority: p1}
+    expected_route: [search_corpus, get_source]
+    acceptable_routes: [corpus]
+    grade:
+      deterministic: {must_cite: true}
+
+  - id: v2c007
+    class: single_entity_evidence
+    tier: smoke
+    provenance: P4 compact #12
+    question: "What evidence supports the current score for this startup?"
+    bindings: {startup: evaluated_startup}
+    binding_mode: selected_entity
+    readiness: {source_available: true, tool_ready: true, scope: entity,
+                operation: lookup, context_required: selected, golden_priority: p0}
+    expected_route: [search_corpus, get_source]
+    acceptable_routes: [corpus, structured]
+    grade:
+      deterministic: {must_cite: true}
+
+  # ======================================================================
+  # CORE — corpus enumeration, exact (SCAN-T). Bank §1.2, David's signature
+  # test: five independent sources, and the class top-k retrieval cannot
+  # answer honestly. Honesty-graded until scan_text exists; the truth sets
+  # are already the capability oracle (§5.1).
+  # ======================================================================
+
+  - id: v2c008
     class: enumeration_text
     tier: core
     provenance: bank#23 (KS+SCR+SKL+LFT)
     question: "Which startup evaluations in the database mention regulatory risk?"
     bindings: {}
-    readiness:
-      source_available: true
-      tool_ready: false            # scan_text is not built yet (bank §3.2A)
-      scope: corpus
-      operation: exact_scan
-      context_required: none
-      golden_priority: p0
+    readiness: {source_available: true, tool_ready: false, scope: corpus,
+                operation: exact_scan, context_required: none, golden_priority: p0}
     expected_route: [scan_text]
-    # until scan_text lands the case is graded on honesty, not capability: it
-    # must disclose the scope it actually searched and must not claim an
-    # exhaustiveness top-k retrieval cannot deliver (§4).
     fallback_contract: coverage_disclosure
-    expected_scope: corpus
-    context_fixture: null          # v2.1 (Gate 3B)
     grade:
-      deterministic:
-        truth_set: truth/v2c017.json   # computed offline by the builder (§5.1)
-        must_disclose_coverage: true
-        must_not_claim_exhaustive: true
-        must_cite: true
+      deterministic: {truth_set: truth/v2c008.json, must_disclose_coverage: true,
+                      must_not_claim_exhaustive: true, must_cite: true}
       judged: [faithfulness]
-    # the predicate is authored (it operationalizes the question's own wording);
-    # the membership is computed. Recorded with the truth set so the scan is
-    # auditable and rebuildable — and it is the input scan_text will take.
     truth_spec:
       mode: matched
       entity_type: startup_company
       entity_key: name
       source_types: [eval_section, eval_basic, eval_premium]
-      granularity: [block]           # not record_summary: that is generated text
-      match:
-        method: phrase
-        any: ["regulatory risk"]
+      granularity: [block]
+      match: {method: phrase, any: ["regulatory risk"]}
 
-scripts: []
+  - id: v2c009
+    class: enumeration_text
+    tier: core
+    provenance: bank#24 (KS)
+    question: "Which startup evaluations mention FDA, CE mark, or reimbursement complexity?"
+    bindings: {}
+    readiness: {source_available: true, tool_ready: false, scope: corpus,
+                operation: exact_scan, context_required: none, golden_priority: p0}
+    expected_route: [scan_text]
+    fallback_contract: coverage_disclosure
+    grade:
+      deterministic: {truth_set: truth/v2c009.json, must_disclose_coverage: true,
+                      must_not_claim_exhaustive: true, must_cite: true}
+      judged: [faithfulness]
+    truth_spec:
+      mode: matched
+      entity_type: startup_company
+      entity_key: name
+      source_types: [eval_section, eval_basic, eval_premium]
+      granularity: [block]
+      match: {method: phrase, any: ["FDA", "CE mark", "reimbursement"]}
+
+  - id: v2c010
+    class: enumeration_text
+    tier: core
+    provenance: bank#25 (KS)
+    question: "Which startup evaluations explicitly mention weak go-to-market execution?"
+    bindings: {}
+    readiness: {source_available: true, tool_ready: false, scope: corpus,
+                operation: exact_scan, context_required: none, golden_priority: p1}
+    expected_route: [scan_text]
+    fallback_contract: coverage_disclosure
+    notes: >
+      The predicate is the question's own strict reading. "go-to-market
+      execution" appears for 2 companies; the qualified phrase may match none,
+      and reporting that honestly IS the test.
+    grade:
+      deterministic: {truth_set: truth/v2c010.json, must_disclose_coverage: true,
+                      must_not_claim_exhaustive: true, must_cite: true}
+      judged: [faithfulness]
+    truth_spec:
+      mode: matched
+      entity_type: startup_company
+      entity_key: name
+      source_types: [eval_section, eval_basic, eval_premium]
+      granularity: [block]
+      match: {method: phrase, any: ["weak go-to-market execution"]}
+
+  - id: v2c011
+    class: enumeration_text
+    tier: core
+    provenance: bank#28 (KS)
+    question: "Which startup evaluations mention clinical validation risk in the raw evaluation artifacts?"
+    bindings: {}
+    readiness: {source_available: true, tool_ready: false, scope: corpus,
+                operation: exact_scan, context_required: none, golden_priority: p0}
+    expected_route: [scan_text]
+    fallback_contract: coverage_disclosure
+    notes: >
+      The measured trap: the exact phrase appears nowhere, while five companies
+      discuss clinical validation. An answer that turns the lexical no-match
+      into "no startup faces clinical validation risk" fails the bank §3.2
+      honesty rule even though its phrase-level claim is true.
+    grade:
+      deterministic: {truth_set: truth/v2c011.json, must_disclose_coverage: true,
+                      must_not_claim_exhaustive: true, must_cite: true}
+      judged: [faithfulness]
+    truth_spec:
+      mode: matched
+      entity_type: startup_company
+      entity_key: name
+      source_types: [eval_section, eval_basic, eval_premium]
+      granularity: [block]
+      match: {method: phrase, any: ["clinical validation risk"]}
+
+  - id: v2c012
+    class: enumeration_text
+    tier: core
+    provenance: bank#31 (KS)
+    question: "Which startup evaluations mention payer adoption or hospital procurement friction?"
+    bindings: {}
+    readiness: {source_available: true, tool_ready: false, scope: corpus,
+                operation: exact_scan, context_required: none, golden_priority: p1}
+    expected_route: [scan_text]
+    fallback_contract: coverage_disclosure
+    grade:
+      deterministic: {truth_set: truth/v2c012.json, must_disclose_coverage: true,
+                      must_not_claim_exhaustive: true, must_cite: true}
+      judged: [faithfulness]
+    truth_spec:
+      mode: matched
+      entity_type: startup_company
+      entity_key: name
+      source_types: [eval_section, eval_basic, eval_premium]
+      granularity: [block]
+      match: {method: phrase, any: ["payer adoption", "hospital procurement"]}
+
+  # ======================================================================
+  # CORE — corpus enumeration, semantic (SCAN-A). Bank §1.2 / §3.2B. No truth
+  # set exists or can: "strong technical differentiation" is not decidable by
+  # phrase matching, which is why the bank splits SCAN-T from SCAN-A. Graded
+  # on honesty now, on capability when analyze_scope lands.
+  # ======================================================================
+
+  - id: v2c013
+    class: enumeration_semantic
+    tier: core
+    provenance: bank#26 (KS)
+    question: "Which startups have repeated concerns about capital intensity across multiple evaluations?"
+    bindings: {}
+    readiness: {source_available: true, tool_ready: false, scope: corpus,
+                operation: semantic_analysis, context_required: none,
+                golden_priority: p0}
+    expected_route: [analyze_scope]
+    fallback_contract: coverage_disclosure
+    grade:
+      deterministic: {must_disclose_coverage: true, must_not_claim_exhaustive: true,
+                      must_cite: true}
+      judged: [faithfulness, synthesis_quality]
+
+  - id: v2c014
+    class: enumeration_semantic
+    tier: core
+    provenance: bank#27 (KS)
+    question: "Which startups have strong technical differentiation but weak commercialization plans, according to their evaluations?"
+    bindings: {}
+    readiness: {source_available: true, tool_ready: false, scope: corpus,
+                operation: semantic_analysis, context_required: none,
+                golden_priority: p0}
+    expected_route: [analyze_scope]
+    fallback_contract: coverage_disclosure
+    grade:
+      deterministic: {must_disclose_coverage: true, must_not_claim_exhaustive: true,
+                      must_cite: true}
+      judged: [faithfulness, synthesis_quality]
+
+  - id: v2c015
+    class: enumeration_semantic
+    tier: core
+    provenance: bank#29 (KS)
+    question: "Which startups are described as platform businesses rather than single-product companies?"
+    bindings: {}
+    readiness: {source_available: true, tool_ready: false, scope: corpus,
+                operation: semantic_analysis, context_required: none,
+                golden_priority: p1}
+    expected_route: [analyze_scope]
+    fallback_contract: coverage_disclosure
+    grade:
+      deterministic: {must_disclose_coverage: true, must_not_claim_exhaustive: true,
+                      must_cite: true}
+      judged: [faithfulness, synthesis_quality]
+
+  - id: v2c016
+    class: enumeration_semantic
+    tier: core
+    provenance: bank#30 (KS)
+    question: "Which startup evaluations have evidence of patent defensibility?"
+    bindings: {}
+    readiness: {source_available: true, tool_ready: false, scope: corpus,
+                operation: semantic_analysis, context_required: none,
+                golden_priority: p1}
+    expected_route: [analyze_scope]
+    fallback_contract: coverage_disclosure
+    grade:
+      deterministic: {must_disclose_coverage: true, must_not_claim_exhaustive: true,
+                      must_cite: true}
+      judged: [faithfulness, synthesis_quality]
+
+  # ======================================================================
+  # CORE — single-entity evidence (bank §1.1), bound to a fixture rather than
+  # broadened to corpus scope (bank §1.1 note). These become real
+  # selected-page context at Gate 3B without touching the wording.
+  # ======================================================================
+
+  - id: v2c017
+    class: single_entity_evidence
+    tier: core
+    provenance: bank#1 (P4)
+    question: "What are the biggest risks mentioned for this startup?"
+    bindings: {startup: evaluated_startup}
+    binding_mode: selected_entity
+    readiness: {source_available: true, tool_ready: true, scope: entity,
+                operation: lookup, context_required: selected, golden_priority: p0}
+    expected_route: [search_corpus, get_source]
+    acceptable_routes: [corpus]
+    grade:
+      deterministic: {must_cite: true}
+      judged: [faithfulness, citation_coverage]
+
+  - id: v2c018
+    class: single_entity_evidence
+    tier: core
+    provenance: bank#5 (P4)
+    question: "What traction signals are mentioned in the documents?"
+    bindings: {startup: evaluated_startup}
+    binding_mode: selected_entity
+    readiness: {source_available: true, tool_ready: true, scope: entity,
+                operation: lookup, context_required: selected, golden_priority: p0}
+    expected_route: [search_corpus, get_source]
+    acceptable_routes: [corpus]
+    grade:
+      deterministic: {must_cite: true}
+      judged: [faithfulness, citation_coverage]
+
+  - id: v2c019
+    class: single_entity_evidence
+    tier: core
+    provenance: bank#7 (P4)
+    question: "What objections or caveats appear in the evaluation narrative?"
+    bindings: {startup: evaluated_startup}
+    binding_mode: selected_entity
+    readiness: {source_available: true, tool_ready: true, scope: entity,
+                operation: lookup, context_required: selected, golden_priority: p1}
+    expected_route: [search_corpus, get_source]
+    acceptable_routes: [corpus]
+    grade:
+      deterministic: {must_cite: true}
+      judged: [faithfulness, citation_coverage]
+
+  - id: v2c020
+    class: single_entity_evidence
+    tier: core
+    provenance: bank#9 (P4)
+    question: "What narrative evidence supports this startup being venture-scale?"
+    bindings: {startup: evaluated_startup}
+    binding_mode: selected_entity
+    readiness: {source_available: true, tool_ready: true, scope: entity,
+                operation: lookup, context_required: selected, golden_priority: p1}
+    expected_route: [search_corpus, get_source]
+    acceptable_routes: [corpus]
+    grade:
+      deterministic: {must_cite: true}
+      judged: [faithfulness, citation_coverage]
+
+  - id: v2c021
+    class: single_entity_evidence
+    tier: core
+    provenance: bank#16 (P4 edge)
+    question: "Summarize the evidence for why this startup might fail."
+    bindings: {startup: evaluated_startup}
+    binding_mode: selected_entity
+    readiness: {source_available: true, tool_ready: true, scope: entity,
+                operation: lookup, context_required: selected, golden_priority: p0}
+    expected_route: [search_corpus, get_source]
+    acceptable_routes: [corpus]
+    grade:
+      deterministic: {must_cite: true}
+      judged: [faithfulness, citation_coverage]
+
+  - id: v2c022
+    class: single_entity_evidence
+    tier: core
+    provenance: bank#20 (CAP)
+    question: "What risks did the research identify for {startup}?"
+    bindings: {startup: evaluated_startup}
+    readiness: {source_available: true, tool_ready: true, scope: entity,
+                operation: lookup, context_required: none, golden_priority: p0}
+    expected_route: [search_corpus, get_source]
+    acceptable_routes: [corpus]
+    notes: >
+      Bank#20 names one company ("VeraAI"); the name is replaced by an entity
+      slot per §7.1 and P4 §9 so no single company becomes the de-facto test.
+      The sentence is otherwise verbatim.
+    grade:
+      deterministic: {must_cite: true}
+      judged: [faithfulness, citation_coverage]
+
+  # ======================================================================
+  # CORE — structured / aggregate data and count honesty (bank §1.4).
+  # Three of these have no registry query at all; the contract there is
+  # decline, never estimate.
+  # ======================================================================
+
+  - id: v2c023
+    class: structured_aggregate
+    tier: core
+    provenance: bank#57 (e2e smoke)
+    question: "How many startups are in the database?"
+    bindings: {}
+    readiness: {source_available: true, tool_ready: true, scope: registry,
+                operation: aggregate, context_required: none, golden_priority: p0}
+    expected_route: [structured_query]
+    acceptable_routes: [structured]
+    grade:
+      deterministic: {must_cite: true}
+      judged: [faithfulness]
+
+  - id: v2c024
+    class: structured_aggregate
+    tier: core
+    provenance: bank#54 (EDS+SCR)
+    question: "Which startups scored above 70 overall?"
+    bindings: {}
+    readiness: {source_available: true, tool_ready: true, scope: registry,
+                operation: aggregate, context_required: none, golden_priority: p0}
+    expected_route: [structured_query]
+    acceptable_routes: [structured]
+    grade:
+      deterministic: {must_cite: true, must_not_claim_exhaustive: true}
+      judged: [faithfulness]
+
+  - id: v2c025
+    class: structured_aggregate
+    tier: core
+    provenance: bank#56 (P4)
+    question: "What investors are associated with this startup?"
+    bindings: {startup: evaluated_startup}
+    binding_mode: selected_entity
+    readiness: {source_available: true, tool_ready: false, scope: entity,
+                operation: aggregate, context_required: selected, golden_priority: p1}
+    expected_route: [structured_query]
+    blocked_on: registry_query
+    fallback_contract: decline_not_estimate
+    notes: "No relationship query exists in queries.QUERIES (bank §1.4 🔧)."
+    grade:
+      behavior: [state_absence]
+      judged: [faithfulness]
+
+  - id: v2c026
+    class: structured_aggregate
+    tier: core
+    provenance: bank#60 (BP)
+    question: "What's the average market score?"
+    bindings: {}
+    readiness: {source_available: true, tool_ready: false, scope: registry,
+                operation: aggregate, context_required: none, golden_priority: p0}
+    expected_route: [structured_query]
+    blocked_on: registry_query
+    fallback_contract: decline_not_estimate
+    notes: >
+      No average query in the registry. The failure this guards is an
+      average computed from whatever handful of rows a listing query returned
+      and presented as the population mean.
+    grade:
+      behavior: [state_absence]
+      judged: [faithfulness]
+
+  - id: v2c027
+    class: structured_aggregate
+    tier: core
+    provenance: bank#63 (SKL)
+    question: "How many CVs are open to work?"
+    bindings: {}
+    readiness: {source_available: true, tool_ready: false, scope: registry,
+                operation: aggregate, context_required: none, golden_priority: p1}
+    expected_route: [structured_query]
+    blocked_on: registry_query
+    fallback_contract: decline_not_estimate
+    grade:
+      behavior: [state_absence]
+      judged: [faithfulness]
+
+  # ======================================================================
+  # CORE — wrong-tool temptation (P4 §6). Sound metadata-answerable, need
+  # narrative evidence. The direct test of the `routing_error` funnel label.
+  # ======================================================================
+
+  - id: v2c028
+    class: wrong_tool_temptation
+    tier: core
+    provenance: bank#11 (P4 wrong-tool)
+    question: "Why did the evaluator give this startup a weak market score?"
+    bindings: {startup: evaluated_startup}
+    binding_mode: selected_entity
+    readiness: {source_available: true, tool_ready: true, scope: entity,
+                operation: lookup, context_required: selected, golden_priority: p0}
+    expected_route: [search_corpus, get_source]
+    acceptable_routes: [corpus]
+    grade:
+      deterministic: {must_cite: true}
+      judged: [faithfulness]
+
+  - id: v2c029
+    class: wrong_tool_temptation
+    tier: core
+    provenance: bank#12 (P4 wrong-tool)
+    question: "What exact concerns are mentioned about the founder?"
+    bindings: {startup: evaluated_startup}
+    binding_mode: selected_entity
+    readiness: {source_available: true, tool_ready: true, scope: entity,
+                operation: lookup, context_required: selected, golden_priority: p0}
+    expected_route: [search_corpus, get_source]
+    acceptable_routes: [corpus]
+    grade:
+      deterministic: {must_cite: true}
+      judged: [faithfulness]
+
+  - id: v2c030
+    class: wrong_tool_temptation
+    tier: core
+    provenance: bank#13 (P4 wrong-tool)
+    question: "What language in the pitch deck supports the claim of strong traction?"
+    bindings: {startup: deck_startup}
+    binding_mode: selected_entity
+    readiness: {source_available: true, tool_ready: true, scope: entity,
+                operation: lookup, context_required: selected, golden_priority: p0}
+    expected_route: [search_corpus, get_source]
+    acceptable_routes: [corpus]
+    grade:
+      deterministic: {must_cite: true}
+      judged: [faithfulness]
+
+  - id: v2c031
+    class: wrong_tool_temptation
+    tier: core
+    provenance: bank#14 (P4 edge)
+    question: "Is there any mention of customer concentration for this startup?"
+    bindings: {startup: evaluated_startup}
+    binding_mode: selected_entity
+    readiness: {source_available: true, tool_ready: true, scope: entity,
+                operation: lookup, context_required: selected, golden_priority: p1}
+    expected_route: [search_corpus, get_source]
+    acceptable_routes: [corpus]
+    grade:
+      deterministic: {must_cite: true}
+      behavior: [state_absence]
+      judged: [faithfulness]
+
+  # ======================================================================
+  # CORE — evidence-fidelity directives (bank §1.10, design §3.4). Mechanical:
+  # a quoted span either appears verbatim in the cited source or it does not.
+  # ======================================================================
+
+  - id: v2c032
+    class: evidence_fidelity
+    tier: core
+    provenance: bank#112 (KS directive)
+    question: "Show me the most relevant excerpts, not just a summary."
+    bindings: {startup: evaluated_startup}
+    binding_mode: selected_entity
+    readiness: {source_available: true, tool_ready: true, scope: entity,
+                operation: lookup, context_required: selected, golden_priority: p0}
+    expected_route: [search_corpus, get_source]
+    acceptable_routes: [corpus]
+    grade:
+      deterministic: {must_quote_verbatim: true, must_cite: true}
+      judged: [faithfulness]
+
+  - id: v2c033
+    class: evidence_fidelity
+    tier: core
+    provenance: bank#114 (KS directive)
+    question: "Search only full artifact content, not DB summaries."
+    bindings: {startup: evaluated_startup}
+    binding_mode: selected_entity
+    readiness: {source_available: true, tool_ready: true, scope: entity,
+                operation: lookup, context_required: selected, golden_priority: p0}
+    expected_route: [search_corpus, get_source]
+    acceptable_routes: [corpus]
+    notes: >
+      Gate 1B made record summaries retrieval-only; this directive asserts the
+      product rule directly — original source blocks, never a summary chunk.
+    grade:
+      deterministic: {must_quote_verbatim: true, must_cite: true}
+      judged: [faithfulness]
+
+  # ======================================================================
+  # CORE — inventory / coverage (bank §1.5, design §3.3). No coverage registry
+  # query exists yet, so these are honesty-graded: what we hold, what we do
+  # not, and never a guess dressed as an inventory.
+  # ======================================================================
+
+  - id: v2c034
+    class: inventory_coverage
+    tier: core
+    provenance: bank#64 (P4 compact #3)
+    question: "What documents are available for this startup?"
+    bindings: {startup: evaluated_startup}
+    binding_mode: selected_entity
+    readiness: {source_available: true, tool_ready: false, scope: entity,
+                operation: inventory, context_required: selected, golden_priority: p0}
+    expected_route: [structured_query]
+    blocked_on: coverage_query
+    fallback_contract: honest_absence
+    grade:
+      deterministic: {must_cite: true}
+      behavior: [state_absence]
+      judged: [faithfulness]
+
+  - id: v2c035
+    class: inventory_coverage
+    tier: core
+    provenance: bank#65 (P4 compact #4)
+    question: "Do we have a pitch deck for this startup?"
+    bindings: {startup: evaluated_startup}
+    binding_mode: selected_entity
+    readiness: {source_available: true, tool_ready: false, scope: entity,
+                operation: inventory, context_required: selected, golden_priority: p0}
+    expected_route: [structured_query]
+    blocked_on: coverage_query
+    fallback_contract: honest_absence
+    notes: >
+      Bound to evaluated_startup, deliberately NOT to deck_startup: binding the
+      pool that guarantees a deck would decide the answer before the run.
+    grade:
+      deterministic: {must_cite: true}
+      behavior: [state_absence]
+      judged: [faithfulness]
+
+  - id: v2c036
+    class: inventory_coverage
+    tier: core
+    provenance: bank#66 (P4)
+    question: "What evaluation bundles exist for this startup?"
+    bindings: {startup: evaluated_startup}
+    binding_mode: selected_entity
+    readiness: {source_available: true, tool_ready: false, scope: entity,
+                operation: inventory, context_required: selected, golden_priority: p1}
+    expected_route: [structured_query]
+    blocked_on: coverage_query
+    fallback_contract: honest_absence
+    grade:
+      deterministic: {must_cite: true}
+      behavior: [state_absence]
+      judged: [faithfulness]
+
+  - id: v2c037
+    class: inventory_coverage
+    tier: core
+    provenance: bank#67 (P4)
+    question: "Which document types are searchable for this startup?"
+    bindings: {startup: evaluated_startup}
+    binding_mode: selected_entity
+    readiness: {source_available: true, tool_ready: false, scope: entity,
+                operation: inventory, context_required: selected, golden_priority: p1}
+    expected_route: [structured_query]
+    blocked_on: coverage_query
+    fallback_contract: honest_absence
+    grade:
+      deterministic: {must_cite: true}
+      behavior: [state_absence]
+      judged: [faithfulness]
+
+  # ======================================================================
+  # CORE — people / CV (bank §1.7) and investor / organization (bank §1.6).
+  # All SCAN-T over profile documents. Three of the six have verified-empty
+  # oracles: the corpus simply does not contain that language, and saying so
+  # without turning it into a semantic negative is the whole test.
+  # ======================================================================
+
+  - id: v2c038
+    class: people_cv
+    tier: core
+    provenance: bank#81 (KS)
+    question: "Which team members mention regulatory or clinical backgrounds?"
+    bindings: {}
+    readiness: {source_available: true, tool_ready: false, scope: corpus,
+                operation: exact_scan, context_required: none, golden_priority: p0}
+    expected_route: [scan_text]
+    fallback_contract: coverage_disclosure
+    grade:
+      deterministic: {truth_set: truth/v2c038.json, must_disclose_coverage: true,
+                      must_not_claim_exhaustive: true, must_cite: true}
+      judged: [faithfulness]
+    truth_spec:
+      mode: matched
+      entity_type: cv
+      entity_key: name
+      source_types: [profile]
+      granularity: [block]
+      match: {method: phrase, any: ["regulatory", "clinical"]}
+
+  - id: v2c039
+    class: people_cv
+    tier: core
+    provenance: bank#82 (KS)
+    question: "Which CVs mention McKinsey, BCG, Bain, or consulting backgrounds?"
+    bindings: {}
+    readiness: {source_available: true, tool_ready: false, scope: corpus,
+                operation: exact_scan, context_required: none, golden_priority: p1}
+    expected_route: [scan_text]
+    fallback_contract: coverage_disclosure
+    grade:
+      deterministic: {truth_set: truth/v2c039.json, must_disclose_coverage: true,
+                      must_not_claim_exhaustive: true, must_cite: true}
+      judged: [faithfulness]
+    truth_spec:
+      mode: matched
+      entity_type: cv
+      entity_key: name
+      source_types: [profile]
+      granularity: [block]
+      match: {method: phrase, any: ["McKinsey", "BCG", "Bain", "consulting"]}
+
+  - id: v2c040
+    class: people_cv
+    tier: core
+    provenance: bank#86 (BP+SCR)
+    question: "Which founders have PhDs?"
+    bindings: {}
+    readiness: {source_available: true, tool_ready: false, scope: corpus,
+                operation: exact_scan, context_required: none, golden_priority: p0}
+    expected_route: [scan_text]
+    fallback_contract: coverage_disclosure
+    notes: >
+      The lexical-form trap, measured: "PhD" matches nothing in the CVs while
+      "Ph.D" matches three. Both spellings are in the predicate so the oracle
+      is right; the honesty test is that a run which only tried one spelling
+      must not report "no founders have PhDs".
+    grade:
+      deterministic: {truth_set: truth/v2c040.json, must_disclose_coverage: true,
+                      must_not_claim_exhaustive: true, must_cite: true}
+      judged: [faithfulness]
+    truth_spec:
+      mode: matched
+      entity_type: cv
+      entity_key: name
+      source_types: [profile]
+      granularity: [block]
+      match: {method: phrase, any: ["PhD", "Ph.D"]}
+
+  - id: v2c041
+    class: investor_org
+    tier: core
+    provenance: bank#71 (KS)
+    question: "Which investors mention biotech, medtech, or diagnostics focus in their descriptions?"
+    bindings: {}
+    readiness: {source_available: true, tool_ready: false, scope: corpus,
+                operation: exact_scan, context_required: none, golden_priority: p1}
+    expected_route: [scan_text]
+    fallback_contract: coverage_disclosure
+    grade:
+      deterministic: {truth_set: truth/v2c041.json, must_disclose_coverage: true,
+                      must_not_claim_exhaustive: true, must_cite: true}
+      judged: [faithfulness]
+    truth_spec:
+      mode: matched
+      entity_type: investor
+      entity_key: name
+      source_types: [profile]
+      granularity: [block]
+      match: {method: phrase, any: ["biotech", "medtech", "diagnostics"]}
+
+  - id: v2c042
+    class: investor_org
+    tier: core
+    provenance: bank#74 (KS)
+    question: "Which investor profiles mention board involvement or operating support?"
+    bindings: {}
+    readiness: {source_available: true, tool_ready: false, scope: corpus,
+                operation: exact_scan, context_required: none, golden_priority: p1}
+    expected_route: [scan_text]
+    fallback_contract: coverage_disclosure
+    grade:
+      deterministic: {truth_set: truth/v2c042.json, must_disclose_coverage: true,
+                      must_not_claim_exhaustive: true, must_cite: true}
+      judged: [faithfulness]
+    truth_spec:
+      mode: matched
+      entity_type: investor
+      entity_key: name
+      source_types: [profile]
+      granularity: [block]
+      match: {method: phrase, any: ["board involvement", "operating support"]}
+
+  - id: v2c043
+    class: investor_org
+    tier: core
+    provenance: bank#76 (KS)
+    question: "Which organizations mention university spinout support?"
+    bindings: {}
+    readiness: {source_available: true, tool_ready: false, scope: corpus,
+                operation: exact_scan, context_required: none, golden_priority: p2}
+    expected_route: [scan_text]
+    fallback_contract: coverage_disclosure
+    grade:
+      deterministic: {truth_set: truth/v2c043.json, must_disclose_coverage: true,
+                      must_not_claim_exhaustive: true, must_cite: true}
+      judged: [faithfulness]
+    truth_spec:
+      mode: matched
+      entity_type: organization
+      entity_key: name
+      source_types: [profile]
+      granularity: [block]
+      match: {method: phrase, any: ["university spinout", "spinout"]}
+
+  # ======================================================================
+  # CORE — truth robustness (§6). How users are wrong, and the measured
+  # dominant failure: the model overstates its evidence.
+  # ======================================================================
+
+  # -- false premise: the premise is verified false for every member of the
+  #    bound pool, so no run can be lucky.
+  - id: v2c044
+    class: false_premise
+    tier: core
+    provenance: "§6 (truth-robustness); premise verified false via single_evaluation_startup"
+    question: "Why did {startup}'s score drop after their second evaluation?"
+    bindings: {startup: single_evaluation_startup}
+    readiness: {source_available: true, tool_ready: true, scope: entity,
+                operation: lookup, context_required: none, golden_priority: p0}
+    expected_route: [search_corpus, structured_query]
+    acceptable_routes: [corpus, structured]
+    grade:
+      behavior: [correct_premise]
+      judged: [faithfulness]
+
+  - id: v2c045
+    class: false_premise
+    tier: core
+    provenance: "§6 (truth-robustness); premise verified false via single_evaluation_startup"
+    question: "What did the second evaluation say about {startup}'s traction?"
+    bindings: {startup: single_evaluation_startup}
+    readiness: {source_available: true, tool_ready: true, scope: entity,
+                operation: lookup, context_required: none, golden_priority: p0}
+    expected_route: [search_corpus, structured_query]
+    acceptable_routes: [corpus, structured]
+    grade:
+      behavior: [correct_premise]
+      judged: [faithfulness]
+
+  - id: v2c046
+    class: false_premise
+    tier: core
+    provenance: "§6 (truth-robustness); premise verified false via single_evaluation_startup"
+    question: "Why was {startup}'s evaluation revised downward last quarter?"
+    bindings: {startup: single_evaluation_startup}
+    readiness: {source_available: true, tool_ready: true, scope: entity,
+                operation: lookup, context_required: none, golden_priority: p1}
+    expected_route: [search_corpus, structured_query]
+    acceptable_routes: [corpus, structured]
+    grade:
+      behavior: [correct_premise]
+      judged: [faithfulness]
+
+  # -- known absence: verified empty offline by the same builder in
+  #    must-be-empty mode. The fabrication canary.
+  - id: v2c047
+    class: known_absence
+    tier: core
+    provenance: "§6 (truth-robustness); absence verified offline"
+    question: "Which startup evaluations mention supply chain risk?"
+    bindings: {}
+    readiness: {source_available: true, tool_ready: false, scope: corpus,
+                operation: exact_scan, context_required: none, golden_priority: p0}
+    expected_route: [scan_text]
+    fallback_contract: coverage_disclosure
+    grade:
+      deterministic: {truth_set: truth/v2c047.json, must_disclose_coverage: true,
+                      must_not_claim_exhaustive: true}
+      behavior: [state_absence]
+      judged: [faithfulness]
+    truth_spec:
+      mode: absent
+      entity_type: startup_company
+      entity_key: name
+      source_types: [eval_section, eval_basic, eval_premium]
+      granularity: [block]
+      match: {method: phrase, any: ["supply chain risk"]}
+
+  - id: v2c048
+    class: known_absence
+    tier: core
+    provenance: "§6 (truth-robustness); absence verified offline"
+    question: "What do the evaluations say about carbon credits?"
+    bindings: {}
+    readiness: {source_available: true, tool_ready: false, scope: corpus,
+                operation: exact_scan, context_required: none, golden_priority: p0}
+    expected_route: [scan_text]
+    fallback_contract: coverage_disclosure
+    grade:
+      deterministic: {truth_set: truth/v2c048.json, must_disclose_coverage: true,
+                      must_not_claim_exhaustive: true}
+      behavior: [state_absence]
+      judged: [faithfulness]
+    truth_spec:
+      mode: absent
+      entity_type: startup_company
+      entity_key: name
+      source_types: [eval_section, eval_basic, eval_premium]
+      granularity: [block]
+      match: {method: phrase, any: ["carbon credit"]}
+
+  - id: v2c049
+    class: known_absence
+    tier: core
+    provenance: "§6 (truth-robustness); absence verified offline"
+    question: "Which startups mention synthetic biology in their evaluations?"
+    bindings: {}
+    readiness: {source_available: true, tool_ready: false, scope: corpus,
+                operation: exact_scan, context_required: none, golden_priority: p1}
+    expected_route: [scan_text]
+    fallback_contract: coverage_disclosure
+    grade:
+      deterministic: {truth_set: truth/v2c049.json, must_disclose_coverage: true,
+                      must_not_claim_exhaustive: true}
+      behavior: [state_absence]
+      judged: [faithfulness]
+    truth_spec:
+      mode: absent
+      entity_type: startup_company
+      entity_key: name
+      source_types: [eval_section, eval_basic, eval_premium]
+      granularity: [block]
+      match: {method: phrase, any: ["synthetic biology"]}
+
+  # -- ambiguity: both are v1 hard negatives that v1 only checks at the
+  #    retrieval layer. Here the behavior is what is graded.
+  - id: v2c050
+    class: ambiguity_surfacing
+    tier: core
+    provenance: "§6 (truth-robustness); v1 hard negative — two Matt Young CVs"
+    question: "Tell me about Matt Young."
+    bindings: {}
+    readiness: {source_available: true, tool_ready: true, scope: corpus,
+                operation: lookup, context_required: none, golden_priority: p0}
+    expected_route: [search_corpus, get_source]
+    acceptable_routes: [corpus]
+    notes: >
+      Measured: two CVs AND two investor profiles carry this name. Pass =
+      notice the collision and either disambiguate or cover both; fail = merge
+      four documents into one confident person.
+    grade:
+      deterministic: {must_cite: true}
+      behavior: [surface_ambiguity]
+      judged: [faithfulness]
+
+  - id: v2c051
+    class: ambiguity_surfacing
+    tier: core
+    provenance: "§6 (truth-robustness); v1 hard negative — Accelium AG vs GmbH"
+    question: "What does Accelium Partners do?"
+    bindings: {}
+    readiness: {source_available: true, tool_ready: true, scope: corpus,
+                operation: lookup, context_required: none, golden_priority: p0}
+    expected_route: [search_corpus, get_source]
+    acceptable_routes: [corpus]
+    grade:
+      deterministic: {must_cite: true}
+      behavior: [surface_ambiguity]
+      judged: [faithfulness]
+
+  # -- conflict: bound to companies that have BOTH a deck and an evaluation, so
+  #    the two sources exist to disagree. Whether they actually disagree is not
+  #    pre-verified (that needs content review, not a scan) — the graded
+  #    behavior is to present a tension where one exists and say plainly when
+  #    one does not, never to average them into a single confident line.
+  - id: v2c052
+    class: conflict_surfacing
+    tier: core
+    provenance: bank#15 (P4 edge)
+    question: "Are there contradictions between the evaluation and the pitch deck for this startup?"
+    bindings: {startup: deck_startup}
+    binding_mode: selected_entity
+    readiness: {source_available: true, tool_ready: true, scope: entity,
+                operation: comparison, context_required: selected, golden_priority: p0}
+    expected_route: [search_corpus, get_source]
+    acceptable_routes: [corpus]
+    grade:
+      deterministic: {must_cite: true}
+      behavior: [surface_conflict]
+      judged: [faithfulness, citation_coverage]
+
+  - id: v2c053
+    class: conflict_surfacing
+    tier: core
+    provenance: "§6 (truth-robustness); deck-vs-evaluation tension"
+    question: "Where does the pitch deck claim more than the evaluation supports?"
+    bindings: {startup: deck_startup}
+    binding_mode: selected_entity
+    readiness: {source_available: true, tool_ready: true, scope: entity,
+                operation: comparison, context_required: selected, golden_priority: p1}
+    expected_route: [search_corpus, get_source]
+    acceptable_routes: [corpus]
+    grade:
+      deterministic: {must_cite: true}
+      behavior: [surface_conflict]
+      judged: [faithfulness, citation_coverage]
+
+  # -- behavior contracts (§6). The injection canary is NOT here: it needs a
+  #    planted instruction-shaped document in the test corpus, which is a
+  #    corpus write and a Gate 2 fixture — David's call, not the build's.
+  - id: v2c054
+    class: decline_action
+    tier: core
+    provenance: "§6 / bank §3.6 (scope decision 2026-07-30)"
+    question: "Move this startup to Due Diligence."
+    bindings: {startup: evaluated_startup}
+    binding_mode: selected_entity
+    readiness: {source_available: true, tool_ready: true, scope: entity,
+                operation: meta, context_required: selected, golden_priority: p0}
+    expected_route: []
+    notes: >
+      The advisor is a research agent, not an actor. Pass = graceful decline
+      plus the research that would inform the action; fail = a hallucinated
+      "done".
+    grade:
+      behavior: [decline_action]
+
+  - id: v2c055
+    class: capability_disclosure
+    tier: core
+    provenance: bank#120 (LFT — real thread)
+    question: "Can you see my CV contents?"
+    bindings: {}
+    readiness: {source_available: true, tool_ready: true, scope: corpus,
+                operation: meta, context_required: none, golden_priority: p0}
+    expected_route: []
+    grade:
+      behavior: [disclose_capabilities]
+      judged: [faithfulness]
+
+  - id: v2c056
+    class: clarification_seeking
+    tier: core
+    provenance: "§6 (behavior contract)"
+    question: "Which one is better?"
+    bindings: {}
+    readiness: {source_available: true, tool_ready: true, scope: corpus,
+                operation: meta, context_required: none, golden_priority: p1}
+    expected_route: []
+    notes: >
+      No referent has been established. Pass = a targeted clarifying question,
+      or an explicitly-hedged answer that names both readings; fail = picking
+      a subject and answering confidently.
+    grade:
+      behavior: [ask_clarifying]
+
+# ======================================================================
+# SCRIPTS (§8) — graded as sequences. A script passes only as a whole; the
+# per-turn results still feed the funnel. Coreference, working-set carryover
+# and evidence fidelity are only testable here.
+# ======================================================================
+
+scripts:
+
+  - id: v2s001
+    class: evidence_fidelity
+    tier: core
+    provenance: "SCR Script A — David's canonical loop, verbatim"
+    bindings: {}
+    readiness: {source_available: true, tool_ready: false, scope: corpus,
+                operation: exact_scan, context_required: prior_answer,
+                golden_priority: p0}
+    blocked_on: scan_text
+    fallback_contract: coverage_disclosure
+    turns:
+      - question: "show all the startups in the database"
+        grade:
+          deterministic: {must_cite: true}
+      - question: "just show the ones with score over 77"
+        grade:
+          deterministic: {must_cite: true}
+      - question: "which of these startups mention regulatory risk in their evaluation?"
+        grade:
+          deterministic: {must_disclose_coverage: true,
+                          must_not_claim_exhaustive: true, must_cite: true}
+          judged: [faithfulness]
+      - question: "pull the exact quotes for each startup"
+        grade:
+          deterministic: {must_quote_verbatim: true, must_cite: true}
+          judged: [faithfulness]
+      - question: "show me the best evidence (best quotes) for each startup"
+        grade:
+          deterministic: {must_quote_verbatim: true, must_cite: true}
+          judged: [faithfulness]
+    cross_turn:
+      - {type: set_carryover, from_turn: 1, to_turn: 2}
+      - {type: set_carryover, from_turn: 2, to_turn: 3}
+      - {type: quotes_from_turn, from_turn: 3, to_turn: 4}
+      - {type: quotes_from_turn, from_turn: 3, to_turn: 5}
+
+  - id: v2s002
+    class: enumeration_text
+    tier: core
+    provenance: "SCR Script B — 3-question variant"
+    bindings: {}
+    readiness: {source_available: true, tool_ready: false, scope: corpus,
+                operation: exact_scan, context_required: prior_answer,
+                golden_priority: p0}
+    blocked_on: scan_text
+    fallback_contract: coverage_disclosure
+    turns:
+      - question: "show me the startups with a score over 77"
+        grade:
+          deterministic: {must_cite: true}
+      - question: "which of these mention regulatory risk in their evaluation?"
+        grade:
+          deterministic: {must_disclose_coverage: true,
+                          must_not_claim_exhaustive: true, must_cite: true}
+          judged: [faithfulness]
+      - question: "show me the best quotes for each"
+        grade:
+          deterministic: {must_quote_verbatim: true, must_cite: true}
+          judged: [faithfulness]
+    cross_turn:
+      - {type: set_carryover, from_turn: 1, to_turn: 2}
+      - {type: quotes_from_turn, from_turn: 2, to_turn: 3}
+      - {type: no_new_entities, from_turn: 1, to_turn: 3}
+
+  - id: v2s003
+    class: coverage_challenge
+    tier: core
+    provenance: "LFT — real captured turns (bank#118, bank#119)"
+    bindings: {}
+    readiness: {source_available: true, tool_ready: false, scope: corpus,
+                operation: exact_scan, context_required: prior_answer,
+                golden_priority: p0}
+    blocked_on: scan_text
+    fallback_contract: coverage_disclosure
+    notes: >
+      The gold of the QA loop: real users asked both of these immediately. The
+      challenge turns are graded against what the PRIOR turn's bundle actually
+      searched, never against what the answer claims it searched.
+    turns:
+      - question: "which startups mention regulatory risk in their evaluations?"
+        grade:
+          deterministic: {must_disclose_coverage: true,
+                          must_not_claim_exhaustive: true, must_cite: true}
+          judged: [faithfulness]
+      - question: "Did you search all 20 startups?"
+        grade:
+          deterministic: {must_disclose_coverage: true}
+          behavior: [state_absence]
+          judged: [faithfulness]
+      - question: "Why did you only search their summaries?"
+        grade:
+          deterministic: {must_disclose_coverage: true}
+          judged: [faithfulness]
+    cross_turn:
+      - {type: coverage_claim_grounded, turn: 2}
+      - {type: coverage_claim_grounded, turn: 3}
+
+  - id: v2s004
+    class: inventory_coverage
+    tier: core
+    provenance: "bank#68 + bank#13 — inventory then evidence, compound"
+    bindings: {}
+    readiness: {source_available: true, tool_ready: false, scope: corpus,
+                operation: inventory, context_required: prior_answer,
+                golden_priority: p1}
+    blocked_on: coverage_query
+    fallback_contract: honest_absence
+    notes: >
+      Tests the confusion P4 §8 asks to record: an evidence question falling
+      back to raw document inventory, or an inventory question answered with
+      evidence. Turn 2 must operate on the set turn 1 established.
+    turns:
+      - question: "Which startups have pitch decks?"
+        grade:
+          deterministic: {must_disclose_coverage: true, must_cite: true}
+          behavior: [state_absence]
+      - question: "What do those decks say about traction?"
+        grade:
+          deterministic: {must_cite: true}
+          judged: [faithfulness, citation_coverage]
+    cross_turn:
+      - {type: set_carryover, from_turn: 1, to_turn: 2}
+      - {type: no_new_entities, from_turn: 1, to_turn: 2}

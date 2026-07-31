@@ -1,7 +1,7 @@
 {
   "builder_version": 1,
   "truth_sets": {
-    "v2c017": {
+    "v2c008": {
       "digest": "eeb62bd7b99888299089394639b6dd067f76ed867a2aea578eea8c8ed2fc2ef3",
       "builder_version": 1,
       "counts": {
@@ -32,6 +32,474 @@
           "method": "phrase",
           "any": [
             "regulatory risk"
+          ],
+          "all": []
+        }
+      }
+    },
+    "v2c009": {
+      "digest": "817e0bde5551893b698403d7e57e972c6839085f9f0b423f19f8a6bd6df797d3",
+      "builder_version": 1,
+      "counts": {
+        "eligible": 64,
+        "scanned": 25,
+        "matched": 14,
+        "no_match": 11,
+        "not_indexed": 39,
+        "scanned_chunks": 6459,
+        "matching_chunks": 178,
+        "entity_names": 64,
+        "entity_records": 74
+      },
+      "scope": {
+        "mode": "matched",
+        "entity_type": "startup_company",
+        "entity_key": "name",
+        "source_types": [
+          "eval_section",
+          "eval_basic",
+          "eval_premium"
+        ],
+        "granularity": [
+          "block"
+        ],
+        "acl": "admin",
+        "match": {
+          "method": "phrase",
+          "any": [
+            "FDA",
+            "CE mark",
+            "reimbursement"
+          ],
+          "all": []
+        }
+      }
+    },
+    "v2c010": {
+      "digest": "f9e6442aecaad88ef2e6c7f923b0140a10aadfc9d97204f6414cbda75a59215b",
+      "builder_version": 1,
+      "counts": {
+        "eligible": 64,
+        "scanned": 25,
+        "matched": 0,
+        "no_match": 25,
+        "not_indexed": 39,
+        "scanned_chunks": 6459,
+        "matching_chunks": 0,
+        "entity_names": 64,
+        "entity_records": 74
+      },
+      "scope": {
+        "mode": "matched",
+        "entity_type": "startup_company",
+        "entity_key": "name",
+        "source_types": [
+          "eval_section",
+          "eval_basic",
+          "eval_premium"
+        ],
+        "granularity": [
+          "block"
+        ],
+        "acl": "admin",
+        "match": {
+          "method": "phrase",
+          "any": [
+            "weak go-to-market execution"
+          ],
+          "all": []
+        }
+      }
+    },
+    "v2c011": {
+      "digest": "10b5a095310b4d40f9ee012ff6c900d4042d8255acf3f340be46d8b18669b28a",
+      "builder_version": 1,
+      "counts": {
+        "eligible": 64,
+        "scanned": 25,
+        "matched": 0,
+        "no_match": 25,
+        "not_indexed": 39,
+        "scanned_chunks": 6459,
+        "matching_chunks": 0,
+        "entity_names": 64,
+        "entity_records": 74
+      },
+      "scope": {
+        "mode": "matched",
+        "entity_type": "startup_company",
+        "entity_key": "name",
+        "source_types": [
+          "eval_section",
+          "eval_basic",
+          "eval_premium"
+        ],
+        "granularity": [
+          "block"
+        ],
+        "acl": "admin",
+        "match": {
+          "method": "phrase",
+          "any": [
+            "clinical validation risk"
+          ],
+          "all": []
+        }
+      }
+    },
+    "v2c012": {
+      "digest": "597f343701076a0549a1fe46513ab4711a83e67e4cf6f9c07839d75f91e45f91",
+      "builder_version": 1,
+      "counts": {
+        "eligible": 64,
+        "scanned": 25,
+        "matched": 1,
+        "no_match": 24,
+        "not_indexed": 39,
+        "scanned_chunks": 6459,
+        "matching_chunks": 1,
+        "entity_names": 64,
+        "entity_records": 74
+      },
+      "scope": {
+        "mode": "matched",
+        "entity_type": "startup_company",
+        "entity_key": "name",
+        "source_types": [
+          "eval_section",
+          "eval_basic",
+          "eval_premium"
+        ],
+        "granularity": [
+          "block"
+        ],
+        "acl": "admin",
+        "match": {
+          "method": "phrase",
+          "any": [
+            "payer adoption",
+            "hospital procurement"
+          ],
+          "all": []
+        }
+      }
+    },
+    "v2c038": {
+      "digest": "921d91f42c29153693c1fc14d071961688781755848fbbfdfa9e7efc4b17eda2",
+      "builder_version": 1,
+      "counts": {
+        "eligible": 72,
+        "scanned": 72,
+        "matched": 12,
+        "no_match": 60,
+        "not_indexed": 0,
+        "scanned_chunks": 353,
+        "matching_chunks": 40,
+        "entity_names": 72,
+        "entity_records": 75
+      },
+      "scope": {
+        "mode": "matched",
+        "entity_type": "cv",
+        "entity_key": "name",
+        "source_types": [
+          "profile"
+        ],
+        "granularity": [
+          "block"
+        ],
+        "acl": "admin",
+        "match": {
+          "method": "phrase",
+          "any": [
+            "regulatory",
+            "clinical"
+          ],
+          "all": []
+        }
+      }
+    },
+    "v2c039": {
+      "digest": "cc1636bcc054f828c8089e2862a9a3a4fa1f1b62dc9e89e7d8441963194b575b",
+      "builder_version": 1,
+      "counts": {
+        "eligible": 72,
+        "scanned": 72,
+        "matched": 16,
+        "no_match": 56,
+        "not_indexed": 0,
+        "scanned_chunks": 353,
+        "matching_chunks": 21,
+        "entity_names": 72,
+        "entity_records": 75
+      },
+      "scope": {
+        "mode": "matched",
+        "entity_type": "cv",
+        "entity_key": "name",
+        "source_types": [
+          "profile"
+        ],
+        "granularity": [
+          "block"
+        ],
+        "acl": "admin",
+        "match": {
+          "method": "phrase",
+          "any": [
+            "McKinsey",
+            "BCG",
+            "Bain",
+            "consulting"
+          ],
+          "all": []
+        }
+      }
+    },
+    "v2c040": {
+      "digest": "d150d53ac2170aedf1f718e8e88fa3d6671b7bc404089cc4953fa9159d6bbb52",
+      "builder_version": 1,
+      "counts": {
+        "eligible": 72,
+        "scanned": 72,
+        "matched": 3,
+        "no_match": 69,
+        "not_indexed": 0,
+        "scanned_chunks": 353,
+        "matching_chunks": 4,
+        "entity_names": 72,
+        "entity_records": 75
+      },
+      "scope": {
+        "mode": "matched",
+        "entity_type": "cv",
+        "entity_key": "name",
+        "source_types": [
+          "profile"
+        ],
+        "granularity": [
+          "block"
+        ],
+        "acl": "admin",
+        "match": {
+          "method": "phrase",
+          "any": [
+            "PhD",
+            "Ph.D"
+          ],
+          "all": []
+        }
+      }
+    },
+    "v2c041": {
+      "digest": "3316caea7f54757c2238debf67d5659e056d7efad781cd1846f7ccaea733198d",
+      "builder_version": 1,
+      "counts": {
+        "eligible": 13,
+        "scanned": 13,
+        "matched": 0,
+        "no_match": 13,
+        "not_indexed": 0,
+        "scanned_chunks": 22,
+        "matching_chunks": 0,
+        "entity_names": 13,
+        "entity_records": 14
+      },
+      "scope": {
+        "mode": "matched",
+        "entity_type": "investor",
+        "entity_key": "name",
+        "source_types": [
+          "profile"
+        ],
+        "granularity": [
+          "block"
+        ],
+        "acl": "admin",
+        "match": {
+          "method": "phrase",
+          "any": [
+            "biotech",
+            "medtech",
+            "diagnostics"
+          ],
+          "all": []
+        }
+      }
+    },
+    "v2c042": {
+      "digest": "cad0d9d2c13163ec0c63fcbe8988ce5f9418e82643565f95ad5396dc57327001",
+      "builder_version": 1,
+      "counts": {
+        "eligible": 13,
+        "scanned": 13,
+        "matched": 0,
+        "no_match": 13,
+        "not_indexed": 0,
+        "scanned_chunks": 22,
+        "matching_chunks": 0,
+        "entity_names": 13,
+        "entity_records": 14
+      },
+      "scope": {
+        "mode": "matched",
+        "entity_type": "investor",
+        "entity_key": "name",
+        "source_types": [
+          "profile"
+        ],
+        "granularity": [
+          "block"
+        ],
+        "acl": "admin",
+        "match": {
+          "method": "phrase",
+          "any": [
+            "board involvement",
+            "operating support"
+          ],
+          "all": []
+        }
+      }
+    },
+    "v2c043": {
+      "digest": "9cb12b3932d59c47f6f08a5b256a5a2d8cf59f67178a6c8f3b32575a369b2105",
+      "builder_version": 1,
+      "counts": {
+        "eligible": 3,
+        "scanned": 3,
+        "matched": 0,
+        "no_match": 3,
+        "not_indexed": 0,
+        "scanned_chunks": 5,
+        "matching_chunks": 0,
+        "entity_names": 3,
+        "entity_records": 3
+      },
+      "scope": {
+        "mode": "matched",
+        "entity_type": "organization",
+        "entity_key": "name",
+        "source_types": [
+          "profile"
+        ],
+        "granularity": [
+          "block"
+        ],
+        "acl": "admin",
+        "match": {
+          "method": "phrase",
+          "any": [
+            "university spinout",
+            "spinout"
+          ],
+          "all": []
+        }
+      }
+    },
+    "v2c047": {
+      "digest": "5453aa4c5fd019d3077bd310a5b531c26f458850e5893d092628626054612c33",
+      "builder_version": 1,
+      "counts": {
+        "eligible": 64,
+        "scanned": 25,
+        "matched": 0,
+        "no_match": 25,
+        "not_indexed": 39,
+        "scanned_chunks": 6459,
+        "matching_chunks": 0,
+        "entity_names": 64,
+        "entity_records": 74
+      },
+      "scope": {
+        "mode": "absent",
+        "entity_type": "startup_company",
+        "entity_key": "name",
+        "source_types": [
+          "eval_section",
+          "eval_basic",
+          "eval_premium"
+        ],
+        "granularity": [
+          "block"
+        ],
+        "acl": "admin",
+        "match": {
+          "method": "phrase",
+          "any": [
+            "supply chain risk"
+          ],
+          "all": []
+        }
+      }
+    },
+    "v2c048": {
+      "digest": "e32b93f83a513c95c8352eae29f1676e9c6ef44884a4ef653ebd6fbef6cbed07",
+      "builder_version": 1,
+      "counts": {
+        "eligible": 64,
+        "scanned": 25,
+        "matched": 0,
+        "no_match": 25,
+        "not_indexed": 39,
+        "scanned_chunks": 6459,
+        "matching_chunks": 0,
+        "entity_names": 64,
+        "entity_records": 74
+      },
+      "scope": {
+        "mode": "absent",
+        "entity_type": "startup_company",
+        "entity_key": "name",
+        "source_types": [
+          "eval_section",
+          "eval_basic",
+          "eval_premium"
+        ],
+        "granularity": [
+          "block"
+        ],
+        "acl": "admin",
+        "match": {
+          "method": "phrase",
+          "any": [
+            "carbon credit"
+          ],
+          "all": []
+        }
+      }
+    },
+    "v2c049": {
+      "digest": "cb2a78cf8fc99ac9849bd37d0f4d82c269994eecb66f231b7a3e2a8994c2a997",
+      "builder_version": 1,
+      "counts": {
+        "eligible": 64,
+        "scanned": 25,
+        "matched": 0,
+        "no_match": 25,
+        "not_indexed": 39,
+        "scanned_chunks": 6459,
+        "matching_chunks": 0,
+        "entity_names": 64,
+        "entity_records": 74
+      },
+      "scope": {
+        "mode": "absent",
+        "entity_type": "startup_company",
+        "entity_key": "name",
+        "source_types": [
+          "eval_section",
+          "eval_basic",
+          "eval_premium"
+        ],
+        "granularity": [
+          "block"
+        ],
+        "acl": "admin",
+        "match": {
+          "method": "phrase",
+          "any": [
+            "synthetic biology"
           ],
           "all": []
         }
