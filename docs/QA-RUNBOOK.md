@@ -295,9 +295,21 @@ hard way:
    most generous judge, so that comparison partly measured a *shared bias*, and
    it happened to be the choice that made the headline number look best. When
    the flattering option wins on a soft reference, distrust it.
-4. **The judge must not be the agent's model.** Otherwise it grades its own
-   answers and self-preference rides silently into every comparison. Agent on
-   terra ⇒ judge not terra.
+4. **When the judge IS the agent's model, it grades its own answers.** Both are
+   `gpt-5.6-terra`, chosen on the numbers above and on cost (~$0.72 a suite
+   against sol's ~$1.50 for one item less agreement). Self-preference is real —
+   E8 measured +0.011 faithfulness — but it is a *constant*, so it cancels
+   whenever both sides of a comparison run the same agent model, which is most
+   of them: prompt edits, retrieval changes, tool changes.
+   **It does not cancel in a model A/B.** There, regrade both arms with a judge
+   that wrote neither side before believing the result:
+
+   ```bash
+   ADVISOR_JUDGE_MODEL=gpt-5.6-luna uv run python -m experiments.rejudge <run>  # ~$0.10/side
+   ```
+
+   That is exactly how E8 was settled: terra's faithfulness edge read +0.014
+   judged by terra and +0.003 judged neutrally.
 
 Until human labels exist this picks the least-bad option, not the right one.
 The bake-off scores every candidate against those labels the moment they land.

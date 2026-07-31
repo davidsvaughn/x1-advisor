@@ -54,29 +54,34 @@ from pydantic import BaseModel
 from x1_advisor.agent.evidence import canonical_params
 from x1_advisor.cost import Tracker, Usage
 
-# gpt-5.6-sol since 2026-07-31, picked by `judge_bakeoff --labeled-only`
-# against 32 human labels — the first time this choice rested on human ground
+# gpt-5.6-terra since 2026-07-31, picked by `judge_bakeoff --labeled-only`
+# against 32 human labels — the first judge choice resting on human ground
 # truth rather than on inference about the models.
 #
 #   terra 25/32 (kappa 0.63) · sol 24/32 (0.58) · luna 21/32 (0.45) · 5.1 20/32 (0.44)
 #   false clean bills: 0 for all four.
+#   cost per judged suite: luna ~$0.10 · terra ~$0.72 · sol ~$1.50
 #
-# terra and sol are one item apart — a tie. luna and gpt-5.1 are a genuine step
-# down, which retired two earlier guesses: that luna's synthetic 10/10 predicted
-# real-text agreement (it did not), and that gpt-5.1's strictness was closer to
-# a careful reader (it was not — it is the furthest from one).
+# terra is both the best-agreeing and the better value; sol is one item behind
+# at double the price. luna and gpt-5.1 are a genuine step down, which retired
+# two earlier guesses: that luna's synthetic 10/10 predicted real-text agreement
+# (it did not), and that gpt-5.1's strictness sat closer to a careful reader (it
+# is the furthest from one).
 #
-# sol over terra on the tie-break that does not depend on the numbers: the agent
-# runs gpt-5.6-terra, so a terra judge would grade its own answers. Measured at
-# +0.011 faithfulness in E8 — small, inside noise, and pointing exactly the way
-# self-preference predicts. Not worth carrying into every future comparison for
-# a one-item edge.
+# **This is also the agent's model, so the judge grades its own answers.** That
+# is a real effect — E8 measured terra's self-preference at +0.011 faithfulness,
+# inside noise but pointing the way theory predicts. It is handled by policy
+# rather than by buying a pricier judge, because the bias is CONSTANT and
+# therefore cancels in the comparison that matters most: same agent model on
+# both sides (prompt, retrieval, tool changes). It does NOT cancel when the arms
+# run different agent models — so for a model A/B, regrade both arms with a
+# judge that wrote neither (`ADVISOR_JUDGE_MODEL=gpt-5.6-luna experiments.rejudge`,
+# ~$0.10 a side). QA-RUNBOOK §8 states the rule.
 #
-# Caveat on the labels themselves, recorded so it is not lost: all 32 were
-# produced with a second opinion visible and matched it 32/32, so they are
-# flagged `assist_shown` in the set. A fresh unassisted draw is pending and can
-# revise this.
-JUDGE_MODEL = os.environ.get("ADVISOR_JUDGE_MODEL", "gpt-5.6-sol")
+# Caveat on the labels, recorded so it is not lost: all 32 were produced with a
+# second opinion visible and matched it 32/32, so they carry `assist_shown` in
+# the set. A fresh unassisted draw is pending and can revise this.
+JUDGE_MODEL = os.environ.get("ADVISOR_JUDGE_MODEL", "gpt-5.6-terra")
 # v2 (Gate 1D-1): claims are judged against per-ref snapshots of what the model
 # saw, not against the current database; scores from v1 are not comparable
 SCHEMA_VERSION = 2
