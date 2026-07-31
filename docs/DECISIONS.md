@@ -4,6 +4,54 @@
 > engineering choices land here, newest first. Each entry names its evidence (spike
 > output, manifest path, or doc reference) and the revisit trigger if one exists.
 
+## 2026-07-30 — Step 0 complete: all five immediate fixes landed and verified on test
+
+PLAN §R Step 0 done, one commit per fix, each verified live against x1-db-test before
+moving on. Retrieval behavior is unchanged end-to-end: golden v1 after all five fixes is
+**recall@10 0.833 / MRR 0.746, 28/36 full recall, 4/36 zero recall** — identical to the
+2026-07-08 baseline (`experiments/runs/2026-07-30_active_v1_e72ef89+dirty_r2.jsonl`).
+
+| Fix | Commit | Evidence |
+|---|---|---|
+| Structured-query ACL | `711de6f` | live leak reproduced then closed (below); `acl_probes` PASS |
+| Typed filter layer (F1/F7) | `382b687` | hostile keys rejected; agent turn 4/4 citations, cache intact |
+| Connection pool (F2) | `e72ef89` | 4/4 `runtime_probes`; 3 concurrent `/ask` → distinct threads |
+| Immutable manifests | `4d5e1da` | `O_EXCL` + sha + sequence; `test_manifests_never_overwrite` |
+| Persist `raw_answer` (F5) | `37684a0` | `research_record->>'raw_answer'` populated |
+
+**The structured-query leak was live, not theoretical.** `queries.py` read app tables with
+no ACL at all. On test: 5 unpublished (draft) startup companies have 8 evaluations, and
+`evaluations_for_company` / `top_startups_by_score` returned their names and scores to any
+caller. Fixed as a class, not per-query — `run_query` now takes a required `acl` and every
+query applies the retriever's own predicates (drafts owner-only; hidden evaluations
+admin-only with no owner carve-out). Before: `evaluations_for_company('Animafelix')` → 2
+rows for anyone. After: nobody → 0, admin → 2, owner → 2.
+
+**Three findings worth carrying forward:**
+
+1. **Golden g020 was never a retrieval miss.** It filters on `fundraising_round`, a field
+   the corpus does not stamp on chunks, so pre-fix it returned 0 hits and scored 0 recall
+   — one of the four "zero-recall questions" in the 0.833 headline was a routing bug.
+   `filter_error` is now its own class in the manifest. Gate 4 decides: stamp entity
+   attributes onto profile chunks (a re-index) and add the field to the filter registry,
+   or move the case to `structured_query`, which already answers it.
+2. **Zero-citation answers score as perfect citation resolvability.** Two of three
+   consecutive live turns retrieved 8 evidence blocks and cited none (0/0 = 100%). The
+   same question that cited 4/4 still does, so this is the `evidence_unused` class, not a
+   regression — and it is precisely the blind spot S1's faithfulness judge closes.
+3. **Fixture-derived documents are ACL-stamped open regardless of their prod entity's
+   state.** `run_db_mode` correctly propagates `s.is_published` / `e.is_visible`, but
+   `run_fixtures_mode` hard-codes `is_published=True, eval_is_visible=True,
+   entity_id=None` (the prod entity does not exist on test). 227 corpus documents have a
+   NULL entity link, so the draft/owner carve-out cannot apply to them. Not a live leak —
+   but any ACL measurement over fixture documents is optimistic, and golden v2 grades
+   against that corpus. Gate 2 should either stamp fixtures with their prod ACL state or
+   exclude them from ACL scoring.
+
+Also: `structured_query` answers carry zero citations by construction (rows are not
+registered as evidence), so that whole question class trivially satisfies the citation
+bar. Gate 1B's judge work should decide whether structured rows become citable evidence.
+
 ## 2026-07-09 — Record-summary blocks land: recall@10 0.778 → 0.833 (best lever so far)
 
 Phase-1 leftover closed (`ingest/summaries.py`): one gpt-5-mini record-summary chunk per

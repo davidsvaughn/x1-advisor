@@ -57,10 +57,14 @@ acceptable-evidence groups, replay never trusts stored ACLs.
 
 ### Revised execution sequence (merges the independent review's Gates 1–6)
 
-- **Step 0 — immediate fixes (no gate, do first):** `evaluations_for_company`
-  visibility predicates (live leak); filter-key whitelist → typed filter layer
-  (SQL injection, F1); in-process psycopg pool (transaction safety, F2);
-  manifest no-clobber; persist `raw_answer`.
+- **Step 0 — immediate fixes — ✅ DONE 2026-07-30** (`711de6f`, `382b687`,
+  `e72ef89`, `4d5e1da`, `37684a0`; see DECISIONS 2026-07-30 for evidence and
+  three carry-forward findings): structured-query ACL (the
+  `evaluations_for_company` leak was live on test, and the same predicate was
+  missing from three sibling queries — fixed as a class); filter-key whitelist
+  → typed filter layer (F1/F7); in-process psycopg pool (F2); manifest
+  no-clobber; persist `raw_answer` (F5). Golden v1 unchanged at recall@10
+  0.833 / MRR 0.746, so none of it moved retrieval.
 - **Gate 1 — evidence correctness + QA loop, in internal order** (review
   §6.2): **1A observability foundation** (turn bundles + fingerprints,
   retrieval explain, manifest immutability, non-git owner-only storage for full
