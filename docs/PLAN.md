@@ -155,7 +155,15 @@ acceptable-evidence groups, replay never trusts stored ACLs.
   persistence, app-side complete-membership projection using the page's exact
   query builder (inline refs or a user-bound materialized snapshot above the
   configured limit), context fixtures + scope grading.
-- **Gate 4 — golden v2:** curate (not copy) QUESTION-BANK — smoke ~12 /
+- **Gate 4 — golden v2:** full specification proposed in
+  [`GOLDEN-V2-DESIGN-2026-07-31.md`](GOLDEN-V2-DESIGN-2026-07-31.md) (status:
+  proposal, awaiting David) — headline: two waves (v2.0 context-free now,
+  v2.1 after Gate 3B), deterministic truth sets for the enumeration class
+  (doubles as the `scan_text` prototype), truth-robustness classes, David-
+  authored held-out batch. Motivated by the 2026-07-31 provenance finding:
+  golden v1 is agent-authored, zero questions derive from QUESTION-BANK or
+  real threads. Summary of the original sketch: curate (not copy)
+  QUESTION-BANK — smoke ~12 /
   core ~40–60 + scripts / extended ~80–100 tiers; acceptable evidence groups;
   `expected_route` + `expected_scope` + `context_fixture`; genuinely-blind
   held-out cases executed by a separately authorized CI/evaluation service
