@@ -4,6 +4,52 @@
 > engineering choices land here, newest first. Each entry names its evidence (spike
 > output, manifest path, or doc reference) and the revisit trigger if one exists.
 
+## 2026-07-31 — Gate 4 build (golden v2.0): steps 1–4 landed
+
+David authorized the build (Golden v2.0 §9 steps 1–4 + Track H1) after the
+2026-07-31 handoff. Four of the five build deliverables are in; the H1 runner
+and the v2.0 baseline run are not yet done. Evidence: commits `32b33c4`
+(schema+compiler), `6f6d049` (truth builder + checkers), `8f6b569` (authoring),
+`9fffdda` (script runner); suite digest via
+`uv run python -m experiments.cases --golden v2`.
+
+- **Suite:** 56 cases + 4 scripts (60 gate units, 13 script turns); 7 smoke
+  from the P4 compact set, 53 core. Grading modes split 31 capability / 29
+  honesty. Every unit carries provenance; a test asserts it.
+- **Behavior obligations are NOT deterministic** (deviation from the §4 sketch,
+  adopted here): `correct_premise`, `state_absence`, `surface_ambiguity`,
+  `surface_conflict`, `decline_action`, `ask_clarifying`,
+  `disclose_capabilities` moved to their own `grade.behavior` block, judged
+  against a targeted rubric. Filing "did it correct the false premise?" under a
+  block named `deterministic` would be the same overclaim the suite exists to
+  catch. Evidence fidelity stays mechanical — a quoted span is or is not in the
+  evidence.
+- **`blocked_on` added to the readiness model:** the route cannot always imply
+  the blocker. The inventory class routes through `structured_query`, which
+  exists, while the coverage query inside it does not (bank §3.3), so
+  `tool_ready: false` must name what it waits on or it is a mood, not a field.
+- **Corpus facts that constrain Gate 4** (measured, not assumed): only 25 of 64
+  company names have evaluation documents — 39 test startups have none — so a
+  corpus-wide enumeration's honest denominator is 25, not 50; 9 company names
+  exist as BOTH a prod fixture and a test entity, so every truth set records
+  two denominators; the investor/organization profiles are near-empty of
+  thematic language, making those three cases honesty tests with verified-empty
+  oracles rather than recall tests.
+- **Two authored cases are traps the corpus handed us:** bank#28 ("clinical
+  validation risk") has a verified-empty oracle while five companies discuss
+  clinical validation — reporting the lexical no-match as a semantic negative
+  is precisely the bank §3.2 failure; bank#86 ("Which founders have PhDs?")
+  exists because `PhD` matches nothing in the CVs while `Ph.D` matches three.
+- **Deferred, needs David:** the §6 prompt-injection canary requires planting
+  an instruction-shaped document in the test corpus — a corpus write and a
+  Gate 2 fixture. Not done unilaterally. A test asserts it is the only missing
+  class.
+- **First live signal (v2s004, 2 turns, $0.023):** the cross-turn machinery
+  reads correctly (5 documents searched, 5/5 entities carried, no intruders)
+  and the script fails on a declared assertion — the answer listed the
+  startups but never stated the scope it searched. Coverage disclosure is
+  measurable now, and currently absent.
+
 ## 2026-07-31 — Headless Claude Code agents: adopt at the edges, never the Tier-1 loop
 
 David reviewed the helm pattern (alpha-claw: `claude -p` runner, settings-scoped

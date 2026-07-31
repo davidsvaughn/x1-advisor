@@ -166,7 +166,11 @@ acceptable-evidence groups, replay never trusts stored ACLs.
   [`GOLDEN-V2-DESIGN-2026-07-31.md`](GOLDEN-V2-DESIGN-2026-07-31.md)
   (**approved 2026-07-31** — David + second-agent review; five acceptance
   criteria folded into the docs; **build authorized by David 2026-07-31** for
-  §9 steps 1–4 + Track H1, brief in [`HANDOFF.md`](HANDOFF.md)) — headline:
+  §9 steps 1–4 + Track H1, brief in [`HANDOFF.md`](HANDOFF.md); **build
+  steps 1–4 DONE 2026-07-31** — `32b33c4` schema+compiler, `6f6d049`
+  truth-set builder + §5.2 checkers, `8f6b569` suite authored (56 cases +
+  4 scripts, 14 computed truth sets), `9fffdda` script runner; **H1 runner
+  and the v2.0 baseline run remain**, see DECISIONS 2026-07-31) — headline:
   two waves (v2.0 context-free now,
   v2.1 after Gate 3B), deterministic truth sets for the enumeration class
   (doubles as the `scan_text` prototype), truth-robustness classes, David-

@@ -63,14 +63,28 @@ class TurnRecord:
     question: str
     answer: str
     evidence: list[str] = field(default_factory=list)
-    # documents the turn actually put in front of the model — the denominator
-    # a coverage claim is checked against
+    # what the turn actually put in front of the model — the denominator a
+    # coverage claim is checked against
     searched_documents: int = 0
+    searched_rows: int = 0          # structured_query rows
     searched_chunks: int = 0
 
     @property
     def entities(self) -> list[str]:
         return checkers.entity_mentions(checkers.strip_citations(self.answer))
+
+    def named(self, vocabulary: set[str] | None) -> set[str]:
+        """Entity mentions restricted to a KNOWN entity vocabulary.
+
+        Without this the carryover assertions read every capitalized token as
+        an entity: the first live run flagged `Australia`, `Q3` and `Slovenian`
+        as startups the model had invented. A cross-turn set assertion is about
+        the entities of the corpus, so it is answered against the corpus's own
+        names; the unrestricted form stays available for the entity-grounding
+        diagnostic, where over-collection is cheap.
+        """
+        mentions = {e.lower() for e in self.entities}
+        return {m for m in mentions if m in vocabulary} if vocabulary else mentions
 
 
 def _diag(check: str, passed: bool, **detail: Any) -> checkers.Diagnostic:
@@ -78,33 +92,34 @@ def _diag(check: str, passed: bool, **detail: Any) -> checkers.Diagnostic:
 
 
 def assert_set_carryover(records: dict[int, TurnRecord], from_turn: int,
-                         to_turn: int) -> checkers.Diagnostic:
+                         to_turn: int, vocabulary: set[str] | None = None
+                         ) -> checkers.Diagnostic:
     """The later turn must operate on the set the earlier turn established."""
-    earlier = {e.lower() for e in records[from_turn].entities}
-    later = {e.lower() for e in records[to_turn].entities}
-    shared = earlier & later
+    earlier = records[from_turn].named(vocabulary)
+    shared = earlier & records[to_turn].named(vocabulary)
     return _diag("set_carryover", bool(shared), from_turn=from_turn,
                  to_turn=to_turn, established=len(earlier), carried=len(shared))
 
 
 def assert_no_new_entities(records: dict[int, TurnRecord], from_turn: int,
-                           to_turn: int) -> checkers.Diagnostic:
+                           to_turn: int, vocabulary: set[str] | None = None
+                           ) -> checkers.Diagnostic:
     """The later turn introduces nothing that was not in the established set.
 
     Entities named in the later turn's own question are allowed — the user is
     permitted to widen the subject; the model is not.
     """
-    allowed = {e.lower() for e in records[from_turn].entities}
-    allowed |= {e.lower() for e in
-                checkers.entity_mentions(records[to_turn].question)}
-    intruders = sorted({e for e in records[to_turn].entities
-                        if e.lower() not in allowed})
+    allowed = records[from_turn].named(vocabulary)
+    asked = {e.lower() for e in checkers.entity_mentions(records[to_turn].question)}
+    allowed |= ({a for a in asked if a in vocabulary} if vocabulary else asked)
+    intruders = sorted(records[to_turn].named(vocabulary) - allowed)
     return _diag("no_new_entities", not intruders, from_turn=from_turn,
                  to_turn=to_turn, intruders=intruders)
 
 
 def assert_quotes_from_turn(records: dict[int, TurnRecord], from_turn: int,
-                            to_turn: int) -> checkers.Diagnostic:
+                            to_turn: int, vocabulary: set[str] | None = None
+                            ) -> checkers.Diagnostic:
     """Quotes in the later turn must be verbatim from evidence seen since the
     set was established.
 
@@ -120,7 +135,8 @@ def assert_quotes_from_turn(records: dict[int, TurnRecord], from_turn: int,
                  to_turn=to_turn, **diagnostic.detail)
 
 
-def assert_coverage_claim_grounded(records: dict[int, TurnRecord], turn: int
+def assert_coverage_claim_grounded(records: dict[int, TurnRecord], turn: int,
+                                   vocabulary: set[str] | None = None
                                    ) -> checkers.Diagnostic:
     """A coverage claim is graded against the BUNDLE of the turn that did the
     searching, not against the claim itself (§8).
@@ -131,8 +147,10 @@ def assert_coverage_claim_grounded(records: dict[int, TurnRecord], turn: int
     actually searched across the conversation so far; a claim larger than the
     evidence is not grounded.
     """
-    searched = max((records[n].searched_documents for n in records if n <= turn),
-                   default=0)
+    # documents shown OR structured rows returned — a listing answered from the
+    # registry searched rows, not documents, and both are honest denominators
+    searched = max((max(records[n].searched_documents, records[n].searched_rows)
+                    for n in records if n <= turn), default=0)
     answer = checkers.strip_citations(records[turn].answer)
     claimed = [int(float(n)) for n in checkers.numerals(answer)
                if n.replace(".", "").isdigit()]
@@ -149,37 +167,74 @@ CROSS_TURN_IMPL = {
 }
 
 
-def evaluate_cross_turn(script: Script, records: dict[int, TurnRecord]
+def evaluate_cross_turn(script: Script, records: dict[int, TurnRecord],
+                        vocabulary: set[str] | None = None
                         ) -> list[checkers.Diagnostic]:
     """Pure function over turn records — no bundle, no database, no model."""
     out = []
     for assertion in script.cross_turn:
         kind = dict(assertion)
         impl = CROSS_TURN_IMPL[kind.pop("type")]
-        out.append(impl(records, **kind))
+        out.append(impl(records, vocabulary=vocabulary, **kind))
     return out
 
 
+def entity_vocabulary(conn) -> set[str]:
+    """Every entity name the corpus knows, lowercased.
+
+    The set assertions are about corpus entities, so they are answered against
+    the corpus's own names rather than against whatever the answer capitalized.
+    """
+    rows = conn.execute(
+        """SELECT DISTINCT lower(name) AS name FROM (
+               SELECT ch.metadata->>'company_name' AS name
+               FROM advisor.doc_chunks ch
+               WHERE ch.metadata->>'company_name' IS NOT NULL
+               UNION
+               SELECT split_part(d.title, ' — ', 1) FROM advisor.documents d
+               WHERE d.superseded_by IS NULL AND d.entity_type IN
+                     ('cv', 'investor', 'organization')
+               UNION
+               SELECT s.name FROM startup_companies s
+           ) t WHERE name IS NOT NULL AND length(name) > 1""").fetchall()
+    return {r["name"] for r in rows}
+
+
 def turn_record(conn, n: int, question: str, result: dict) -> TurnRecord:
-    """Project a live turn into the plain record the assertions read."""
+    """Project a live turn into the plain record the assertions read.
+
+    The searched counts come from the bundle's own retrieval explain — the
+    chunks actually RETURNED to the model, mapped to their documents through
+    the fused candidate list — plus the row count of any structured query.
+    Anything derived from the answer text would defeat the purpose: these are
+    the numbers a coverage claim is checked against.
+    """
+    from experiments.funnel import tool_results
+
     bundle = result["bundle"]
     refs = evidence_texts(conn, bundle)
     explains = bundle.get("retrieval_explain") or []
-    returned = {cid for e in explains for cid in e.get("returned", [])}
-    documents = {ref.get("document_id") for ref in refs.values()
-                 if isinstance(ref, dict) and ref.get("document_id")}
+    chunk_to_doc = {f["chunk_id"]: f.get("document_id")
+                    for e in explains for f in e.get("fused") or []}
+    returned = [cid for e in explains for cid in e.get("returned") or []]
+    documents = {chunk_to_doc.get(cid) for cid in returned} - {None}
+    rows = sum((call["payload"] or {}).get("row_count") or 0
+               for call in tool_results(bundle)
+               if call["tool"] == "structured_query")
     return TurnRecord(
         n=n, question=question,
-        answer=bundle.get("validation", {}).get("answer") or result.get("answer", ""),
+        answer=bundle.get("validation", {}).get("answer") or "",
         evidence=[str(ref.get("snapshot") or ref.get("text") or "")
                   for ref in refs.values() if isinstance(ref, dict)],
         searched_documents=len(documents),
+        searched_rows=rows,
         searched_chunks=len(returned))
 
 
 def run_script(conn, script: Script, *, fixtures: dict, seed: int | str,
                judge: bool = False, tracker: Tracker | None = None,
-               run_id: str | None = None) -> dict[str, Any]:
+               run_id: str | None = None,
+               vocabulary: set[str] | None = None) -> dict[str, Any]:
     """Execute one script as a single conversation and grade it as a unit."""
     from x1_advisor.agent.advisor import run_turn
 
@@ -232,7 +287,7 @@ def run_script(conn, script: Script, *, fixtures: dict, seed: int | str,
             "bundle": bundle_path.name if bundle_path else None,
         })
 
-    cross = evaluate_cross_turn(script, records)
+    cross = evaluate_cross_turn(script, records, vocabulary)
     # §8: the gate unit is the script. A declared per-turn assertion failing, or
     # any cross-turn assertion failing, fails the whole sequence — passing four
     # turns and dropping the set on the fifth is a failed script, not 80% of
@@ -281,11 +336,13 @@ def main() -> None:
                                                     "cost_ledger.jsonl")))
     results = []
     with connect() as conn, manifest_file as manifest:
+        vocabulary = entity_vocabulary(conn)
         for script in scripts:
             print(f"\n== {script.id} ({script.cls}, {len(script.turns)} turns) ==")
             result = run_script(conn, script, fixtures=suite.fixtures,
                                 seed=args.seed, judge=args.judge,
-                                tracker=tracker, run_id=run_id)
+                                tracker=tracker, run_id=run_id,
+                                vocabulary=vocabulary)
             for turn in result["turns"]:
                 failed = [a["check"] for a in turn["assertions"] if not a["passed"]]
                 print(f"  turn {turn['turn']}  ${turn['cost_usd']:.4f} "
