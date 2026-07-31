@@ -139,6 +139,7 @@ def main() -> None:
     tracker = Tracker(run_id=run_id)
 
     recalls, mrrs, skipped, filter_errors = [], [], 0, []
+    per_q_filter_error: list[str | None] = []
     with connect() as conn, manifest_file as manifest:
         for q in questions:
             if q.get("web_required"):
@@ -163,6 +164,7 @@ def main() -> None:
             g = grade(hits, q["expected"])
             recalls.append(g["recall"])
             mrrs.append(g["mrr"])
+            per_q_filter_error.append(filter_error)
             manifest.write(json.dumps({
                 "run_id": run_id, "experiment": "phase2-baseline",
                 "config_id": args.config or "active", "git_sha": git_sha(),
@@ -170,10 +172,16 @@ def main() -> None:
                 "question_id": q["id"], "category": q["category"],
                 "question": q["question"], **g,
                 "filter_error": filter_error,
+                # body-free (QA-LOOP §4.1): identifiers and ranks, never source
+                # TITLES — a title names a document, and 30 of the entries in
+                # the pre-fix version of this manifest named premium reports.
+                # The question text is the golden case itself, already committed
+                # in experiments/golden/, so it discloses nothing new.
                 "retrieved": [
                     {"document_id": h.document_id, "block_index": h.block_index,
-                     "page_number": h.page_number, "source_type": h.source_type,
-                     "title": h.title, "rrf": round(h.rrf_score, 5),
+                     "chunk_id": h.chunk_id, "page_number": h.page_number,
+                     "source_type": h.source_type, "granularity": h.granularity,
+                     "rrf": round(h.rrf_score, 5),
                      "dense_rank": h.dense_rank, "lex_rank": h.lex_rank}
                     for h in hits
                 ],
@@ -187,15 +195,41 @@ def main() -> None:
                   + (f"  FILTER: {filter_error}" if filter_error else ""))
 
     n = len(recalls)
+    # two populations, both reported. A case whose filter names a field the
+    # corpus does not stamp never reached retrieval, so scoring it as a
+    # retrieval miss overstates the miss rate — but dropping it silently would
+    # break comparison with every manifest written before the split existed.
+    valid = [(r, m) for r, m, e in zip(recalls, mrrs, per_q_filter_error) if not e]
+    summary = {
+        "run_id": run_id, "experiment": "phase2-baseline", "record": "summary",
+        "config_id": args.config or "active", "golden": args.golden, "k": args.k,
+        "code_fingerprint": code_fingerprint(),
+        "graded": n, "web_skipped": skipped,
+        "all_cases": {"n": n, "recall": sum(recalls) / n, "mrr": sum(mrrs) / n,
+                      "full_recall": sum(1 for r in recalls if r == 1.0),
+                      "zero_recall": sum(1 for r in recalls if r == 0.0)},
+        "route_valid_only": {
+            "n": len(valid),
+            "recall": (sum(r for r, _ in valid) / len(valid)) if valid else None,
+            "mrr": (sum(m for _, m in valid) / len(valid)) if valid else None},
+        "filter_errors": filter_errors,
+        "cost_usd": round(tracker.run_total, 6),
+    }
+    with manifest_path.open("a") as fh:
+        fh.write(json.dumps(summary) + "\n")
+
     print(f"\n== {run_id} ==")
     print(f"questions graded: {n} (web skipped: {skipped})")
-    print(f"mean recall@{args.k}: {sum(recalls)/n:.3f}")
-    print(f"mean MRR:        {sum(mrrs)/n:.3f}")
+    print(f"ALL CASES        recall@{args.k} {sum(recalls)/n:.3f}  MRR {sum(mrrs)/n:.3f}"
+          "   ← comparable with pre-2026-07-30 manifests")
+    if valid and len(valid) != n:
+        print(f"ROUTE-VALID ONLY recall@{args.k} {sum(r for r, _ in valid)/len(valid):.3f}"
+              f"  MRR {sum(m for _, m in valid)/len(valid):.3f}"
+              f"   ← excludes {len(filter_errors)} filter/routing failure(s)")
     print(f"full recall:     {sum(1 for r in recalls if r == 1.0)}/{n}")
     print(f"zero recall:     {sum(1 for r in recalls if r == 0.0)}/{n}")
     print(f"filter errors:   {filter_errors or 'none'}"
-          "  (routing failures, not retrieval misses — they are inside the"
-          " zero-recall count above)")
+          "  (routing failures, not retrieval misses; counted in ALL CASES only)")
     print(f"total cost:      ${tracker.run_total:.4f}")
     print(f"manifest:        {manifest_path}")
     sys.exit(0)

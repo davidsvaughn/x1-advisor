@@ -88,29 +88,82 @@ def tool_schema_digest(tools: Iterable[Any]) -> str:
     return sha256_text(json.dumps(canonical, sort_keys=True, separators=(",", ":")))
 
 
-def corpus_watermark(conn) -> dict[str, Any]:
+_watermark_cache: tuple[tuple, dict[str, Any]] | None = None
+
+
+def _corpus_sentinel(conn, config_id: str) -> tuple:
+    """Cheap (~100 ms) "has anything changed?" probe over the three tables that
+    can move retrieval.
+
+    `max(xmin)` is what makes it honest: counts and max-ids miss an **in-place**
+    update — a re-embed of the same chunk_ids, or an ACL/metadata correction —
+    and those change retrieval without changing anything countable. xmin is the
+    writing transaction id, in the tuple header, so scanning it never detoasts
+    the vectors.
+
+    Caveat: `VACUUM FREEZE` and xid wraparound can move max(xmin) backwards.
+    That direction is safe — a mismatch only forces a recompute of the same
+    digests. A write always raises it, so a real change is never missed.
+    """
+    rows = [
+        conn.execute("SELECT count(*) AS n, coalesce(max(xmin::text::bigint),0) AS x "
+                     "FROM advisor.documents").fetchone(),
+        conn.execute("SELECT count(*) AS n, coalesce(max(xmin::text::bigint),0) AS x "
+                     "FROM advisor.doc_chunks").fetchone(),
+        conn.execute(f"SELECT count(*) AS n, coalesce(max(xmin::text::bigint),0) AS x "
+                     f"FROM advisor.emb_{config_id}").fetchone(),
+    ]
+    return (config_id, *[(r["n"], r["x"]) for r in rows])
+
+
+def corpus_watermark(conn, config_id: str) -> dict[str, Any]:
     """Identity of the corpus that answered this turn.
 
-    `content_digest` covers every live document's content hash, so a re-ingest
-    that changes text moves the watermark even when the document count doesn't.
+    Covers everything retrieval reads: document content hashes, chunk **text and
+    metadata** (so an ACL or metadata correction moves it), and the embedding
+    vectors themselves (so an in-place re-embed moves it). Transaction ids are
+    the cache key only — they are local to a database instance and would make
+    two identical corpora look different.
+
+    ~1.6 s to compute in full, so it is memoized behind the sentinel above: a
+    turn pays ~100 ms while the corpus is unchanged, and the full price only on
+    the first turn after it moves.
     """
+    global _watermark_cache
+    sentinel = _corpus_sentinel(conn, config_id)
+    if _watermark_cache and _watermark_cache[0] == sentinel:
+        return _watermark_cache[1]
+
     docs = conn.execute(
         """SELECT count(*) AS documents,
                   coalesce(max(id), 0) AS max_document_id,
                   md5(coalesce(string_agg(content_hash, ',' ORDER BY id), ''))
-                      AS content_digest
+                      AS document_digest
            FROM advisor.documents WHERE superseded_by IS NULL"""
     ).fetchone()
     chunks = conn.execute(
-        """SELECT count(*) AS chunks FROM advisor.doc_chunks c
+        """SELECT count(*) AS chunks,
+                  md5(coalesce(string_agg(
+                      md5(c.text || coalesce(c.metadata::text, '')), ',' ORDER BY c.id
+                  ), '')) AS chunk_digest
+           FROM advisor.doc_chunks c
            JOIN advisor.documents d ON d.id = c.document_id
            WHERE d.superseded_by IS NULL"""
     ).fetchone()
-    return {**dict(docs), **dict(chunks)}
+    emb = conn.execute(
+        f"""SELECT count(*) AS embeddings,
+                   md5(coalesce(string_agg(md5(e.embedding::text), ',' ORDER BY e.chunk_id),
+                                '')) AS embedding_digest
+            FROM advisor.emb_{config_id} e"""
+    ).fetchone()
+    watermark = {**dict(docs), **dict(chunks), **dict(emb)}
+    _watermark_cache = (sentinel, watermark)
+    return watermark
 
 
 def turn_fingerprint(conn, *, prompt: str, tools: Sequence[Any],
                      agent_model: str, config_id: str,
+                     agent_model_resolved: str | None = None,
                      feature_flags: dict[str, Any] | None = None) -> dict[str, Any]:
     dirty = git_dirty()
     return {
@@ -121,8 +174,12 @@ def turn_fingerprint(conn, *, prompt: str, tools: Sequence[Any],
         "prompt_sha256": sha256_text(prompt),
         "tool_schema_sha256": tool_schema_digest(tools),
         "config_id": config_id,
-        "corpus_watermark": corpus_watermark(conn),
+        "corpus_watermark": corpus_watermark(conn, config_id),
+        # `agent_model` is what we asked for ("gpt-5.1"); `agent_model_resolved`
+        # is what the provider actually served ("gpt-5.1-2025-11-13"). A silent
+        # snapshot bump moves behavior and only the resolved id shows it.
         "agent_model": agent_model,
+        "agent_model_resolved": agent_model_resolved,
         "filter_contract_version": FILTER_CONTRACT_VERSION,
         "acl_policy_version": ACL_POLICY_VERSION,
         "feature_flags": feature_flags or {},

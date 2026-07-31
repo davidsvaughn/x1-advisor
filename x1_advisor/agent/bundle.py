@@ -57,7 +57,8 @@ def build_bundle(conn, *, question: str, history: list[dict] | None,
                  tools: Sequence[Any], agent_model: str, config_id: str,
                  messages: Sequence[Any], retrieval_explain: list[dict],
                  raw_answer: str, validated: dict, steps: list[dict],
-                 summary: dict) -> dict[str, Any]:
+                 summary: dict,
+                 agent_model_resolved: str | None = None) -> dict[str, Any]:
     principal = ({"user_id": None, "role": "admin"} if acl == "admin"
                  else {"user_id": acl.get("user_id"), "role": "user"})
     return {
@@ -73,6 +74,7 @@ def build_bundle(conn, *, question: str, history: list[dict] | None,
         },
         "fingerprint": turn_fingerprint(conn, prompt=prompt, tools=tools,
                                         agent_model=agent_model,
+                                        agent_model_resolved=agent_model_resolved,
                                         config_id=config_id),
         "summary": summary,
         "steps": steps,

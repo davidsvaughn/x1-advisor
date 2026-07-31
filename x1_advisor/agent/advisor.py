@@ -132,7 +132,12 @@ def run_turn(conn, question: str, *, acl: Any = "admin",
 
     steps = []
     tool_calls: list[dict] = []
+    # what the provider actually served, which is not what we asked for: a
+    # snapshot bump behind the "gpt-5.1" alias changes behavior invisibly
+    model_resolved: str | None = None
     for m in messages:
+        if m.is_from("assistant") and m.meta.get("model"):
+            model_resolved = m.meta["model"]
         if m.is_from("assistant") and m.meta.get("usage"):
             u = Usage.from_haystack_meta("openai", m.meta)
             rec = tracker.log(provider="openai", model=AGENT_MODEL,
@@ -169,6 +174,7 @@ def run_turn(conn, question: str, *, acl: Any = "admin",
                       "output_tokens": u.output_tokens,
                       "cost_usd": round(rec.cost_usd, 6), "tool_calls": ["(wrapup)"]})
         raw_answer = reply.text or ""
+        model_resolved = reply.meta.get("model") or model_resolved
         if not raw_answer.strip():
             verdict = "error"       # spent the budget and produced nothing
         # the bundle must hold everything the model saw and said (P3), and the
@@ -204,6 +210,7 @@ def run_turn(conn, question: str, *, acl: Any = "admin",
     result["bundle"] = build_bundle(
         conn, question=question, history=history, thread_id=None, acl=acl,
         prompt=SYSTEM_PROMPT, tools=tools, agent_model=AGENT_MODEL,
+        agent_model_resolved=model_resolved,
         config_id=active_config(conn).id, messages=messages,
         retrieval_explain=retrieval_explain, raw_answer=raw_answer,
         validated=validated, steps=steps,

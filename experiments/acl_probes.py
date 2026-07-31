@@ -8,11 +8,13 @@ Two enforcement points, probed separately because they are separate SQL surfaces
   2. **Structured queries** — the `queries.py` registry, which reads app tables
      directly and therefore cannot inherit retrieval's predicates.
 
-Every negative probe is paired with an **admin-scope positive control**: proof
-that the gated target is actually reachable when the gate is opened. Without it a
-probe can pass because the sensitive row does not exist at all
-(ARCHITECTURE-PLAN-REVIEW-2026-07-30, P0 "authorization is not end-to-end").
-Targets are discovered from the data, not hard-coded, so the suite ports to prod.
+Every gated class is paired with an **admin-scope positive control**: proof that
+the class exists in the corpus AND is reachable under admin scope for at least
+one probe query. Without it a probe passes because the sensitive row never
+retrieved, or does not exist at all (ARCHITECTURE-PLAN-REVIEW-2026-07-30, P0
+"authorization is not end-to-end"). A class the corpus lacks is reported
+SKIPPED, never as a pass. Targets are discovered from the data, not hard-coded,
+so the suite ports to prod.
 
 Run: uv run python -m experiments.acl_probes
 """
@@ -38,6 +40,54 @@ PROBES = [
     ("unpublished_profile", "Test Profile startup company profile", {"source_type": "profile"}),
     ("hidden_eval", "evaluation findings", {"source_type": "eval_section"}),
 ]
+
+
+# each gated retrieval class → how to recognise a chunk of that class
+GATED_CLASSES = {
+    "premium": lambda m: bool(m.get("acl_premium_gated")),
+    "private": lambda m: m.get("acl_visibility") == "private",
+    "unpublished": lambda m: m.get("acl_is_published") is False,
+    "hidden_eval": lambda m: m.get("acl_eval_is_visible") is False,
+}
+
+
+def retrieval_positive_controls(conn) -> tuple[list[str], list[str]]:
+    """Prove each gated class is actually REACHABLE under admin scope.
+
+    Without this a negative probe passes when the sensitive chunk simply never
+    retrieves — or does not exist at all. Every class is checked, and a class
+    the corpus does not contain is reported SKIPPED, never as a pass
+    (ARCHITECTURE-PLAN-REVIEW-2026-07-30, P0).
+    """
+    failures, notes = [], []
+    for cls, matches in GATED_CLASSES.items():
+        # does the corpus contain this class at all?
+        exists = conn.execute(
+            """SELECT count(*) AS n FROM advisor.doc_chunks c
+               JOIN advisor.documents d ON d.id = c.document_id
+               WHERE d.superseded_by IS NULL AND (
+                     (%s = 'premium'     AND (c.metadata->>'acl_premium_gated')::boolean)
+                  OR (%s = 'private'     AND c.metadata->>'acl_visibility' = 'private')
+                  OR (%s = 'unpublished' AND (c.metadata->>'acl_is_published')::boolean IS false)
+                  OR (%s = 'hidden_eval' AND (c.metadata->>'acl_eval_is_visible')::boolean IS false)
+               )""",
+            (cls, cls, cls, cls),
+        ).fetchone()["n"]
+        if not exists:
+            notes.append(f"SKIPPED {cls} retrieval probes: no chunk of that class "
+                         "exists in this corpus — the negative probes below are "
+                         "vacuous for it")
+            continue
+        # reachable under admin using the probe queries?
+        seen = any(matches(h.metadata)
+                   for _, query, filters in PROBES
+                   for h in retrieve(conn, query, acl="admin", filters=filters, k=10))
+        if not seen:
+            failures.append(
+                f"positive control FAILED: {exists} {cls} chunk(s) exist but none "
+                "retrieve under admin scope for any probe query — the negative "
+                "probes for this class cannot fail")
+    return failures, notes
 
 
 def violations_for(conn, acl, purchased: set[int]) -> list[str]:
@@ -169,6 +219,7 @@ def main() -> None:
             purchased_visible = any(
                 int(h.metadata.get("evaluation_id") or -1) in granted for h in hits)
 
+        v_controls, control_notes = retrieval_positive_controls(conn)
         v_structured, notes = structured_probes(conn)
         # filter registry is the allowlist: a stored enum value it does not
         # declare is material the model cannot filter on and the schema hides
@@ -178,6 +229,9 @@ def main() -> None:
     print(f"nobody persona violations:    {v_nobody or 'NONE'}")
     print(f"purchaser persona violations: {v_purchaser or 'NONE'}")
     print(f"positive control (purchaser sees purchased premium): {purchased_visible}")
+    print(f"per-class admin positive controls: {v_controls or 'all reachable'}")
+    for n in control_notes:
+        print(f"  note: {n}")
     print("\n== structured queries ==")
     print(f"violations: {v_structured or 'NONE'}")
     for n in notes:
@@ -185,7 +239,7 @@ def main() -> None:
     print("\n== filter registry ==")
     print(f"undeclared enum values in corpus: {drift or 'NONE'}")
     ok = (not v_nobody and not v_purchaser and not v_structured and not drift
-          and (purchased_visible or not granted))
+          and not v_controls and (purchased_visible or not granted))
     print("\nACL PROBES:", "PASS" if ok else "FAIL")
     sys.exit(0 if ok else 1)
 
