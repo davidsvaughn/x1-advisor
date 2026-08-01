@@ -35,8 +35,11 @@ import sys
 from typing import Any
 
 from experiments import checkers
+from pathlib import Path
+
 from experiments.cases import (
     Case,
+    compile_suite,
     CaseValidationError,
     Suite,
     load_suite,
@@ -177,6 +180,9 @@ def run_case(conn, case: Case, *, suite: Suite, seed: str, vocabulary: set[str],
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--golden", default="v2")
+    ap.add_argument("--suite-path", default=None,
+                    help="compile a suite from an explicit path (held-out "
+                         "batches live outside experiments/golden/)")
     ap.add_argument("--tier", default="smoke",
                     choices=["smoke", "core", "extended", "all"])
     ap.add_argument("--case", default=None, help="run one case by id")
@@ -187,7 +193,8 @@ def main() -> None:
     args = ap.parse_args()
 
     try:
-        suite = load_suite(args.golden)
+        suite = (compile_suite(Path(args.suite_path)) if args.suite_path
+                 else load_suite(args.golden))
     except CaseValidationError as exc:
         print(f"suite does not compile ({len(exc.errors)} error(s)):", file=sys.stderr)
         for err in exc.errors:
