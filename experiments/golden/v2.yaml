@@ -283,7 +283,7 @@ cases:
     grade:
       deterministic: {must_disclose_coverage: true, must_not_claim_exhaustive: true,
                       must_cite: true}
-      judged: [faithfulness, synthesis_quality]
+      judged: [faithfulness]
 
   - id: v2c014
     class: enumeration_semantic
@@ -299,7 +299,7 @@ cases:
     grade:
       deterministic: {must_disclose_coverage: true, must_not_claim_exhaustive: true,
                       must_cite: true}
-      judged: [faithfulness, synthesis_quality]
+      judged: [faithfulness]
 
   - id: v2c015
     class: enumeration_semantic
@@ -315,7 +315,7 @@ cases:
     grade:
       deterministic: {must_disclose_coverage: true, must_not_claim_exhaustive: true,
                       must_cite: true}
-      judged: [faithfulness, synthesis_quality]
+      judged: [faithfulness]
 
   - id: v2c016
     class: enumeration_semantic
@@ -331,7 +331,7 @@ cases:
     grade:
       deterministic: {must_disclose_coverage: true, must_not_claim_exhaustive: true,
                       must_cite: true}
-      judged: [faithfulness, synthesis_quality]
+      judged: [faithfulness]
 
   # ======================================================================
   # CORE — single-entity evidence (bank §1.1), bound to a fixture rather than

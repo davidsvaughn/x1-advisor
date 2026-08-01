@@ -36,6 +36,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from experiments import checkers
+from experiments.behavior import judge_behaviors
 from experiments.cases import (
     CaseValidationError,
     Script,
@@ -45,7 +46,11 @@ from experiments.cases import (
 )
 from experiments.funnel import classify
 from experiments.manifest import code_fingerprint, git_sha, open_new_manifest
-from x1_advisor.agent.bundle import QA_ARTIFACTS_DIR, export_bundle, manifest_record
+from x1_advisor.agent.bundle import (
+    QA_ARTIFACTS_DIR,
+    export_bundle,
+    judge_manifest_projection,
+)
 from x1_advisor.agent.judge import calibration_state, evidence_texts, judge_bundle
 from x1_advisor.cost import JsonlSink, Tracker
 from x1_advisor.db import connect
@@ -130,7 +135,11 @@ def assert_quotes_from_turn(records: dict[int, TurnRecord], from_turn: int,
     """
     evidence = [text for n in range(from_turn, to_turn + 1)
                 for text in records[n].evidence]
-    diagnostic = checkers.check_quotes_verbatim(records[to_turn].answer, evidence)
+    # declaring this assertion means the turn was ASKED for quotes — an answer
+    # containing none has not met the obligation (vacuous-pass fix, second
+    # review finding 2)
+    diagnostic = checkers.check_quotes_verbatim(records[to_turn].answer,
+                                                evidence, require_quotes=True)
     return _diag("quotes_from_turn", diagnostic.passed, from_turn=from_turn,
                  to_turn=to_turn, **diagnostic.detail)
 
@@ -242,6 +251,7 @@ def run_script(conn, script: Script, *, fixtures: dict, seed: int | str,
     history: list[dict] = []
     records: dict[int, TurnRecord] = {}
     turns_out: list[dict[str, Any]] = []
+    turn_units: dict[int, dict[str, bool | None]] = {}
 
     for turn in script.turns:
         question = render_question(turn.question, bound)
@@ -253,12 +263,17 @@ def run_script(conn, script: Script, *, fixtures: dict, seed: int | str,
         record = turn_record(conn, turn.n, question, result)
         records[turn.n] = record
 
-        verdict = None
-        if judge and turn.grade.judged:
-            verdict = judge_bundle(conn, result["bundle"], tracker=tracker,
-                                   calibration=calibration_state())
-            result["bundle"]["scores"].update(verdict["scores"])
-            result["bundle"]["judge"] = verdict
+        verdict, behavior_verdicts = None, []
+        if judge:
+            if turn.grade.judged:
+                verdict = judge_bundle(conn, result["bundle"], tracker=tracker,
+                                       calibration=calibration_state())
+                result["bundle"]["scores"].update(verdict["scores"])
+                result["bundle"]["judge"] = verdict
+            if turn.grade.behavior:
+                behavior_verdicts = judge_behaviors(question, answer,
+                                                    turn.grade.behavior,
+                                                    tracker=tracker)
 
         # two different things, kept apart on purpose: the assertions this turn
         # DECLARED are its grading contract, while the §5.2 globals are
@@ -266,46 +281,68 @@ def run_script(conn, script: Script, *, fixtures: dict, seed: int | str,
         # them (review criterion 4)
         assertions = checkers.run_case_checks(
             answer, evidence=record.evidence,
-            deterministic=turn.grade.deterministic)
+            deterministic=turn.grade.deterministic,
+            citation_stats=result["citation_stats"])
         diagnostics = checkers.run_global_checkers(
             answer, evidence=record.evidence, question=question)
         # the funnel wants a question-shaped dict; a script turn has no
         # `expected` matchers, so the corpus-funnel stages simply stay quiet
         labels = classify(conn, result["bundle"],
                           {"id": f"{script.id}t{turn.n}", "category": script.cls})
-        # names stay with the bundle (owner-only), counts go to the manifest
+        # names stay with the bundle (owner-only), counts go to the manifest.
+        # The committed manifest gets NO question text and NO raw judge verdict
+        # — the first version wrote both, and full claim text with verdict
+        # reasoning sat in git for a day (second review, finding 5). The turn
+        # is identified by its number; the template is in the committed suite
+        # and the bindings are recorded on the script row.
+        result["bundle"]["behavior_verdicts"] = behavior_verdicts
         result["bundle"]["checks"] = {
             "assertions": [a.to_dict() for a in assertions],
             "diagnostics": [d.to_dict() for d in diagnostics]}
         bundle_path = export_bundle(result["bundle"],
                                     name=f"{script.id}t{turn.n}", subdir=run_id)
+        turn_units[turn.n] = checkers.unit_verdicts(
+            assertions, turn.grade.judged, turn.grade.behavior, verdict,
+            behavior_verdicts)
         turns_out.append({
-            "turn": turn.n, "question": question,
+            "turn": turn.n,
             "cost_usd": result["cost_usd"], "latency_ms": result["latency_ms"],
             "citation_stats": result["citation_stats"],
             "searched_documents": record.searched_documents,
             "assertions": [checkers.countable(d) for d in assertions],
             "diagnostics": [checkers.countable(d) for d in diagnostics],
             "labels": labels["labels"], "notes": labels["notes"],
-            "judge": verdict,
+            "behavior": [{"obligation": v["obligation"], "met": v["met"]}
+                         for v in behavior_verdicts],
+            "graded_units": turn_units[turn.n],
+            "judge": judge_manifest_projection(verdict),
             "bundle": bundle_path.name if bundle_path else None,
         })
 
     cross = evaluate_cross_turn(script, records, vocabulary)
-    # §8: the gate unit is the script. A declared per-turn assertion failing, or
-    # any cross-turn assertion failing, fails the whole sequence — passing four
+    # §8: the gate unit is the script. A declared per-turn unit failing —
+    # deterministic assertion, judged dimension, or behavior obligation — or
+    # any cross-turn assertion failing, fails the whole sequence; passing four
     # turns and dropping the set on the fifth is a failed script, not 80% of
-    # one. The §5.2 diagnostics are reported but deliberately excluded from the
-    # verdict until the false-positive audit (criterion 4).
-    turn_checks_pass = all(a["passed"] for t in turns_out for a in t["assertions"])
+    # one. A declared unit the run could not grade (judge off) makes the
+    # script UNGRADED rather than passing. The §5.2 diagnostics are reported
+    # but deliberately excluded from the verdict until the false-positive
+    # audit (criterion 4).
+    units: dict[str, bool | None] = {
+        f"t{n}:{name}": ok
+        for n, turn_result in sorted(turn_units.items())
+        for name, ok in turn_result.items()}
+    for i, diagnostic in enumerate(cross, 1):
+        units[f"cross:{i}:{diagnostic.check}"] = diagnostic.passed
     return {
         "script_id": script.id, "class": script.cls, "tier": script.tier,
+        "grading_mode": script.grading_mode,
         "bindings": {k: v.get("name") for k, v in bound.items()},
         "turns": turns_out,
         "cross_turn": [checkers.countable(d) for d in cross],
         "cross_turn_pass": all(d.passed for d in cross),
-        "deterministic_pass": turn_checks_pass,
-        "pass": all(d.passed for d in cross) and turn_checks_pass,
+        "graded_units": units,
+        "pass": checkers.compose_pass(units),
         "cost_usd": sum(t["cost_usd"] for t in turns_out),
     }
 
@@ -338,6 +375,10 @@ def main() -> None:
     tracker = Tracker(run_id=f"{run_id}:judge",
                       sink=JsonlSink(os.environ.get("ADVISOR_COST_LEDGER",
                                                     "cost_ledger.jsonl")))
+    # identity captured once, before the first turn runs (second review,
+    # finding 4: the first baseline's rows spanned three commits)
+    started_sha, started_fp = git_sha(), code_fingerprint()
+
     results = []
     with connect() as conn, manifest_file as manifest:
         vocabulary = entity_vocabulary(conn)
@@ -348,27 +389,48 @@ def main() -> None:
                                 tracker=tracker, run_id=run_id,
                                 vocabulary=vocabulary)
             for turn in result["turns"]:
-                failed = [a["check"] for a in turn["assertions"] if not a["passed"]]
+                failed = [name for name, ok in turn["graded_units"].items()
+                          if ok is False]
+                ungraded = [name for name, ok in turn["graded_units"].items()
+                            if ok is None]
                 print(f"  turn {turn['turn']}  ${turn['cost_usd']:.4f} "
                       f"{turn['latency_ms']}ms  docs={turn['searched_documents']}  "
                       f"cite {turn['citation_stats']['resolved']}/"
                       f"{turn['citation_stats']['emitted']}"
-                      f"  {'checks: ' + ','.join(failed) if failed else 'checks ok'}")
+                      + (f"  failed: {','.join(failed)}" if failed else "")
+                      + (f"  ungraded: {','.join(ungraded)}" if ungraded
+                         else "" if failed else "  checks ok"))
             for diagnostic in result["cross_turn"]:
                 mark = "ok  " if diagnostic["passed"] else "FAIL"
                 print(f"  {mark} {diagnostic['check']:<24} {diagnostic['detail']}")
-            print(f"  => {'PASS' if result['pass'] else 'FAIL'} "
-                  f"(${result['cost_usd']:.4f})")
+            verdict_mark = {True: "PASS", False: "FAIL",
+                            None: "UNGRADED"}[result["pass"]]
+            print(f"  => {verdict_mark} (${result['cost_usd']:.4f})")
             results.append(result)
             manifest.write(json.dumps({
                 "run_id": run_id, "experiment": "golden-v2-scripts",
-                "git_sha": git_sha(), "code_fingerprint": code_fingerprint(),
+                "git_sha": started_sha, "code_fingerprint": started_fp,
                 **suite.identity(), **result,
             }, default=str) + "\n")
 
-    passed = sum(1 for r in results if r["pass"])
+        ended_sha = git_sha()
+        drift = ended_sha != started_sha
+        manifest.write(json.dumps({
+            "record": "summary", "run_id": run_id,
+            "git_sha": started_sha, "git_sha_at_end": ended_sha,
+            "identity_drift": drift, **suite.identity(), "seed": args.seed,
+        }) + "\n")
+
+    passed = sum(1 for r in results if r["pass"] is True)
+    ungraded = sum(1 for r in results if r["pass"] is None)
     print(f"\n== {run_id} ==")
-    print(f"scripts: {passed}/{len(results)} passed as sequences")
+    if drift:
+        print(f"!! IDENTITY DRIFT: HEAD moved {started_sha} -> {ended_sha} "
+              "during the run — do not commit while a run is live; this "
+              "manifest is tainted for baseline use")
+    print(f"scripts: {passed}/{len(results)} passed as sequences"
+          + (f"  ({ungraded} ungraded: declared judged/behavior units need "
+             "--judge)" if ungraded else ""))
     print(f"cost: ${sum(r['cost_usd'] for r in results):.4f}"
           + (f" + judge ${tracker.run_total:.4f}" if args.judge else ""))
     print(f"manifest: {manifest_path}")

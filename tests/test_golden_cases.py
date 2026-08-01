@@ -133,7 +133,9 @@ def test_shipped_v2_suite_compiles():
     suite = load_suite("v2")
     assert suite.version == "v2.0"
     identity = suite.identity()
-    assert identity["scoring_contract"].startswith("golden-v2.0/modes-")
+    # contract carries the grading-schema version: pass-semantics changes
+    # (like the second review's finding 2 fix) sever comparability
+    assert identity["scoring_contract"].startswith("golden-v2.0/s2/modes-")
     assert len(identity["suite_digest"]) == 64
     assert len(suite.cases) >= 50 and len(suite.scripts) >= 4
 

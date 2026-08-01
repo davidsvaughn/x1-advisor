@@ -53,13 +53,24 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 RUNS_DIR = REPO_ROOT / "experiments" / "runs"
 HELDOUT_DIR = QA_ARTIFACTS_DIR.parent / "heldout"
 REPORTS_DIR = QA_ARTIFACTS_DIR.parent / "reports"
-CALIBRATION_PENDING = QA_ARTIFACTS_DIR.parent / "calibration" / "pending.jsonl"
 # the accepted baseline is a committed POINTER: "newest manifest in the
 # directory" would silently re-baseline on every run, which is how a slow
 # regression becomes the new normal
 BASELINE_POINTER = GOLDEN_DIR / "baseline.json"
-# RUNBOOK §7: no faithfulness number is quotable as established below this
-CALIBRATION_TARGET = 30
+
+# A full night produces THREE manifests — smoke, core, scripts — and each is
+# its own comparison. The first version compared only the single newest
+# manifest, so two of the three slices (including every script failure) were
+# never gated at all (second review, finding 1).
+SLICES = {"smoke": "_v2_smoke", "core": "_v2_core", "scripts": "_scripts_v2"}
+
+
+def slice_of(manifest_name: str) -> str:
+    matches = [s for s, marker in SLICES.items() if marker in manifest_name]
+    if len(matches) != 1:
+        raise SystemExit(f"{manifest_name!r} does not name exactly one slice "
+                         f"(markers: {SLICES})")
+    return matches[0]
 
 
 def _run(argv: list[str]) -> tuple[int, str]:
@@ -81,13 +92,33 @@ def read_baseline() -> dict[str, Any]:
     return {}
 
 
-def accept_baseline(manifest_name: str) -> None:
-    """Promote a run to 'the bar'. Deliberately explicit and deliberately
-    committed: accepting a baseline is a judgment about whether the numbers are
-    good, which is a human's call (QA-RUNBOOK)."""
+def accept_baseline(manifest_names: list[str]) -> None:
+    """Promote a run — one manifest per slice — to 'the bar'. Deliberately
+    explicit and deliberately committed: accepting a baseline is a judgment
+    about whether the numbers are good, which is a human's call (QA-RUNBOOK).
+
+    Each manifest must exist, contain no identity drift, and name a distinct
+    slice; the pointer records all of them so job_compare gates every slice,
+    not whichever file is newest.
+    """
+    manifests: dict[str, str] = {}
+    for name in manifest_names:
+        path = RUNS_DIR / name
+        if not path.exists():
+            raise SystemExit(f"no such manifest: {path}")
+        for line in path.read_text().splitlines():
+            rec = json.loads(line) if line.strip() else {}
+            if rec.get("record") == "summary" and rec.get("identity_drift"):
+                raise SystemExit(
+                    f"{name}: identity drift recorded (HEAD moved during the "
+                    "run) — a tainted run cannot become the bar")
+        s = slice_of(name)
+        if s in manifests:
+            raise SystemExit(f"two manifests name the {s!r} slice")
+        manifests[s] = name
     suite = load_suite("v2")
     BASELINE_POINTER.write_text(json.dumps({
-        "manifest": manifest_name,
+        "manifests": dict(sorted(manifests.items())),
         "suite": suite.version,
         "scoring_contract": suite.contract,
         "suite_digest": suite.digest,
@@ -132,36 +163,48 @@ def job_golden(steps: list[dict], *, full: bool, judge: bool, seed: str) -> int:
         if judge:
             argv.append("--judge")
         code, out = _run(argv)
-        # exit 1 here means a script failed as a sequence — a result, not a
-        # broken job, and the comparator decides whether it is a regression
+        # exit 1 here means a script failed as a sequence — a RESULT, and it
+        # rolls into the night's exit code like any other failing tier. The
+        # first version dropped it on the floor, so 0/4 scripts passing still
+        # exited 0 (second review, finding 1).
         steps.append({"job": "scripts", "status": "ok" if code == 0 else "failing",
                       "detail": out.strip()[-4000:]})
+        worst = max(worst, min(code, 1))
     return worst
 
 
 def job_compare(steps: list[dict]) -> int:
     baseline = read_baseline()
-    newest = latest_manifest("_v2_")
     if not baseline:
         steps.append({"job": "compare", "status": "no-baseline",
                       "detail": "no accepted baseline yet — run with --accept "
                                 "once a run is judged good"})
         return 0
-    if not newest:
-        steps.append({"job": "compare", "status": "no-run", "detail": ""})
-        return 1
-    before = RUNS_DIR / baseline["manifest"]
-    if not before.exists():
-        steps.append({"job": "compare", "status": "baseline-missing",
-                      "detail": baseline["manifest"]})
-        return 2
-    code, out = _run(["experiments.compare", str(before), str(newest)])
-    # exit 2 is the comparator refusing to gate across differing contracts —
-    # that is the machinery working, and it needs a human, not a retry
-    steps.append({"job": "compare", "status": {0: "clean", 1: "regression",
-                                               2: "not-comparable"}.get(code, "error"),
-                  "detail": out.strip()[-4000:]})
-    return code
+    worst = 0
+    for slice_name, baseline_name in sorted(
+            (baseline.get("manifests") or {}).items()):
+        before = RUNS_DIR / baseline_name
+        if not before.exists():
+            steps.append({"job": f"compare:{slice_name}",
+                          "status": "baseline-missing", "detail": baseline_name})
+            worst = 2
+            continue
+        newest = latest_manifest(SLICES[slice_name])
+        if newest is None or newest.name == baseline_name:
+            # nothing newer than the bar itself: either the golden job was
+            # skipped tonight or it failed to write — say so, don't self-compare
+            steps.append({"job": f"compare:{slice_name}", "status": "no-new-run",
+                          "detail": ""})
+            continue
+        code, out = _run(["experiments.compare", str(before), str(newest)])
+        # exit 2 is the comparator refusing to gate across differing contracts
+        # — that is the machinery working, and it needs a human, not a retry
+        steps.append({"job": f"compare:{slice_name}",
+                      "status": {0: "clean", 1: "regression",
+                                 2: "not-comparable"}.get(code, "error"),
+                      "detail": out.strip()[-4000:]})
+        worst = 2 if 2 in (worst, code) else max(worst, code)
+    return worst
 
 
 def job_heldout(steps: list[dict], *, judge: bool, seed: str) -> int:
@@ -196,16 +239,22 @@ def job_heldout(steps: list[dict], *, judge: bool, seed: str) -> int:
 
 
 def job_calibration(steps: list[dict]) -> int:
-    labelled = 0
-    if CALIBRATION_PENDING.exists():
-        for line in CALIBRATION_PENDING.read_text().splitlines():
-            try:
-                labelled += 1 if json.loads(line).get("label") else 0
-            except ValueError:
-                continue
-    short = max(0, CALIBRATION_TARGET - labelled)
-    steps.append({"job": "calibration", "status": "ok" if not short else "short",
-                  "detail": f"{labelled}/{CALIBRATION_TARGET} human labels"
+    """Report the judge's calibration from its CANONICAL set — the same
+    `calibration_state()` every judged score carries. The first version
+    counted a different file (`.qa-artifacts/calibration/pending.jsonl`), so
+    the nightly said 0/30 while judged rows correctly said human-calibrated
+    (second review, H1 section): one source of truth, or two answers.
+    """
+    from x1_advisor.agent.judge import calibration_state
+
+    state = calibration_state()
+    short = max(0, state["min_human_labels"] - state["human_labels"])
+    steps.append({"job": "calibration",
+                  "status": "ok" if not short else "short",
+                  "detail": f"{state['state']}: {state['human_labels']}/"
+                            f"{state['min_human_labels']} human labels, "
+                            f"{state['synthetic_labels']} synthetic "
+                            f"(judge {state['judge_model']})"
                             + (f"; {short} more needed before any faithfulness "
                                "number is quotable (RUNBOOK §7)" if short else "")})
     return 0
@@ -219,14 +268,18 @@ def main() -> None:
     ap.add_argument("--seed", default="v2-baseline",
                     help="binding seed; the baseline's seed is pinned so paired "
                          "runs resolve identical entities (§4)")
-    ap.add_argument("--accept", default=None, metavar="MANIFEST",
-                    help="promote a manifest to the accepted baseline and exit")
+    ap.add_argument("--accept", default=None, metavar="MANIFESTS",
+                    help="promote a run to the accepted baseline and exit — "
+                         "comma-separated manifest names, one per slice "
+                         "(smoke, core, scripts)")
     ap.add_argument("--skip", default="", help="comma-separated job names to skip")
     args = ap.parse_args()
 
     if args.accept:
-        accept_baseline(args.accept)
-        print(f"accepted baseline: {args.accept}\n  -> {BASELINE_POINTER}")
+        names = [n.strip() for n in args.accept.split(",") if n.strip()]
+        accept_baseline(names)
+        print(f"accepted baseline ({len(names)} slice(s)): "
+              f"{', '.join(names)}\n  -> {BASELINE_POINTER}")
         return
 
     skip = {s.strip() for s in args.skip.split(",") if s.strip()}

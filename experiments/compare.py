@@ -60,13 +60,21 @@ RUNS_DIR = Path(__file__).parent / "runs"
 DEFAULT_REGRESSION_BUDGET = 2
 
 
+def rec_id(rec: dict) -> str | None:
+    """One graded row, whatever the suite calls its unit. The first version
+    only knew `question_id`, so two golden-v2 manifests loaded ZERO records,
+    were classified as an (empty) deterministic retrieval suite, and compared
+    as PASS — a gate that gated nothing (second review, finding 1)."""
+    return rec.get("question_id") or rec.get("case_id") or rec.get("script_id")
+
+
 def load(path: Path) -> tuple[list[dict], dict | None]:
     records, summary = [], None
     for line in path.read_text().splitlines():
         if not line.strip():
             continue
         rec = json.loads(line)
-        if rec.get("question_id"):
+        if rec_id(rec):
             records.append(rec)
         elif rec.get("record") == "summary":
             summary = rec
@@ -110,7 +118,26 @@ def contract_of(records: list[dict]) -> str:
     trap 1D-3 closed for the appearance of the judge column. Manifests written
     before the judge model was recorded fall back to `unknown-judge`, which is
     still a distinct contract: it is not comparable to a named one, because
-    nothing says it was the same model."""
+    nothing says it was the same model.
+
+    Golden-v2 rows carry their contract explicitly (`scoring_contract`, from
+    the compiled suite — a digest over every case's grading mode). Judged-ness
+    still rides on top: a --judge run grades judged dimensions an unjudged run
+    leaves ungraded, and the judge model is half the bar."""
+    v2 = [r for r in records if r.get("scoring_contract")]
+    if v2:
+        contracts = {r["scoring_contract"] for r in v2}
+        base = contracts.pop() if len(contracts) == 1 else "mixed-contract"
+        judged_models: set[str] = set()
+        for r in v2:
+            verdicts = [r.get("judge"), *(t.get("judge")
+                                          for t in r.get("turns") or [])]
+            judged_models |= {(v.get("judge_model") or "unknown-judge")
+                              for v in verdicts if v}
+        if not judged_models:
+            return f"{base}/unjudged"
+        return (f"{base}/judged/"
+                f"{judged_models.pop() if len(judged_models) == 1 else 'mixed-judge'}")
     if all(r.get("experiment") == "phase2-baseline" for r in records):
         return "retrieval"
     judged = [r for r in records
@@ -129,6 +156,10 @@ def contract_of(records: list[dict]) -> str:
 def passed(rec: dict, contract: str) -> bool | None:
     """Did this question pass UNDER THE GIVEN CONTRACT? None when the record
     cannot say — an ungraded record is reported, never guessed at."""
+    if contract.startswith("golden-"):
+        # v2 rows compose their own verdict over every declared graded unit
+        # (run_v2.graded_units); None means a declared unit went ungraded
+        return rec.get("pass")
     if contract == "retrieval":
         return rec.get("recall") == 1.0
     if contract.startswith("judged"):
@@ -148,14 +179,15 @@ def passed(rec: dict, contract: str) -> bool | None:
 
 
 def metric(rec: dict, name: str) -> float | None:
-    for source in (rec, rec.get("scores") or {}, rec.get("summary") or {}):
+    for source in (rec, rec.get("scores") or {}, rec.get("summary") or {},
+                   rec.get("truth_grade") or {}):
         if isinstance(source, dict) and source.get(name) is not None:
             return source[name]
     return None
 
 
 METRICS = ("recall", "mrr", "faithfulness", "citation_coverage",
-           "cost_usd", "latency_ms")
+           "precision", "overclaim_count", "cost_usd", "latency_ms")
 
 
 def main() -> None:
@@ -175,9 +207,39 @@ def main() -> None:
         p = Path(arg)
         paths.append(p if p.exists() else RUNS_DIR / arg)
     (before, before_sum), (after, after_sum) = load(paths[0]), load(paths[1])
-    a_by, b_by = {r["question_id"]: r for r in before}, {r["question_id"]: r for r in after}
+    # an empty side is a manifest this tool cannot read, not a clean run —
+    # the first version compared two empty record sets and printed PASS
+    for side, records in (("before", before), ("after", after)):
+        if not records:
+            print(f"COMPARE: NOT COMPARABLE — no graded records loaded from "
+                  f"the {side} manifest "
+                  f"({paths[0].name if side == 'before' else paths[1].name}); "
+                  "unknown or unsupported row shape")
+            sys.exit(2)
+    a_by, b_by = {rec_id(r): r for r in before}, {rec_id(r): r for r in after}
     ca, cb = contract_of(before), contract_of(after)
     comparable = ca == cb
+
+    # --- run identity beyond the contract (v2, review criterion 3) ----------
+    # Bindings pin which entities the templated cases resolved to; the truth
+    # digest pins which oracle graded them. A shared id whose identity moved is
+    # not the same question twice — it is excluded from every transition gate
+    # and surfaced, and it counts as incompleteness in the verdict.
+    identity_moved: dict[str, str] = {}
+    for qid in sorted(set(a_by) & set(b_by)):
+        x, y = a_by[qid], b_by[qid]
+        if (x.get("bindings") or {}) != (y.get("bindings") or {}):
+            identity_moved[qid] = (f"bindings {x.get('bindings')} -> "
+                                   f"{y.get('bindings')}")
+        elif x.get("truth_digest") != y.get("truth_digest"):
+            identity_moved[qid] = (f"truth digest "
+                                   f"{str(x.get('truth_digest'))[:8]} -> "
+                                   f"{str(y.get('truth_digest'))[:8]}")
+    for qid in identity_moved:
+        del a_by[qid], b_by[qid]
+
+    suite_digests = ({r.get("suite_digest") for r in before},
+                     {r.get("suite_digest") for r in after})
 
     # --- what moved underneath the numbers --------------------------------
     fa = flatten(fingerprint_of(before, before_sum))
@@ -198,6 +260,21 @@ def main() -> None:
               "two runs, so\n  per-question transitions would be phantom "
               "regressions (finding 4: 17 of them).\n  Showing shared metrics "
               "only; the verdict is NOT COMPARABLE, not pass/fail.")
+    if comparable and suite_digests[0] != suite_digests[1]:
+        print(f"  suite digest moved: {sorted(str(d)[:12] for d in suite_digests[0])}"
+              f" -> {sorted(str(d)[:12] for d in suite_digests[1])}\n"
+              "  (cases were added, removed, or edited — shared ids compare "
+              "on their own\n  recorded identity; added/removed ids are "
+              "listed below)")
+    if identity_moved:
+        print("\n== identity moved (excluded from every gate; counts as "
+              "incomplete) ==")
+        for qid, what in identity_moved.items():
+            print(f"  {qid:<8} {what}")
+    if comparable and not (set(a_by) & set(b_by)):
+        print("\nCOMPARE: NOT COMPARABLE — the runs share no unit ids "
+              "(different slices of the suite?); nothing to gate")
+        sys.exit(2)
 
     # --- per-question transitions (same contract only) ----------------------
     buckets: dict[str, list[str]] = {"fixed": [], "broken": [], "still_failing": [],
@@ -241,8 +318,10 @@ def main() -> None:
 
     # --- label shifts (funnel + judge labels ride in the manifest, 1D-3) ----
     def labels_of(rec):
-        if rec.get("labels") is not None:            # run.py agent manifests
+        if rec.get("labels") is not None:            # run.py / run_v2 manifests
             return set(rec["labels"])
+        if rec.get("turns") is not None:             # script rows: union
+            return {lab for t in rec["turns"] for lab in (t.get("labels") or [])}
         j = rec.get("judge") or {}
         return set(j.get("labels") or [])
 
@@ -319,6 +398,10 @@ def main() -> None:
         # but no scores, would sail through with "no regressions". An
         # incomplete run is not a passing run; it is a run that did not finish.
         incomplete = []
+        if identity_moved:
+            incomplete.append(f"{len(identity_moved)} shared unit(s) whose "
+                              f"run identity moved (bindings/oracle) and were "
+                              f"not compared ({', '.join(identity_moved)})")
         if buckets["removed"]:
             incomplete.append(f"{len(buckets['removed'])} question(s) present "
                               f"before and missing after "

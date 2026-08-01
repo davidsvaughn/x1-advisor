@@ -311,10 +311,40 @@ def test_an_assertion_with_no_checker_raises_instead_of_passing():
 
 def test_case_checks_dispatch_only_what_the_case_declares():
     diagnostics = checkers.run_case_checks(
-        "I searched 25 evaluations; three mention it.", evidence=[],
+        "I searched 25 evaluations; three mention it. [1]", evidence=[],
         deterministic={"truth_set": "truth/v2c001.json", "must_cite": True,
                        "must_disclose_coverage": True,
-                       "must_not_claim_exhaustive": True})
-    assert {d.check for d in diagnostics} == {"coverage_statement",
-                                             "no_exhaustive_claim"}
+                       "must_not_claim_exhaustive": True},
+        citation_stats={"emitted": 1, "resolved": 1})
+    assert {d.check for d in diagnostics} == {"must_cite", "coverage_statement",
+                                              "no_exhaustive_claim"}
     assert all(d.passed for d in diagnostics)
+
+
+def test_must_cite_without_stats_is_a_loud_error_not_a_skip():
+    # "graded elsewhere" turned out to be nowhere (second review, finding 2):
+    # declaring must_cite without supplying citation stats must never pass
+    with pytest.raises(KeyError):
+        checkers.run_case_checks("answer", evidence=[],
+                                 deterministic={"must_cite": True})
+
+
+def test_must_cite_requires_at_least_one_resolving_citation():
+    assert not checkers.check_must_cite({"emitted": 0, "resolved": 0}).passed
+    assert not checkers.check_must_cite({"emitted": 3, "resolved": 2}).passed
+    assert checkers.check_must_cite({"emitted": 2, "resolved": 2}).passed
+    assert not checkers.check_must_cite(None).passed
+
+
+def test_declared_quotes_fail_when_the_answer_contains_none():
+    # v2c033 supplied no excerpts and passed evidence fidelity (second review,
+    # finding 2) — a declared quoting obligation is not met by zero quotes
+    silent = checkers.run_case_checks(
+        "It has high regulatory risk overall.", evidence=["irrelevant"],
+        deterministic={"must_quote_verbatim": True})
+    assert [d.passed for d in silent] == [False]
+    quoted = checkers.run_case_checks(
+        'The evaluation says "high regulatory execution risk" verbatim.',
+        evidence=["… faces high regulatory execution risk going forward …"],
+        deterministic={"must_quote_verbatim": True})
+    assert [d.passed for d in quoted] == [True]

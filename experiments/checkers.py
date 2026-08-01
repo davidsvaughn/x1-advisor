@@ -125,6 +125,65 @@ def entity_mentions(text: str) -> list[str]:
     return out
 
 
+# --- known-name search + assertion polarity --------------------------------
+
+# Sentence-level negation markers. Deliberately coarse: the unit of scope is
+# the sentence, so "ButterBeKind's evaluation does not mention synthetic
+# biology" reads as a NEGATED mention of ButterBeKind. Blind spots, stated:
+# double negation, "not only ... but also", and a positive and negative claim
+# sharing one sentence all mis-classify. A name asserted positively in ANY
+# sentence counts as positive, so hedged repeats cannot hide a real claim.
+_NEGATION_RE = re.compile(
+    r"\b(?:no|not|never|none|neither|nor|without|lacks?|lacking|absent|absence|"
+    r"missing|unmentioned|zero|cannot|can't|couldn't|won't|wouldn't|doesn't|"
+    r"don't|didn't|isn't|aren't|wasn't|weren't|does\s+not|do\s+not|did\s+not|"
+    r"fail(?:s|ed)?\s+to|found\s+no|no\s+(?:mention|evidence|match(?:es)?|"
+    r"hits?|results?|reference))\b", re.I)
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+|\n+")
+
+
+def names_in_text(text: str, names: Iterable[str]) -> set[str]:
+    """Which of these KNOWN names appear in the text (case-insensitive,
+    word-boundary-guarded)? Returns the matches lowercased.
+
+    This searches for names rather than parsing the text into candidate
+    entities, because parsing misses everything that does not look like a
+    capitalized run — `2ndCourt.com`, lowercase brand names, names split by a
+    line break. The second review measured the cost of the parsing direction:
+    94 of 152 truth-set keys could never be produced by `entity_mentions`.
+    """
+    found: set[str] = set()
+    for name in names:
+        if not name or len(name) < 2:
+            continue
+        if re.search(rf"(?<!\w){re.escape(name)}(?!\w)", text or "", re.I):
+            found.add(name.lower())
+    return found
+
+
+def asserted_names(text: str, names: Iterable[str]
+                   ) -> tuple[set[str], set[str]]:
+    """Split known-name mentions by polarity: (positive, negated-only).
+
+    An overclaim is an entity asserted AS MATCHING — "ButterBeKind mentions
+    synthetic biology". "ButterBeKind does not mention synthetic biology" names
+    the same entity and is the honest answer, not an overclaim; counting it as
+    one (as the first implementation did) penalizes exactly the disclosure the
+    honesty contract demands.
+    """
+    positive: set[str] = set()
+    negated: set[str] = set()
+    for sentence in _SENTENCE_SPLIT_RE.split(text or ""):
+        hits = names_in_text(sentence, names)
+        if not hits:
+            continue
+        if _NEGATION_RE.search(sentence):
+            negated |= hits
+        else:
+            positive |= hits
+    return positive, negated - positive
+
+
 # --- the §5.2 global checkers --------------------------------------------
 
 
@@ -221,18 +280,43 @@ def check_no_exhaustive_claim(answer: str) -> Diagnostic:
                       detail={"matched_patterns": hits})
 
 
-def check_quotes_verbatim(answer: str, evidence: Iterable[str]) -> Diagnostic:
+def check_quotes_verbatim(answer: str, evidence: Iterable[str],
+                          require_quotes: bool = False) -> Diagnostic:
     """Quoted spans must appear verbatim in the evidence (bank §1.10).
 
     Whitespace-normalized on both sides — a line break inside a source sentence
     is a formatting artifact, not a different quote.
+
+    `require_quotes` is set when a case DECLARES `must_quote_verbatim`: the
+    case asked for quotes, so an answer containing none has not met the
+    obligation. Without it, "zero bad quotes" passed vacuously — the second
+    review caught an answer with no excerpts and no citations passing evidence
+    fidelity.
     """
     haystacks = [_norm_ws(chunk).lower() for chunk in evidence]
     quotes = [_norm_ws(m.group(1)) for m in _QUOTE_RE.finditer(answer or "")]
     unfound = [q for q in quotes
                if not any(q.lower() in hay for hay in haystacks)]
-    return Diagnostic(check="quotes_verbatim", passed=not unfound,
-                      detail={"quotes": len(quotes), "unfound": unfound})
+    passed = not unfound and not (require_quotes and not quotes)
+    return Diagnostic(check="quotes_verbatim", passed=passed,
+                      detail={"quotes": len(quotes), "unfound": unfound,
+                              "required": require_quotes})
+
+
+def check_must_cite(citation_stats: dict[str, Any] | None) -> Diagnostic:
+    """The answer must carry citations and every emitted one must resolve.
+
+    Mechanical on purpose: the citation validator already computed
+    emitted/resolved, and `must_cite` was previously "graded elsewhere" —
+    which turned out to be nowhere. An answer with zero citations fails; an
+    answer whose citations do not all resolve fails.
+    """
+    stats = citation_stats or {}
+    emitted = stats.get("emitted") or 0
+    resolved = stats.get("resolved") or 0
+    return Diagnostic(check="must_cite",
+                      passed=emitted > 0 and resolved == emitted,
+                      detail={"emitted": emitted, "resolved": resolved})
 
 
 def check_mentions_all(answer: str, terms: Iterable[str]) -> Diagnostic:
@@ -270,12 +354,59 @@ def countable(diagnostic: Any) -> dict[str, Any]:
     return {**d, "detail": detail}
 
 
+# --- graded-unit composition (shared by run_v2 and script_runner) ---------
+
+# Which judge labels refute which declared judged dimension.
+# `unverifiable_citation` counts against faithfulness: a claim that cannot be
+# checked against its cited evidence is not a supported claim.
+DIMENSION_FAIL_LABELS = {
+    "faithfulness": {"synthesis_error", "unverifiable_citation"},
+    "citation_coverage": {"citation_coverage_error"},
+}
+
+
+def unit_verdicts(assertions: list, judged_dims: Iterable[str],
+                  behavior_obligations: Iterable[str],
+                  verdict: dict[str, Any] | None,
+                  behavior_verdicts: list[dict[str, Any]]
+                  ) -> dict[str, bool | None]:
+    """Every unit a grade block declares, each True / False / None-ungraded.
+
+    Deterministic assertions carry their own verdicts; a declared judged
+    dimension is refuted by its judge labels (None when the judge did not
+    run); a behavior obligation is graded by the targeted behavior judge
+    (None when it did not run). Nothing declared is ever silently omitted —
+    that is the vacuous-pass bug the second review caught.
+    """
+    units: dict[str, bool | None] = {a.check: a.passed for a in assertions}
+    labels = set((verdict or {}).get("labels") or [])
+    for dim in judged_dims:
+        units[f"judged:{dim}"] = (not (labels & DIMENSION_FAIL_LABELS[dim])
+                                  if verdict else None)
+    met = {v["obligation"]: v["met"] for v in behavior_verdicts}
+    for obligation in behavior_obligations:
+        units[f"behavior:{obligation}"] = met.get(obligation)
+    return units
+
+
+def compose_pass(units: dict[str, bool | None]) -> bool | None:
+    """One verdict from a set of graded units. A definite failure is
+    decisive; otherwise any ungraded unit makes the whole verdict None —
+    reported by the comparator, never guessed at."""
+    if any(v is False for v in units.values()):
+        return False
+    if any(v is None for v in units.values()):
+        return None
+    return True
+
+
 # --- dispatch -------------------------------------------------------------
 
-# Which mechanical check answers which case-level assertion. `truth_set` and
-# `must_cite` are not here: the first is graded against the computed oracle by
-# the runner (build step 4), the second by the existing citation validator.
+# Which mechanical check answers which case-level assertion. `truth_set` is
+# not here: it is graded against the computed oracle by the runner (build
+# step 4).
 CHECK_FOR_ASSERTION = {
+    "must_cite": "must_cite",
     "must_disclose_coverage": "coverage_statement",
     "must_not_claim_exhaustive": "no_exhaustive_claim",
     "must_quote_verbatim": "quotes_verbatim",
@@ -294,25 +425,38 @@ def run_global_checkers(answer: str, *, evidence: Iterable[str],
 
 
 def run_case_checks(answer: str, *, evidence: Iterable[str],
-                    deterministic: dict[str, Any]) -> list[Diagnostic]:
+                    deterministic: dict[str, Any],
+                    citation_stats: dict[str, Any] | None = None
+                    ) -> list[Diagnostic]:
     """The mechanical assertions a specific case declares.
 
     An assertion with no implementation is an error, not a skip: silently
     passing an unimplemented check is how a suite reports green while grading
     nothing (the failure mode experiments/cases.py exists to prevent at compile
-    time — this is the run-time half).
+    time — this is the run-time half). `must_cite` used to be one of those
+    skips — "graded by the existing citation validator", which nothing ever
+    folded into the verdict — so a caller that declares it must now supply
+    `citation_stats` or get a loud error.
     """
     evidence = list(evidence)
     out: list[Diagnostic] = []
     for assertion, value in sorted(deterministic.items()):
-        if assertion in ("truth_set", "must_cite"):
-            continue                    # graded elsewhere, see above
-        if assertion == "must_disclose_coverage" and value:
+        if assertion == "truth_set":
+            continue                    # graded against the computed oracle
+        if assertion == "must_cite" and value:
+            if citation_stats is None:
+                raise KeyError("must_cite is declared but no citation_stats "
+                               "were supplied — the check would grade nothing")
+            out.append(check_must_cite(citation_stats))
+        elif assertion == "must_disclose_coverage" and value:
             out.append(check_coverage_statement(answer))
         elif assertion == "must_not_claim_exhaustive" and value:
             out.append(check_no_exhaustive_claim(answer))
         elif assertion == "must_quote_verbatim" and value:
-            out.append(check_quotes_verbatim(answer, evidence))
+            # declared means demanded: an answer with no quotes at all has not
+            # met the obligation (vacuous pass caught by the second review)
+            out.append(check_quotes_verbatim(answer, evidence,
+                                             require_quotes=True))
         elif assertion == "must_mention_all" and value:
             out.append(check_mentions_all(answer, value))
         elif assertion == "must_not_mention" and value:

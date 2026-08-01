@@ -142,6 +142,26 @@ def export_bundle(bundle: dict, *, name: str, subdir: str | None = None) -> Path
         return None
 
 
+def judge_manifest_projection(verdict: dict | None) -> dict[str, Any] | None:
+    """Body-free projection of a judge verdict: labels/counts/scores/state only
+    — never the claim texts, verdict reasons, or uncited-claim prose, all of
+    which quote the answer. judge_model rides along because a faithfulness
+    number means "this model's reading of the rubric" — it is half of the
+    scoring contract `compare` gates on, and a manifest that omits it cannot
+    prove two runs were graded by the same judge.
+
+    Every manifest writer must go through this, explicitly. The scripts runner
+    once wrote the raw verdict into a committed manifest (second review,
+    finding 5) — full claim text and reasoning sat in git for a day.
+    """
+    if not verdict:
+        return None
+    return ({k: verdict.get(k) for k in ("labels", "counts", "scores")}
+            | {"calibration_state": (verdict.get("calibration") or {}).get("state"),
+               "evidence_provenance": verdict.get("evidence_provenance"),
+               "judge_model": verdict.get("judge_model")})
+
+
 def manifest_record(bundle: dict) -> dict[str, Any]:
     """Body-free projection of a bundle for `experiments/runs/` (QA-LOOP §4.1
     storage split): fingerprints, metrics, and opaque evidence identifiers —
@@ -174,18 +194,7 @@ def manifest_record(bundle: dict) -> dict[str, Any]:
                        }.get(c.get("type"), ()) if k in c}}
                       for c in val.get("citations", [])],
         "citation_stats": {k: val.get(k) for k in ("emitted", "resolved", "dropped")},
-        # judge verdict, body-free: labels/counts/state only — never the claim
-        # texts or verdict reasons, which quote the answer
-        # judge_model rides along because a faithfulness number means "this
-        # model's reading of the rubric" — it is half of the scoring contract
-        # `compare` gates on, and a manifest that omits it cannot prove two
-        # runs were graded by the same judge.
-        "judge": ({k: bundle["judge"].get(k) for k in ("labels", "counts")}
-                  | {"calibration_state": (bundle["judge"].get("calibration") or {})
-                     .get("state"),
-                     "evidence_provenance": bundle["judge"].get("evidence_provenance"),
-                     "judge_model": bundle["judge"].get("judge_model")}
-                  if bundle.get("judge") else None),
+        "judge": judge_manifest_projection(bundle.get("judge")),
         "retrieval": [{"call": e["call"], "filters": e["filters"],
                        "filter_notes": e["filter_notes"], "k": e["k"],
                        "legs": {leg: len(rows) for leg, rows in e["legs"].items()},

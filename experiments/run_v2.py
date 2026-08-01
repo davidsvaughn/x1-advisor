@@ -46,11 +46,17 @@ from experiments.cases import (
     render_question,
     resolve_bindings,
 )
+from experiments.behavior import judge_behaviors
 from experiments.funnel import classify
 from experiments.manifest import code_fingerprint, git_sha, open_new_manifest
 from experiments.script_runner import entity_vocabulary, turn_record
 from experiments.truth import TruthSetStale, load_truth_set
-from x1_advisor.agent.bundle import QA_ARTIFACTS_DIR, export_bundle, manifest_record
+from x1_advisor.agent.bundle import (
+    QA_ARTIFACTS_DIR,
+    export_bundle,
+    judge_manifest_projection,
+    manifest_record,
+)
 from x1_advisor.agent.judge import calibration_state, judge_bundle
 from x1_advisor.cost import JsonlSink, Tracker
 from x1_advisor.db import connect
@@ -73,40 +79,99 @@ def prepare(case: Case, *, seed: str, fixtures: dict) -> dict[str, Any]:
             "bindings": {slot: entity.get("name") for slot, entity in bound.items()}}
 
 
+_TRUTH_NAME_KEYS = ("overclaimed", "negated")
+
+
 def _countable_truth(grade: dict | None) -> dict | None:
-    return {k: v for k, v in grade.items() if k != "overclaimed"} if grade else None
+    """Manifest projection of a truth grade: counts, never entity names."""
+    if not grade:
+        return None
+    out = {k: v for k, v in grade.items() if k not in _TRUTH_NAME_KEYS}
+    for key in _TRUTH_NAME_KEYS:
+        out[f"{key}_count"] = len(grade.get(key) or [])
+    return out
 
 
 def grade_against_truth(answer: str, truth: dict, vocabulary: set[str]
                         ) -> dict[str, Any]:
     """Entity-level recall / precision / overclaim against the computed oracle.
 
-    Only names the corpus actually knows are considered, so ordinary prose
-    capitalization cannot inflate either number. An overclaim — an entity
-    asserted as matching that the truth set says does not — is reported
-    separately because it is the measured dominant failure (the model
-    overstates its evidence), and averaging it into precision hides it.
+    Membership is decided by SEARCHING the answer for the oracle's own keys
+    (plus the corpus vocabulary), never by parsing the answer into candidate
+    entities — parsing misses every name that does not look like a capitalized
+    run, which zeroed people/CV recall in the first implementation (second
+    review, finding 3). Mentions are split by polarity first: "X does not
+    mention it" is the honest disclosure, not an overclaim.
+
+    An overclaim — an entity positively asserted that the truth set says does
+    not match — is reported separately because it is the measured dominant
+    failure (the model overstates its evidence), and averaging it into
+    precision hides it.
     """
     matched = {e["key"].lower() for e in truth["entities"]
                if e["status"] == "matched"}
     scanned = {e["key"].lower() for e in truth["entities"]
                if e["status"] != "not_indexed"}
-    named = {m.lower() for m in checkers.entity_mentions(
-        checkers.strip_citations(answer))} & vocabulary
+    known = vocabulary | {e["key"] for e in truth["entities"]}
+    positive, negated = checkers.asserted_names(
+        checkers.strip_citations(answer), known)
 
-    hits = named & matched
-    # asserted, known to the scan, and NOT in the true set
-    overclaimed = sorted((named & scanned) - matched)
+    hits = positive & matched
+    # positively asserted, known to the scan, and NOT in the true set
+    overclaimed = sorted((positive & scanned) - matched)
     return {
         "truth_matched": len(matched),
-        "named": len(named),
+        "named": len(positive),
         "recall": (len(hits) / len(matched)) if matched else None,
-        "precision": (len(hits) / len(named)) if named else None,
+        "precision": (len(hits) / len(positive)) if positive else None,
         "overclaimed": overclaimed,
         "overclaim_count": len(overclaimed),
-        # an empty oracle is a real answer: the honest response names nobody
-        "empty_oracle_respected": (not named) if not matched else None,
+        "negated": sorted(negated),
+        # an empty oracle is a real answer: the honest response positively
+        # names nobody in scope (naming entities to REPORT their absence is
+        # the contract being met, not broken)
+        "empty_oracle_respected": (not (positive & scanned)) if not matched
+                                  else None,
     }
+
+
+def truth_unit_passed(grade: dict[str, Any], grading_mode: str) -> bool:
+    """Did the truth-graded unit meet its declared contract?
+
+    Honesty mode (tool not ready — §4): the bar is not overstating evidence.
+    No positively-asserted entity the scan refutes, and a verified-empty
+    oracle answered by naming nobody. Recall does NOT gate here — demanding
+    exhaustive enumeration from top-k retrieval is the capability bar, and
+    grading it early is how every enumeration case reads as failing forever.
+
+    Capability mode (scan_text shipped): return the right set — full recall,
+    still zero overclaims. The grading-mode flip changes the suite contract
+    string, so the comparator refuses to gate across it (§4).
+    """
+    honest = (grade["overclaim_count"] == 0
+              and grade["empty_oracle_respected"] is not False)
+    if grading_mode == "honesty":
+        return honest
+    return honest and (grade["recall"] is None or grade["recall"] == 1.0)
+
+
+def graded_units(case: Case, assertions: list, truth_grade: dict | None,
+                 verdict: dict | None, behavior_verdicts: list[dict]
+                 ) -> dict[str, bool | None]:
+    """Every unit the case's grade block declares, each True/False/None.
+
+    "Passing" a case while a declared dimension went unmeasured is the
+    vacuous-pass bug the second review caught (21 rows `pass: true` carrying
+    judge failure labels) — so a unit the run could not grade is None, and
+    `checkers.compose_pass` makes the whole case ungraded rather than passing.
+    """
+    units = checkers.unit_verdicts(assertions, case.grade.judged,
+                                   case.grade.behavior, verdict,
+                                   behavior_verdicts)
+    if case.truth_set:
+        units["truth_set"] = (truth_unit_passed(truth_grade, case.grading_mode)
+                              if truth_grade else None)
+    return units
 
 
 def run_case(conn, case: Case, *, suite: Suite, seed: str, vocabulary: set[str],
@@ -121,7 +186,8 @@ def run_case(conn, case: Case, *, suite: Suite, seed: str, vocabulary: set[str],
     record = turn_record(conn, 1, prepared["question"], result)
 
     assertions = checkers.run_case_checks(answer, evidence=record.evidence,
-                                          deterministic=case.grade.deterministic)
+                                          deterministic=case.grade.deterministic,
+                                          citation_stats=result["citation_stats"])
     diagnostics = checkers.run_global_checkers(answer, evidence=record.evidence,
                                                question=prepared["question"])
 
@@ -133,24 +199,33 @@ def run_case(conn, case: Case, *, suite: Suite, seed: str, vocabulary: set[str],
         truth_digest = truth["digest"]
         truth_grade = grade_against_truth(answer, truth, vocabulary)
 
-    verdict = None
-    if judge and case.grade.judged:
-        verdict = judge_bundle(conn, bundle, tracker=tracker,
-                               calibration=calibration_state())
-        bundle["scores"].update(verdict["scores"])
-        bundle["judge"] = verdict
+    verdict, behavior_verdicts = None, []
+    if judge:
+        if case.grade.judged:
+            verdict = judge_bundle(conn, bundle, tracker=tracker,
+                                   calibration=calibration_state())
+            bundle["scores"].update(verdict["scores"])
+            bundle["judge"] = verdict
+        if case.grade.behavior:
+            behavior_verdicts = judge_behaviors(prepared["question"], answer,
+                                                case.grade.behavior,
+                                                tracker=tracker)
 
     labels = classify(conn, bundle, {"id": case.id, "category": case.cls,
                                      "acceptable_routes": list(case.acceptable_routes)})
-    # Full grading detail — including WHICH entities were overclaimed and which
-    # answer mentions were ungrounded — is corpus-derived content and belongs in
-    # owner-only storage with the bundle. The committed manifest gets counts
+    # Full grading detail — including WHICH entities were overclaimed, which
+    # mentions were ungrounded, and the behavior judge's reasons (they quote
+    # the answer) — is corpus-derived content and belongs in owner-only storage
+    # with the bundle. The committed manifest gets counts and verdict booleans
     # (QA-LOOP §4.1 body-free rule; the same reason truth sets are untracked).
     bundle["truth_grade"] = truth_grade
+    bundle["behavior_verdicts"] = behavior_verdicts
     bundle["checks"] = {"assertions": [a.to_dict() for a in assertions],
                         "diagnostics": [d.to_dict() for d in diagnostics]}
     bundle_path = export_bundle(bundle, name=case.id, subdir=run_id)
 
+    units = graded_units(case, assertions, truth_grade, verdict,
+                         behavior_verdicts)
     return {
         "case_id": case.id, "class": case.cls, "tier": case.tier,
         "grading_mode": case.grading_mode, "blocked_on": case.blocked_on,
@@ -162,17 +237,27 @@ def run_case(conn, case: Case, *, suite: Suite, seed: str, vocabulary: set[str],
         "assertions": [checkers.countable(a) for a in assertions],
         "diagnostics": [checkers.countable(d) for d in diagnostics],
         "truth_grade": _countable_truth(truth_grade),
+        "behavior": [{"obligation": v["obligation"], "met": v["met"]}
+                     for v in behavior_verdicts],
         "searched_documents": record.searched_documents,
         "searched_rows": record.searched_rows,
         "labels": labels["labels"], "notes": labels["notes"],
         "routes": labels["routes"],
-        "judge": verdict,
+        # explicitly the body-free projection — never the raw verdict, which
+        # carries claim text and reasoning (second review, finding 5)
+        "judge": judge_manifest_projection(verdict),
         "bundle": bundle_path.name if bundle_path else None,
         "cost_usd": result["cost_usd"], "latency_ms": result["latency_ms"],
         "citation_stats": result["citation_stats"],
-        # the declared contract decides the verdict; the §5.2 globals are
-        # diagnostics until a false-positive audit promotes them (criterion 4)
-        "pass": all(a.passed for a in assertions),
+        # the verdict covers EVERY declared graded unit (second review,
+        # finding 2): deterministic assertions, the truth-set unit under the
+        # case's grading mode, declared judged dimensions via judge labels,
+        # and behavior obligations via the targeted behavior judge. None =
+        # a declared unit could not be graded on this run (judge off) — the
+        # case is ungraded, not passing. The §5.2 globals remain diagnostics
+        # until a false-positive audit promotes them (criterion 4).
+        "graded_units": units,
+        "pass": checkers.compose_pass(units),
         **manifest_record(bundle),
     }
 
@@ -214,6 +299,13 @@ def main() -> None:
     tracker = Tracker(run_id=f"{run_id}:judge",
                       sink=JsonlSink(os.environ.get("ADVISOR_COST_LEDGER",
                                                     "cost_ledger.jsonl")))
+    # Run identity is captured ONCE, before the first case. The first baseline
+    # run recorded git_sha() per row while commits landed underneath it — 49
+    # rows spanning three commits is not one run identity (second review,
+    # finding 4). The start sha is what the loaded code actually was; a HEAD
+    # that moved by the end taints the run and is stamped on the summary.
+    started_sha, started_fp = git_sha(), code_fingerprint()
+
     rows, stale = [], []
     with connect() as conn, manifest_file as manifest:
         vocabulary = entity_vocabulary(conn)
@@ -232,11 +324,15 @@ def main() -> None:
             rows.append(row)
             manifest.write(json.dumps({
                 "run_id": run_id, "experiment": "golden-v2",
-                "git_sha": git_sha(), "code_fingerprint": code_fingerprint(),
+                "git_sha": started_sha, "code_fingerprint": started_fp,
                 **suite.identity(), **row}, default=str) + "\n")
-            failed = [a["check"] for a in row["assertions"] if not a["passed"]]
+            failed = [name for name, ok in row["graded_units"].items()
+                      if ok is False]
+            ungraded = [name for name, ok in row["graded_units"].items()
+                        if ok is None]
             truth = row["truth_grade"]
-            print(f"  {'PASS' if row['pass'] else 'FAIL'} {case.id} "
+            mark = {True: "PASS", False: "FAIL", None: "----"}[row["pass"]]
+            print(f"  {mark} {case.id} "
                   f"{case.cls:<22} {row['grading_mode']:<11} "
                   f"cite {row['citation_stats']['resolved']}/"
                   f"{row['citation_stats']['emitted']} "
@@ -244,11 +340,27 @@ def main() -> None:
                   + (f"  recall={truth['recall']:.2f}"
                      if truth and truth["recall"] is not None else "")
                   + (f" overclaim={truth['overclaim_count']}" if truth else "")
-                  + (f"  checks: {','.join(failed)}" if failed else ""))
+                  + (f"  failed: {','.join(failed)}" if failed else "")
+                  + (f"  ungraded: {','.join(ungraded)}" if ungraded else ""))
 
-    passed = sum(1 for r in rows if r["pass"])
+        ended_sha = git_sha()
+        drift = ended_sha != started_sha
+        manifest.write(json.dumps({
+            "record": "summary", "run_id": run_id,
+            "git_sha": started_sha, "git_sha_at_end": ended_sha,
+            "identity_drift": drift, **suite.identity(), "seed": args.seed,
+        }) + "\n")
+
+    passed = sum(1 for r in rows if r["pass"] is True)
+    ungraded_rows = sum(1 for r in rows if r["pass"] is None)
     print(f"\n== {run_id} ==")
+    if drift:
+        print(f"!! IDENTITY DRIFT: HEAD moved {started_sha} -> {ended_sha} "
+              "during the run — do not commit while a run is live; this "
+              "manifest is tainted for baseline use")
     print(f"cases: {passed}/{len(rows)} passing their declared contract"
+          + (f"  ({ungraded_rows} ungraded: declared judged/behavior units "
+             "need --judge)" if ungraded_rows else "")
           + (f"  ({len(stale)} skipped: stale truth set)" if stale else ""))
     print(f"scoring contract: {suite.contract}")
     print(f"suite digest:     {suite.digest[:16]}…   seed: {args.seed}")

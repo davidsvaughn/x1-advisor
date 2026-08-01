@@ -59,7 +59,12 @@ from x1_advisor.fingerprint import corpus_text_watermark, sha256_text
 # Bump when the SCAN semantics change (match evaluation, entity keying, status
 # assignment). Every truth set records the version it was built with, and a
 # version mismatch is staleness — old sets are rebuilt, never reinterpreted.
-BUILDER_VERSION = 1
+# v2: entity keys for CV/investor/org scopes are the entity's NAME derived from
+#     the document title ("Paul Jaminet — CV" → "Paul Jaminet"), matching
+#     script_runner.entity_vocabulary. v1 keyed those entities by the full
+#     title, which no answer ever names — recall was structurally zero for
+#     every people/investor case (second review, finding 3).
+BUILDER_VERSION = 2
 
 # Truth sets contain corpus-derived match sets (which companies say what), so
 # they live in owner-only local storage with the bundles, not in git. Only
@@ -136,8 +141,12 @@ def scan(conn, spec: TruthSpec) -> dict[str, Any]:
     rows = conn.execute(
         f"""SELECT ch.id AS chunk_id, ch.document_id, ch.block_index,
                    -- CV / investor / organization chunks carry no company_name;
-                   -- the document title is the entity's name for those scopes
-                   coalesce(ch.metadata->>'company_name', d.title) AS name,
+                   -- the entity's NAME is the title's first ' — ' segment
+                   -- ("Paul Jaminet — CV" → "Paul Jaminet"), the same
+                   -- convention entity_vocabulary uses. The full title is a
+                   -- key no answer can ever match (builder v2).
+                   coalesce(ch.metadata->>'company_name',
+                            split_part(d.title, ' — ', 1)) AS name,
                    coalesce(ch.metadata->>'entity_ref_env', 'test') AS env,
                    ch.metadata->>'entity_id' AS entity_id,
                    {cols}

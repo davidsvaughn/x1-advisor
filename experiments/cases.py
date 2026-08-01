@@ -54,9 +54,14 @@ from x1_advisor.fingerprint import sha256_text
 GOLDEN_DIR = Path(__file__).parent / "golden"
 
 # Bump when the meaning of a compiled field changes (not when cases are added
-# or edited — that moves the suite digest instead). Rides in the digest so a
-# schema change cannot masquerade as an unchanged suite.
-SCHEMA_VERSION = 1
+# or edited — that moves the suite digest instead). Rides in the digest AND in
+# the scoring-contract string, so a semantics change can neither masquerade as
+# an unchanged suite nor gate against runs graded under the old semantics.
+# v2: `pass` covers every declared graded unit (judged dimensions, behavior
+#     obligations, the truth unit) instead of only mechanical assertions —
+#     pre-v2 manifests' pass values are vacuous and must never be compared
+#     against post-v2 ones (second review, finding 2).
+SCHEMA_VERSION = 2
 
 # --- taxonomies -----------------------------------------------------------
 # Class keys follow the §3 composition table and the §6 additions. The value is
@@ -183,7 +188,12 @@ BEHAVIOR_OBLIGATIONS = {
     "ask_clarifying": "ask a targeted question, or answer both readings openly",
     "disclose_capabilities": "describe sources and gates honestly (§7A policy)",
 }
-JUDGED_DIMENSIONS = {"faithfulness", "citation_coverage", "synthesis_quality"}
+# Only dimensions the judge actually computes (x1_advisor/agent/judge.py
+# emits faithfulness + citation_coverage and nothing else). `synthesis_quality`
+# was whitelisted here before any grader existed, so four cases declared a bar
+# nobody ever measured — the compile-time half of the silent-no-op bug this
+# file exists to prevent. Re-add a dimension WITH its grader, never before.
+JUDGED_DIMENSIONS = {"faithfulness", "citation_coverage"}
 
 # --- truth-set scan specification (§5.1) ----------------------------------
 # The author writes the PREDICATE; the corpus decides the MEMBERS. That split
@@ -440,7 +450,8 @@ class Suite:
         separately as part of run identity (§4)."""
         modes = json.dumps({u.id: u.grading_mode for u in sorted(
             self.units, key=lambda u: u.id)}, sort_keys=True, separators=(",", ":"))
-        return f"golden-{self.version}/modes-{sha256_text(modes)[:8]}"
+        return (f"golden-{self.version}/s{SCHEMA_VERSION}"
+                f"/modes-{sha256_text(modes)[:8]}")
 
     def by_id(self, unit_id: str) -> Case | Script | None:
         return next((u for u in self.units if u.id == unit_id), None)
