@@ -93,9 +93,12 @@ _NOT_ENTITIES = {
 # `and` is deliberately NOT a connector: "BMI OrganBank and Fabricorp" is a list
 # of two companies far more often than one company's name, and merging them
 # hides the invented one inside a blob that matches nothing.
+# Words join only across spaces/tabs, never a newline: `\s+` glued a
+# sentence-final name to the next paragraph's first capitalized word, which
+# inflated the entity-grounding counts (2026-08-01 triage, machinery item a).
 _ENTITY_RE = re.compile(
-    r"\b[A-Z][\w.&'’\-]*(?:\s+(?:of|for|de|von|van|der|del)\s+[A-Z][\w.&'’\-]*"
-    r"|\s+[A-Z][\w.&'’\-]*)*")
+    r"\b[A-Z][\w.&'’\-]*(?:[ \t]+(?:of|for|de|von|van|der|del)[ \t]+[A-Z][\w.&'’\-]*"
+    r"|[ \t]+[A-Z][\w.&'’\-]*)*")
 
 
 def entity_mentions(text: str) -> list[str]:

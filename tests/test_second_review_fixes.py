@@ -315,3 +315,13 @@ def test_committed_run_manifests_are_body_free():
                 continue
             bad = offending_keys(row)
             assert not bad, f"{manifest.name}: body-carrying key(s) {bad}"
+
+
+# --- 2026-08-01 triage, machinery item a -----------------------------------
+
+
+def test_entity_mentions_do_not_cross_paragraph_boundaries():
+    text = "The founder studied at Stanford University.\n\nCalmr raised a round."
+    mentions = checkers.entity_mentions(text)
+    assert "Calmr" in mentions
+    assert not any("University" in m and "Calmr" in m for m in mentions)
