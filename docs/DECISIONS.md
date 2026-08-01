@@ -4,6 +4,75 @@
 > engineering choices land here, newest first. Each entry names its evidence (spike
 > output, manifest path, or doc reference) and the revisit trigger if one exists.
 
+## 2026-08-01 — Second review: five harness defects fixed; baseline re-run clean
+
+A second-agent review rejected the 2026-07-31 baseline and named five
+integration defects. All five verified real, fixed in `0fb175f`; truth sets
+rebuilt under builder v2; H1 launcher in `aee9de2`; baseline re-run from the
+clean commit `aee9de2` (manifests `2026-08-01_v2_smoke_aee9de2_r1`,
+`2026-08-01_v2_core_aee9de2_r1`, `2026-08-01_scripts_v2.0_aee9de2_r1`).
+Evidence: `tests/test_second_review_fixes.py` (23 regression pins; 122 total
+passing).
+
+- **The comparator gated nothing on v2** — it loaded only `question_id` rows,
+  so two v2 manifests compared as zero records and printed PASS. Now: loads
+  case/script rows, refuses empty/disjoint/unknown manifests (exit 2), reads
+  the recorded contract + judge model, and treats moved bindings or oracles
+  as incompleteness. The nightly compares all three slices against a
+  per-slice baseline pointer and script failures reach the exit code.
+- **`pass` covered only mechanical assertions.** `must_cite` was skipped
+  entirely ("graded elsewhere" was nowhere), judge labels and behavior
+  obligations never gated, zero quotes passed `must_quote_verbatim`. 21 of
+  the first baseline's 49 core rows said `pass: true` while carrying judge
+  failure labels, and the "clean class split" was an artifact — classes whose
+  only check was the unimplemented `must_cite` passed automatically. `pass`
+  now composes every declared graded unit (deterministic, truth, judged
+  dimensions via labels, behavior obligations via a targeted behavior judge —
+  `experiments/behavior.py`); an ungradeable unit makes the case UNGRADED,
+  never passing. `synthesis_quality` is retired from the judged vocabulary
+  until a grader exists (four cases declared a bar nothing measured).
+  SCHEMA_VERSION=2 rides in the contract string
+  (`golden-v2.0/s2/modes-…`), so pre-fix manifests can never gate against
+  post-fix ones. **All 2026-07-31 baseline numbers are void** — 30/49, the
+  class split, recall 0.318, 11 overclaims measured a weaker bar.
+- **Truth keys were unmatchable for people/CV/investor scopes** (document
+  titles like "Paul Jaminet — CV") and overclaim counted negated mentions.
+  Builder v2 keys by real entity name; grading searches the answer for known
+  names (finds `2ndCourt.com`, lowercase brands) and splits polarity first —
+  "X does not mention it" is disclosure, not overclaim. Rebuild moved every
+  digest; match/chunk counts identical, confirming only the keying changed.
+- **The scripts manifest carried bodies** (rendered questions + full judge
+  verdicts with claim text) in git for ~a day. All manifest writers now share
+  `judge_manifest_projection`; the leaked file is untracked (content
+  preserved owner-only in `.qa-artifacts/quarantine/`); a repo-level test
+  scans every committed v2 manifest for body-carrying keys.
+- **The first core manifest spanned three commits** (44+3+2 rows) because
+  identity was stamped per row while commits landed under a live background
+  run. Identity is now captured once at start, drift is detected and recorded
+  on the summary row, and `--accept` refuses tainted manifests. Working rule:
+  never commit while a run is live.
+- **Nightly calibration read the wrong file** (`pending.jsonl`, reporting
+  0/30) while judged rows correctly said human-calibrated from the canonical
+  `experiments/judge_calibration.jsonl` (32 human labels). One source now.
+
+**Re-run under the strict contract** (`golden-v2.0/s2/modes-ff08feef`, seed
+`v2-baseline`, ~$2.9): smoke **7/7**; core **8/49** (0 ungraded); scripts
+**0/4**. Not comparable to the 07-31 numbers by construction — the bar
+changed, and the comparator refuses the pair. Core failing units:
+judged:faithfulness 27, coverage_statement 18, truth_set 9,
+behavior:state_absence 8, judged:citation_coverage 6, correct_premise 3,
+quotes_verbatim 2, must_cite 2, surface_ambiguity 2, decline_action 1.
+Truth-graded 14: mean entity recall 0.450 (people/CV now measurable),
+overclaimed entities 16, verified-empty oracles respected 2/8. Behavior:
+surface_conflict 2/2, ask_clarifying 1/1, disclose_capabilities 1/1 met;
+state_absence 3/11, correct_premise 0/3, surface_ambiguity 0/2,
+decline_action 0/1. Judge (n=45, human-calibrated): faithfulness 0.830,
+citation coverage 0.853. No baseline accepted — `nightly.py --accept` is
+David's call, as is the strategic read of these numbers.
+
+Revisit triggers: baseline acceptance; re-adding `synthesis_quality` with a
+grader; honesty→capability flips when `scan_text` ships (contract change).
+
 ## 2026-07-31 — Gate 4 build (golden v2.0): steps 1–4 landed
 
 David authorized the build (Golden v2.0 §9 steps 1–4 + Track H1) after the

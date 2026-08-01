@@ -66,9 +66,10 @@ set +e
 timeout "$TRIAGE_TIMEOUT" env -i \
     HOME="$HOME" PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin" \
     USER="$USER" TERM=dumb \
+    CLAUDE_CONFIG_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude-max}" \
     claude -p --settings "$REPO/qa/triage-settings.json" \
         --append-system-prompt "$(cat "$REPO/qa/triage-prompt.md")" \
-        --output-format stream-json --max-turns 40 \
+        --output-format stream-json --verbose --max-turns 40 \
         "Triage last night's QA run (today is ${TODAY})." \
     >>"$TRANSCRIPT"
 TRIAGE_EXIT=$?

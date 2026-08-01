@@ -13,7 +13,7 @@
     "Usage:",
     "  claude -p --settings qa/triage-settings.json \\",
     "         --append-system-prompt \"$(cat qa/triage-prompt.md)\" \\",
-    "         --output-format stream-json --max-turns 40 \\",
+    "         --output-format stream-json --verbose --max-turns 40 \\",
     "         'Triage last night's run.'"
   ],
   "permissions": {

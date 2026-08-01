@@ -28,7 +28,7 @@ git history. Details and evidence: the gate entries below + DECISIONS.
 |---|---|
 | Test-corpus ingestion | Prototype validated |
 | Retrieval | Prototype validated; evidence-boundary correction **done** (Gate 1B: record summaries retrieval-only; citations on generated text 38% → 0) |
-| Answer quality | **Measured** (Gate 1: snapshot judge + funnel — faithfulness ≈ 0.5 synthetic-only calibrated, coverage ≈ 0.83–0.88, ±0.05–0.07 at n=20) — but measured on golden v1, which is **agent-authored**; validity gated on **Gate 4** (golden v2) |
+| Answer quality | **Measured** (Gate 1: snapshot judge + funnel — faithfulness ≈ 0.5 on golden v1, coverage ≈ 0.83–0.88, ±0.05–0.07 at n=20; judge **human-calibrated** since 2026-07-31, 32 labels) — v1 is **agent-authored**; validity gated on **Gate 4** (golden v2, strict-contract baseline run 2026-08-01, not yet accepted) |
 | ACL | Retrieval-level filter + structured-query class predicates fixed (Step 0: `evaluations_for_company` leak class, typed filter layer); **single verified request-auth context end-to-end, thread ownership, bundle/replay authz still open** (Gate 2) |
 | Service runtime | In-process psycopg pool landed (Step 0/F2); **limits, backpressure, SSE, enforceable budgets still open** (Gate 3A) |
 | Production data coverage & freshness | Not established (historical ingestion Phase 6 not started; distinct from revised Gate 6) |
@@ -146,7 +146,10 @@ acceptable-evidence groups, replay never trusts stored ACLs.
   until Gate 4 grows the suite. Fresh blind calibration pairs regenerated in
   `.qa-artifacts/calibration/pending.jsonl`. **Gate 1 is closed**; the
   faithfulness number stays `synthetic-only` until ≥30 human labels land
-  (RUNBOOK §7 — David).
+  (RUNBOOK §7 — David). *Met 2026-07-31: 32 human labels in
+  `experiments/judge_calibration.jsonl` — the judge reports
+  `human-calibrated`, and the nightly's calibration job reads the same
+  canonical set (DECISIONS 2026-08-01).*
 - **Gate 2 — security boundary end-to-end:** one request-auth context consumed
   by every data-bearing tool/endpoint; ACL-aware structured queries; thread
   ownership; **bundle-read + replay authorization and stale-ACL handling**;
@@ -169,8 +172,14 @@ acceptable-evidence groups, replay never trusts stored ACLs.
   §9 steps 1–4 + Track H1, brief in [`HANDOFF.md`](HANDOFF.md); **build
   steps 1–4 DONE 2026-07-31** — `32b33c4` schema+compiler, `6f6d049`
   truth-set builder + §5.2 checkers, `8f6b569` suite authored (56 cases +
-  4 scripts, 14 computed truth sets), `9fffdda` script runner; **H1 runner
-  and the v2.0 baseline run remain**, see DECISIONS 2026-07-31) — headline:
+  4 scripts, 14 computed truth sets), `9fffdda` script runner; **2026-08-01:
+  a second review found five harness defects** (comparator vacuous-PASS,
+  vacuous `pass`, unmatchable truth keys, script-manifest body leak,
+  three-commit run identity) — **fixed in `0fb175f`**; H1 runner + launcher
+  done (`8675ebd`, `aee9de2`; cron line documented, deliberately not
+  installed); **baseline re-run clean at `aee9de2`** under the strict
+  contract — smoke 7/7, core 8/49, scripts 0/4, see DECISIONS 2026-08-01.
+  **Baseline acceptance (`nightly.py --accept`) remains David's call.**) — headline:
   two waves (v2.0 context-free now,
   v2.1 after Gate 3B), deterministic truth sets for the enumeration class
   (doubles as the `scan_text` prototype), truth-robustness classes, David-
