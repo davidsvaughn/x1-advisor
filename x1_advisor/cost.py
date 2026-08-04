@@ -63,6 +63,15 @@ PRICING: dict[str, dict[str, dict[str, float]]] = {
         "claude-opus-4-5":   {"input": 5.00, "cache_read": 0.50, "cache_write": 6.25, "output": 25.00},
         "claude-sonnet-4-6": {"input": 3.00, "cache_read": 0.30, "cache_write": 3.75, "output": 15.00},
         "claude-haiku-4-5":  {"input": 1.00, "cache_read": 0.10, "cache_write": 1.25, "output":  5.00},
+        # CC-judge models (headless `claude -p`, David-seat Max subscription —
+        # dev/QA only, never production). The subscription has no marginal
+        # bill; the ledger entry is the API-EQUIVALENT value, i.e. what a
+        # production deployment would pay — that number is what cost decisions
+        # need. cache_write here is the 1-HOUR ephemeral rate (2.0 * input),
+        # because that is the TTL the CLI uses — verified 2026-08-04 against
+        # the CLI's own modelUsage.costUSD to the fourth decimal.
+        "claude-sonnet-5":   {"input": 3.00, "cache_read": 0.30, "cache_write": 6.00, "output": 15.00},
+        "claude-opus-5":     {"input": 5.00, "cache_read": 0.50, "cache_write": 10.00, "output": 25.00},
         # embeddings: Anthropic has no first-party embedding model as of this writing.
         "_tool_web_search":  {"per_call": 0.010},
     },

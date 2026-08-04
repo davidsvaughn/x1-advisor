@@ -82,6 +82,12 @@ from x1_advisor.cost import Tracker, Usage
 # second opinion visible and matched it 32/32, so they carry `assist_shown` in
 # the set. A fresh unassisted draw is pending and can revise this.
 JUDGE_MODEL = os.environ.get("ADVISOR_JUDGE_MODEL", "gpt-5.6-terra")
+# Which judge implementation runs. `cc` = headless Claude on the David-seat
+# Max subscription (dev/QA ONLY — the H-track billing rule: subscription
+# billing never backs a multi-user production path); `openai` = the original
+# API-billed pipeline above. Default `cc` while golden v2 is in heavy
+# development (David, 2026-08-04) for a tighter audit-grade feedback loop.
+JUDGE_BACKEND = os.environ.get("ADVISOR_JUDGE_BACKEND", "cc")
 # v2 (Gate 1D-1): claims are judged against per-ref snapshots of what the model
 # saw, not against the current database; scores from v1 are not comparable
 SCHEMA_VERSION = 2
@@ -123,9 +129,13 @@ def calibration_state(items: list[dict] | None = None) -> dict:
                  if i.get("provenance") == "synthetic" and i.get("label")]
     state = ("human-calibrated" if len(human) >= MIN_HUMAN_LABELS
              else "synthetic-only" if synthetic else "uncalibrated")
+    # the effective judge, backend-aware (inline env read — judge_cc imports
+    # this module, so importing it back at module level would be circular)
+    model = (f"cc:{os.environ.get('ADVISOR_JUDGE_CC_MODEL', 'opus')}"
+             if JUDGE_BACKEND == "cc" else JUDGE_MODEL)
     return {"state": state, "human_labels": len(human),
             "synthetic_labels": len(synthetic),
-            "min_human_labels": MIN_HUMAN_LABELS, "judge_model": JUDGE_MODEL}
+            "min_human_labels": MIN_HUMAN_LABELS, "judge_model": model}
 
 
 # --------------------------------------------------------------------------
@@ -301,8 +311,33 @@ def _legacy_evidence_texts(conn, bundle: dict) -> dict[int, dict[str, Any]]:
 
 
 def judge_bundle(conn, bundle: dict, *, tracker: Tracker | None = None,
-                 calibration: dict | None = None) -> dict[str, Any]:
-    """Judge one turn bundle. Returns scores + per-claim verdicts."""
+                 calibration: dict | None = None) -> dict[str, Any] | None:
+    """Judge one turn bundle. Returns scores + per-claim verdicts.
+
+    Dispatches on ADVISOR_JUDGE_BACKEND: `cc` (default while golden v2 is in
+    heavy development — David, 2026-08-04) judges via headless Claude with the
+    full titled evidence set in one call (see judge_cc.py for why); `openai`
+    is the original per-claim gpt-5.6-terra pipeline, kept selectable for
+    A/B and for any path that must not touch the Max seat. The two backends
+    stamp different judge_model strings, so the scoring contract refuses
+    cross-backend comparison on its own. May return None (case UNGRADED) if
+    the cc judge produces nothing parseable — never a fabricated verdict.
+    """
+    if JUDGE_BACKEND == "cc":
+        from x1_advisor.agent.judge_cc import judge_bundle_cc
+        return judge_bundle_cc(conn, bundle, tracker=tracker,
+                               calibration=calibration)
+    return _judge_bundle_openai(conn, bundle, tracker=tracker,
+                                calibration=calibration)
+
+
+def _judge_bundle_openai(conn, bundle: dict, *, tracker: Tracker | None = None,
+                         calibration: dict | None = None) -> dict[str, Any]:
+    """The original per-claim OpenAI pipeline. Known defects (2026-08-04
+    audit, ~92% faithfulness false positives): evidence titles stripped,
+    per-claim citation tunnel vision, extractor-mutated claims, hyper-literal
+    entailment. Parked un-fixed while the cc backend is the dev judge; fix
+    before this backend grades anything that matters again."""
     client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
     answer = bundle.get("validation", {}).get("answer", "")
     sources = evidence_texts(conn, bundle)

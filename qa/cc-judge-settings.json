@@ -1,0 +1,26 @@
+{
+  "_comment": [
+    "Sandbox profile for the headless CC judge (x1_advisor/agent/judge_cc.py).",
+    "The judge is a pure function: prompt in, JSON verdict out. It runs from an",
+    "empty temp directory outside the repo and every tool is denied — a judge",
+    "that could read files or run code could grade against evidence the agent",
+    "was never shown, which is exactly the provenance bug snapshot-judging",
+    "exists to prevent."
+  ],
+  "permissions": {
+    "defaultMode": "default",
+    "deny": [
+      "Bash",
+      "Read",
+      "Write",
+      "Edit",
+      "Glob",
+      "Grep",
+      "NotebookEdit",
+      "WebFetch",
+      "WebSearch",
+      "Task",
+      "TodoWrite"
+    ]
+  }
+}

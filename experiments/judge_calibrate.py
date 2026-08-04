@@ -335,23 +335,38 @@ def main() -> None:
     if not runnable:
         sys.exit("no runnable items (all bodies missing)")
 
-    client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
     tracker = Tracker(run_id="judge-calibration")
 
-    def run(item: dict) -> tuple[dict, str]:
-        v = _ask(client, tracker,
-                 ENTAILMENT_PROMPT.format(claim=item["claim"], source=item["evidence"]),
-                 Entailment, "judge.calibrate")
-        return item, (v.verdict if v else "unverifiable")
+    # agreement is measured for the judge that will actually grade — the
+    # backend dispatch mirrors judge.judge_bundle exactly
+    from x1_advisor.agent.judge import JUDGE_BACKEND
+    if JUDGE_BACKEND == "cc":
+        from x1_advisor.agent.judge_cc import entail_cc
 
-    with ThreadPoolExecutor(max_workers=6) as pool:
+        def run(item: dict) -> tuple[dict, str]:
+            verdict, _ = entail_cc(item["claim"], item["evidence"],
+                                   tracker=tracker)
+            return item, verdict
+        workers = 4          # subprocesses on the shared seat, not API threads
+    else:
+        client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+
+        def run(item: dict) -> tuple[dict, str]:
+            v = _ask(client, tracker,
+                     ENTAILMENT_PROMPT.format(claim=item["claim"],
+                                              source=item["evidence"]),
+                     Entailment, "judge.calibrate")
+            return item, (v.verdict if v else "unverifiable")
+        workers = 6
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
         results = list(pool.map(run, runnable))
 
     pairs = [(i["label"], got) for i, got in results]
     accuracy = sum(1 for a, b in pairs if a == b) / len(pairs)
     kappa = cohens_kappa(pairs)
 
-    print(f"judge: {JUDGE_MODEL}   items: {len(runnable)}")
+    print(f"judge: {calibration_state()['judge_model']}   items: {len(runnable)}")
     # `human` splits by whether a second opinion was on screen. Agreement with an
     # assisted label is partly agreement with whatever made the suggestion, so
     # the two never get averaged into one number.
