@@ -21,7 +21,18 @@ uv run python -m experiments.run --agent --golden v1 --limit 20 --judge   # + cl
 ```
 
 `--judge` costs about **4× the turns it grades** ($0.032/question against
-$0.008). Run it on gates and after evidence-path changes, not on every loop.
+$0.008) on the openai backend; the current default judge is the `cc` backend —
+see §8.0 for its cost/quota profile.
+
+The golden **v2** suite (Gate 4) has its own runners; same artifact contract:
+
+```bash
+uv run python -m experiments.run_v2 --tier smoke --judge     # 7 cases
+uv run python -m experiments.run_v2 --tier core --judge      # 49 cases, ~15min
+uv run python -m experiments.script_runner --golden v2 --judge   # 4 multi-turn scripts
+uv run python -m experiments.nightly --full --judge          # all slices + truth + compare
+uv run python -m experiments.rejudge_v2 <v2-manifest-name>   # fresh judge, same answers
+```
 
 Each run writes two artifacts, deliberately separate:
 
@@ -244,6 +255,59 @@ per-question cap, and unique evidence payloads (1E-5: the first draw took
 would have "calibrated" nothing).
 
 ## 8. Choosing the judge model
+
+### 8.0 Current judge: headless Claude (`cc` backend) — since 2026-08-04
+
+Everything below §8.0 describes the **openai backend** (per-claim
+`gpt-5.6-terra` pipeline). It is no longer the default. A four-auditor
+false-positive audit of the 2026-08-04 core run found **~92% of its
+faithfulness flags spurious** for structural reasons — evidence titles
+stripped from the judge payload, each claim judged against only its own
+citations (comparative claims unjudgeable by construction), claims mutated by
+the extraction step, hyper-literal entailment — full rulings owner-only at
+`.qa-artifacts/reports/2026-08-04_judge_audit.md`, decision + numbers in
+DECISIONS 2026-08-04.
+
+The current default judges the way that audit was performed: **one headless
+`claude -p` call per answer** (Opus 5 — David's pick) that sees the question,
+the whole answer, and the FULL evidence set *with titles*; tool use denied
+(`qa/cc-judge-settings.json`), run from a temp dir outside the repo so no
+project context leaks in. The model returns a claim inventory + per-claim
+verdicts; **counts, scores and labels are computed in Python**
+(`x1_advisor/agent/judge_cc.py`), so `synthesis_error` etc. mean exactly what
+they always meant. Process/disclosure statements ("I searched X and found
+nothing") are classified non-factual — they are not citable world-claims, and
+counting them as uncited claims was penalizing the honesty the agent prompt
+requires.
+
+Operational facts:
+
+- `ADVISOR_JUDGE_BACKEND` — `cc` (default) or `openai`. The verdict's
+  `judge_model` (`cc:claude-opus-5` vs `gpt-5.6-terra`) rides into the
+  manifest projection, so the comparator refuses cross-backend gating on its
+  own. The openai pipeline's defects are documented in place
+  (`judge.py::_judge_bundle_openai`) and deliberately un-fixed.
+- `ADVISOR_JUDGE_CC_MODEL` — `opus` (default), `sonnet` to step down when the
+  seat is under pressure. An unknown resolved model raises in `cost.py`.
+- **Billing**: David-seat Max subscription — dev/QA ONLY, never production
+  (Track H rule). The cost ledger logs **API-equivalent value** (~$0.17/case,
+  ~$8/judged core run), not a real bill; judge volume shares David's
+  interactive quota.
+- **Paired re-judging** (same bundles, fresh judge — the only honest way to
+  attribute score movement to the judge):
+  `uv run python -m experiments.rejudge_v2 <v2-manifest-name>` — writes a new
+  `_cc`-suffixed manifest, carries everything except `judged:*` units, exports
+  full verdicts owner-only. First use: core 13/49 → 22/49 on identical
+  answers (DECISIONS 2026-08-04).
+- **Calibration**: `experiments.judge_calibrate` (no flags) replays the 32
+  human labels through the ACTIVE backend. cc:opus reads kappa 0.56 vs
+  terra's 0.63 — every miss a partial-boundary call, zero false clean bills —
+  but the stored pairs are title-less, so the informational fixes cannot
+  score there. Standing caveats: the unassisted label batch is still pending,
+  and the cc judge deserves the same false-positive audit the old judge got
+  once enough of its flags accumulate.
+
+### 8.1 The openai backend record (bake-off, 2026-07-31)
 
 ```bash
 uv run python -m experiments.judge_bakeoff          # ~$0.33 over 42 pairs

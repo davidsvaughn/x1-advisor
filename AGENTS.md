@@ -18,6 +18,8 @@ narrow precision tool).
 Stack: Python 3.13 + Haystack; pgvector in the shared Cloud SQL Postgres
 under a dedicated `advisor` schema; agent model `gpt-5.6-terra` on the OpenAI
 Responses API (provisional — model choices are bake-offs, see DECISIONS).
+QA claim judge: headless Claude Opus 5 (`ADVISOR_JUDGE_BACKEND=cc`, dev/QA
+only — RUNBOOK §8.0, DECISIONS 2026-08-04).
 
 ## Read order and task routing
 
@@ -26,7 +28,7 @@ gate sequence = current truth). Then:
 
 | Working on | Read |
 |---|---|
-| **Starting the authorized v2.0 + H1 build** | [`docs/HANDOFF.md`](docs/HANDOFF.md) |
+| **Picking up the current work** (next: `scan_text`) | [`docs/HANDOFF.md`](docs/HANDOFF.md) |
 | Gate 4 / golden v2 | [`docs/GOLDEN-V2-DESIGN-2026-07-31.md`](docs/GOLDEN-V2-DESIGN-2026-07-31.md) + [`docs/QUESTION-BANK.md`](docs/QUESTION-BANK.md) |
 | Gate 3B / page context | [`docs/CONTEXT-SNAPSHOT-DESIGN-2026-07-30.md`](docs/CONTEXT-SNAPSHOT-DESIGN-2026-07-30.md) |
 | Track H / headless agents | [`docs/CC-AGENTS-DESIGN-2026-07-31.md`](docs/CC-AGENTS-DESIGN-2026-07-31.md) |

@@ -28,7 +28,7 @@ git history. Details and evidence: the gate entries below + DECISIONS.
 |---|---|
 | Test-corpus ingestion | Prototype validated |
 | Retrieval | Prototype validated; evidence-boundary correction **done** (Gate 1B: record summaries retrieval-only; citations on generated text 38% → 0) |
-| Answer quality | **Measured** (Gate 1: snapshot judge + funnel — faithfulness ≈ 0.5 on golden v1, coverage ≈ 0.83–0.88, ±0.05–0.07 at n=20; judge **human-calibrated** since 2026-07-31, 32 labels) — v1 is **agent-authored**; validity gated on **Gate 4** (golden v2, strict-contract baseline run 2026-08-01, not yet accepted) |
+| Answer quality | **Measured on golden v2** (Gate 4 harness live; strict declared-contract grading). Current read 2026-08-04: smoke 7/7, **core 22/49**, scripts 0/4 — after the coverage/honesty prompt rules (`d8b1799`, 8→13) and the judge switch (13→22 on identical answers). Judge = **headless Opus 5** (`cc` backend, `09c2261`) after a four-auditor audit found ~92% of the old judge's faithfulness flags spurious (DECISIONS 2026-08-04 ×2; RUNBOOK §8.0). Remaining failures profile as real agent work: truth-set recall/overclaims, absence disclosure, coverage statements, quotes, premise/ambiguity behavior. No baseline accepted yet (`--accept` is David's call); unassisted calibration batch pending |
 | ACL | Retrieval-level filter + structured-query class predicates fixed (Step 0: `evaluations_for_company` leak class, typed filter layer); **single verified request-auth context end-to-end, thread ownership, bundle/replay authz still open** (Gate 2) |
 | Service runtime | In-process psycopg pool landed (Step 0/F2); **limits, backpressure, SSE, enforceable budgets still open** (Gate 3A) |
 | Production data coverage & freshness | Not established (historical ingestion Phase 6 not started; distinct from revised Gate 6) |
@@ -179,6 +179,13 @@ acceptable-evidence groups, replay never trusts stored ACLs.
   done (`8675ebd`, `aee9de2`; cron line documented, deliberately not
   installed); **baseline re-run clean at `aee9de2`** under the strict
   contract — smoke 7/7, core 8/49, scripts 0/4, see DECISIONS 2026-08-01.
+  **2026-08-04:** coverage/honesty prompt rules approved + applied
+  (`d8b1799`; core 8→13, comparator PASS all slices); judge false-positive
+  audit (74 flags: 3 genuine) → **judge switched to headless Opus 5**
+  (`09c2261`, `ADVISOR_JUDGE_BACKEND=cc`; RUNBOOK §8.0) and the run paired-
+  rejudged: **core 13→22/49** on identical answers
+  (`2026-08-04_v2_core_cc_801628e_r1`). **`scan_text` build authorized by
+  David 2026-08-04 (Path B) — not started; docs pause requested first.**
   **Baseline acceptance (`nightly.py --accept`) remains David's call.**) — headline:
   two waves (v2.0 context-free now,
   v2.1 after Gate 3B), deterministic truth sets for the enumeration class
@@ -216,7 +223,10 @@ acceptable-evidence groups, replay never trusts stored ACLs.
   edges: **H1 QA-side agents** (now; split per the 2026-07-31 review — a
   deterministic runner executes golden runs, truth-set rebuilds, calibration
   prep, and held-out batches; the CC triage agent, David-seat subscription in
-  the helm sandbox, reads artifacts and writes triage/reviews only).
+  the helm sandbox, reads artifacts and writes triage/reviews only). A second
+  H1-class adoption landed 2026-08-04: the **CC judge backend** — headless
+  Opus 5 as the golden-suite claim judge (`judge_cc.py`, RUNBOOK §8.0), same
+  David-seat/dev-QA-only billing rule, API-equivalent cost logged per call.
   Runner-executed held-out batches are the concrete near-term form of
   Gate 4's "separately authorized evaluation service". **H2 research-note
   flywheel** (after the golden v2.0 baseline, so note quality is

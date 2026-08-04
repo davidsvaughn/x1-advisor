@@ -1,146 +1,118 @@
-# Handoff — build Golden v2.0 + Track H1
+# Handoff — golden v2 QA loop live; next: `scan_text` (Path B)
 
-> Date: 2026-07-31. Status: **point-in-time handoff** for the coding agent
-> starting the approved build. Supersedes
-> [`archive/HANDOFF.md`](archive/HANDOFF.md) (2026-07-07 snapshot).
-> Authorized scope: **Golden v2.0 (Gate 4 wave 1, build-order steps 1–4) and
-> Track H1** — David commissioned this handoff 2026-07-31, which lifts the
-> build pause *for this scope only*. **H2/H3 are designed but NOT authorized
-> to build.**
+> Date: 2026-08-04. Status: **point-in-time handoff**, written after the
+> judge-audit/judge-switch session. Supersedes
+> [`archive/HANDOFF-2026-07-31.md`](archive/HANDOFF-2026-07-31.md) (the
+> Golden v2.0 + H1 build brief — that build is DONE, reviewed, and repaired).
+> Authorized next scope: **`scan_text` (Path B)** — David authorized the
+> build 2026-08-04 and asked for a pause after this documentation pass, so
+> the build is **not started**. Wait for his go before writing tool code.
 
-## 0. Read first (in this order, nothing else up front)
+## 0. Read first (in this order)
 
-1. [`../AGENTS.md`](../AGENTS.md) — standing rules; they are non-negotiable.
+1. [`../AGENTS.md`](../AGENTS.md) — standing rules; non-negotiable.
 2. [`PLAN.md`](PLAN.md) §R — readiness matrix + gate sequence (current truth).
-3. [`GOLDEN-V2-DESIGN-2026-07-31.md`](GOLDEN-V2-DESIGN-2026-07-31.md) — your
-   primary spec (Gate 4). §9 is your build order; §4 the case schema; §5 the
-   grading design.
-4. [`CC-AGENTS-DESIGN-2026-07-31.md`](CC-AGENTS-DESIGN-2026-07-31.md) §4 + §9
-   — the H1 spec and the five acceptance criteria.
-5. [`QUESTION-BANK.md`](QUESTION-BANK.md) — the case source. Curate, don't
-   copy; wording is preserved verbatim — *the phrasing is the test*.
-6. [`QA-RUNBOOK.md`](QA-RUNBOOK.md) — how the existing QA machinery operates
-   (funnel, comparator, judge rules §8, calibration §7).
+3. [`DECISIONS.md`](DECISIONS.md) — the three 2026-08-01/04 entries at the top
+   are the complete record of what happened since the last handoff.
+4. [`QA-RUNBOOK.md`](QA-RUNBOOK.md) — how to run everything; **§8.0 is the
+   current judge**; §1 has the v2 runner commands.
+5. [`GOLDEN-V2-DESIGN-2026-07-31.md`](GOLDEN-V2-DESIGN-2026-07-31.md) — §5.1
+   is the `scan_text` design seed (the truth-set builder is ~80% of the
+   tool); §4 explains the honesty→capability contract flip the tool enables.
 
-## 1. Where the project stands
+## 1. What happened since the 2026-07-31 handoff (short version)
 
-- **Gate 1 closed 2026-07-31** after four correctness passes (1A–1E). Live
-  machinery you build on, not around: turn bundles + fingerprints, retrieval
-  explain, snapshot-judging (judge grades per-ref snapshots of what the model
-  saw), route-aware funnel, scoring-contract-aware comparator (four gates:
-  pass-flips, label worsening, mean-drop `--score-drop 0.10`, completeness),
-  three replay modes, blind calibration flow + labeling UI.
-- **Why v2 exists:** golden v1 is agent-authored (2026-07-08); zero questions
-  derive from QUESTION-BANK or the 28 real threads. Working numbers
-  (faithfulness ≈ 0.5, coverage ≈ 0.83–0.88, ±0.05–0.07 at n=20,
-  synthetic-only calibrated) are therefore validity-limited — Gate 4 exists
-  to fix that, not to add precision. **v1 stays frozen** as the
-  retrieval-regression suite; never edit it.
-- **Models:** agent `gpt-5.6-terra`, OpenAI **Responses API**,
-  `reasoning effort=medium` (`ADVISOR_AGENT_MODEL`/`ADVISOR_AGENT_REASONING`
-  env overrides). Judge `gpt-5.6-terra` (QA-RUNBOOK §8 rules; judge model is
-  part of the scoring contract). From gpt-5.6 on, Chat Completions rejects
-  function tools + reasoning — everything goes through Responses.
-- **Corpus (test env):** 412 docs / 6,728 chunks; 24 prod fixture bundles;
-  75/79 test bundles are an experimental shape and are skipped loudly.
+Full detail lives in DECISIONS — this is the orientation map, newest first:
 
-## 2. Deliverables, in order
+1. **Judge switched to headless Opus 5** (`09c2261`). A second-agent-style
+   audit (4 parallel auditors, all 28 faithfulness-failing cases, 74 flagged
+   claims vs the exact evidence snapshots) found ~92% false positives with
+   structural causes in the OpenAI judge pipeline: titles stripped from the
+   payload, per-claim citation tunnel vision, extractor-mutated claims,
+   hyper-literal entailment. New backend: one `claude -p` call per answer,
+   full titled evidence, labels computed in Python
+   (`x1_advisor/agent/judge_cc.py`). `ADVISOR_JUDGE_BACKEND=openai` restores
+   the old pipeline (defects documented in place, un-fixed). Paired rejudge
+   of identical answers: **core 13/49 → 22/49**
+   (`experiments.rejudge_v2`, manifest `2026-08-04_v2_core_cc_801628e_r1`).
+2. **Coverage/honesty prompt rules** (`d8b1799`, David-approved "Path A"):
+   the agent now discloses search scope, never equates empty search with
+   absence (the old prompt literally instructed that error), asserts only
+   supported matches, corrects false premises, surfaces ambiguity, declines
+   out-of-capability actions. Core 8/49 → 13/49; disclosure-cluster failures
+   collapsed (coverage_statement 18→5, overclaims 16→10).
+3. **Five harness defects fixed after a second review** (`0fb175f`,
+   2026-08-01): v2-aware comparator with identity checks, full
+   declared-contract pass composition, real-name truth keys with negation
+   handling, single-commit run identity, body-free script manifests. All
+   2026-07-31 numbers are void; `tests/test_second_review_fixes.py` pins
+   everything.
+4. **H1 is live**: deterministic nightly runner + launcher
+   (`qa/nightly.sh` — timeout, env-scrubbed triage, 0600 transcripts, exit
+   75 preflight skip). The cron line is documented there but **deliberately
+   not installed** (David stood down all crons 2026-07-08).
 
-Per GOLDEN-V2-DESIGN §9 and CC-AGENTS §4. Commit + push at each milestone.
+## 2. Current state of the numbers (2026-08-04, judge = cc:opus)
 
-1. **Case schema + compiler** (~1 day) — YAML → validated case objects: six
-   orthogonal readiness fields, class taxonomy, deterministic+judged grade
-   blocks, `fallback_contract`, seeded entity-binding resolver, compiled
-   **suite digest**. Unit tests alongside (`tests/test_agent_units.py` has 20
-   passing tests — match its style; run `uv run pytest -q`).
-2. **Truth-set builder + global checkers** (~1 day) — deterministic offline
-   FTS/phrase scan over `advisor.doc_chunks` → `truth/*.json` with builder
-   version + corpus content-hash + scope definition. Checkers (numeric
-   grounding, entity grounding, coverage-statement) recorded as
-   **diagnostics only** — nothing gates until a false-positive audit
-   promotes it (acceptance criterion 4).
-3. **Author v2.0 core** (~52 cases + 4 scripts) per the §3 composition table:
-   bank-sourced verbatim, LFT-weighted, SEL cases bound to explicit fixtures,
-   truth-robustness cases with offline-verified premises/absences. Every case
-   carries provenance (bank row / LFT thread).
-4. **Script runner** (~1 day) — executes a script as one conversation;
-   per-turn + cross-turn assertions; the script is the gate unit; bundles per
-   turn feed the existing judge/funnel unchanged.
-5. **H1 deterministic runner + cron** — plain Python, exit-coded: nightly
-   golden run → funnel → comparator vs last accepted baseline; truth-set
-   rebuild on corpus-hash change; calibration prep; held-out execution from
-   `.qa-artifacts/heldout/` emitting **aggregates only**. Then the CC triage
-   agent: settings profile (helm sandbox recipe, CC-AGENTS §4) + prompt; it
-   reads artifacts and writes `.qa-artifacts/reports/` — it executes nothing.
-6. **v2.0 baseline run** — smoke + core, full funnel + judge; report the
-   result but draw no strategic conclusions yourself (that comparison against
-   the v1-era claims is David's + the teacher session's call).
+- smoke **7/7** · core **22/49** · scripts **0/4** — same binding seed
+  `v2-baseline` throughout; truth sets current (14/14).
+- Remaining core failures are believed to be REAL agent work: truth_set 6,
+  behavior:state_absence 6, judged:faithfulness 6, coverage_statement 5,
+  judged:citation_coverage 5, quotes_verbatim 2, must_cite 2,
+  correct_premise 2, surface_ambiguity 1.
+- Scripts fail on verbatim-quote drift across turns and one coverage
+  overclaim — deterministic units, judge-independent.
+- **No baseline has ever been accepted** (`experiments/golden/baseline.json`
+  does not exist), so every nightly comparator run reports `no-baseline`.
+  Acceptance is David's call, likely the `_cc` manifests once he trusts them.
 
-**Acceptance criteria (all five, from the 2026-07-31 review — treat as the
-definition of done):** execution/triage split; evidence adapter before any H2
-ingest (out of scope here, but don't half-build it); run identity on every
-result (contract + resolved bindings + suite digest + truth-set digest,
-paired runs pin identical bindings); checkers diagnostics-first; truth
-generation deterministic/versioned, never agent-authored.
+## 3. The next build: `scan_text` — sketch, not yet designed in anger
 
-## 3. Code map
+Design §5.1 + the Gate 4 headline name it "build first". The seed: the
+truth-set builder (`experiments/truth.py`) already implements the bounded
+deterministic scan — same scope logic, per-entity
+`matched | no_match | not_indexed` statuses, coverage counts. The tool is
+that engine exposed to the agent with: ACL applied like every data-bearing
+tool, `record_summary` chunks excluded (generated text is not evidence),
+matching chunks registered in the EvidenceRegistry so results are citable,
+and a schema whose description teaches when scanning beats top-k search.
+Known decision points for the build (flag to David, don't decide silently):
 
-- `x1_advisor/agent/` — `advisor.py` (loop, `agent_generator()`,
-  feature_flags), `judge.py`, `bundle.py`, `replay.py`, `tools.py`,
-  `evidence.py` (citation layer), `queries.py` (structured registry).
-- `x1_advisor/` — `retrieval.py` (hybrid + `_acl_sql`), `cost.py` (EVERY
-  model call routes here; unknown model raises), `db.py`, `fingerprint.py`.
-- `experiments/` — `run.py` (harness), `compare.py` (comparator),
-  `funnel.py`, `judge_calibrate.py`, `judge_bakeoff.py`, `rejudge.py`,
-  `label_ui.py`, `golden/v1.yaml`.
-- `.qa-artifacts/` — untracked, owner-only (0600): `runs/`, `calibration/`,
-  and (yours to add) `heldout/`, `reports/`, `truth/` if you keep truth sets
-  untracked — decide tracked-vs-untracked by whether case bodies leak
-  (truth sets contain corpus-derived matches: **untracked**, digests in git).
+- **Refactor discipline**: sharing the scan engine between tool and oracle is
+  the design intent (capability grading checks the agent *reports* the scan
+  faithfully), but the refactor must leave truth digests byte-identical —
+  prove it with `uv run python -m experiments.truth --check` (14/14 current)
+  — or bump `BUILDER_VERSION` and rebuild, which moves oracles.
+- **`tool_ready` flip**: 24 cases carry `tool_ready: false` + a fallback
+  honesty contract. Flipping them to capability grading changes the suite
+  digest and pass semantics for half the core tier — land the tool, measure
+  adoption first, and put the flip in front of David with numbers.
+- **Tool-schema hash**: adding a tool changes `TOOL_SCHEMA_SHA256`
+  (`tests/test_agent_units.py`) — update it in the same commit, per its rule.
 
-## 4. Environment + operational gotchas (will cost you hours if skipped)
+## 4. Open decisions (David's, not yours)
 
-- **DB:** cloud-sql-proxy binary `/home/david/Downloads/BeeKeeper/cloud-sql-proxy`,
-  socket dir `~/cloudsql`, instance `vertical-album-400917:us-east1:x1-sql-test`.
-  If connections fail with `invalid_grant`/reauth errors: ADC is expired —
-  ask David to run `gcloud auth application-default login` (suggest the `!`
-  prefix), then **restart the proxy** (a running proxy keeps stale creds).
-- **Test env ONLY** (`x1-db-test`); app tables read-only; writes only to the
-  `advisor` schema. Never commit `.env`.
-- **Billing:** OpenAI key is company-paid (default). DeepSeek key is David's
-  personal money — opt-in only. Claude Max subscription backs David-seat
-  dev/QA work only. A full judged 20-question suite run costs ~$1–2; ask
-  before anything that looks like a sweep (many replicates / bake-offs).
-- **Langfuse** mirrors to David's personal org (`dsv-org`/`alpha-claw`) —
-  it is a mirror, never a dependency; local bundles + manifests are the QA
-  source of truth.
-- **Port 8100 is taken** on this machine (alpha-claw frontend); the advisor
-  service smoke-tests on another port (8123 previously).
-- **Machine load:** run broad repo scans sequentially and `nice`d;
-  `~/code/x1` contains huge node_modules trees; check for leaked
-  `playwright-mcp-server` processes if load spikes.
-- **Commit messages:** backticks in `git commit -m` get shell-substituted —
-  use `git commit -F <file>`.
+1. Accept a baseline (`nightly --accept <smoke>,<core>,<scripts>` — probably
+   the 2026-08-04 `_cc` core/scripts + the `aee9de2` smoke, or rerun fresh).
+2. Install the nightly cron (line documented in `qa/nightly.sh`, ~$3/night
+   equivalent + seat quota now that the judge is subscription-billed).
+3. Author the held-out batch (~10–15 questions, `.qa-artifacts/heldout/`,
+   runner supports `--suite-path`).
+4. Unassisted calibration labels (runbook §7) — gates how much the judged
+   means may be trusted; also the right moment to re-score cc:opus vs terra.
+5. Triage's flagged case-design questions: v2c033 (constraint-setting prompt
+   graded as same-turn work), v2c038 (matched-mode people oracles counting
+   differently-sourced-but-true attributions as overclaims), `step_cap`
+   funnel label never applied (`funnel.py` keys on a `"(wrapup)"` marker
+   bundles never record).
 
-## 5. Hard don'ts
+## 5. Standing constraints (unchanged, enforced by AGENTS.md + tests)
 
-- Don't edit `experiments/golden/v1.yaml` or any committed manifest
-  (manifests are immutable; the comparator depends on it).
-- Don't compare or gate across differing scoring contracts — the comparator
-  refuses (exit 2) by design; never "fix" that.
-- Don't hand-author or hand-edit truth sets; don't let any agent do so.
-- Don't put case bodies, evidence bodies, or held-out content in git or in
-  triage reports — labels/digests/aggregates only.
-- Don't fix a failing case with case-specific prompt wording or one-off
-  resolvers (no-test-case-hacking rule; prompt changes need David's explicit
-  approval).
-- Don't build H2/H3, don't touch prod, don't rewrite pushed history.
-
-## 6. Waiting on David (don't block; note and continue)
-
-- Held-out batch (~10–15 questions) once your runner exists — his task.
-- H2 cite-through/ACL policy sign-off — not your scope.
-- Anthropic company API key (PLAN Phase 0) — not needed for this build.
-
-Hand back: PLAN §R Gate 4 progress notes + a dated DECISIONS entry per
-milestone, same conventions as the existing entries.
+TEST env only; advisor writes only the `advisor` schema; never commit `.env`.
+Manifests are immutable; truth sets are machine-built, never hand-edited; no
+case bodies/evidence in git or triage reports. No test-case hacking — prompt
+changes need David's explicit approval with a durable product rationale.
+Claude Max = David-seat dev/QA only, never production; unknown models raise
+in `cost.py`, never a silent $0. Commit + push at every milestone. Never
+commit while a golden run is live (run-identity taint); never install a cron
+without David's explicit go.
