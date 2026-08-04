@@ -28,7 +28,7 @@ gate sequence = current truth). Then:
 
 | Working on | Read |
 |---|---|
-| **Picking up the current work** (next: `scan_text`) | [`docs/HANDOFF.md`](docs/HANDOFF.md) |
+| **Picking up the current work** (next: overclaim-discipline proposal) | [`docs/HANDOFF.md`](docs/HANDOFF.md) |
 | Gate 4 / golden v2 | [`docs/GOLDEN-V2-DESIGN-2026-07-31.md`](docs/GOLDEN-V2-DESIGN-2026-07-31.md) + [`docs/QUESTION-BANK.md`](docs/QUESTION-BANK.md) |
 | Gate 3B / page context | [`docs/CONTEXT-SNAPSHOT-DESIGN-2026-07-30.md`](docs/CONTEXT-SNAPSHOT-DESIGN-2026-07-30.md) |
 | Track H / headless agents | [`docs/CC-AGENTS-DESIGN-2026-07-31.md`](docs/CC-AGENTS-DESIGN-2026-07-31.md) |
@@ -48,7 +48,7 @@ did, same-day, as review criteria were folded in).
 | `docs/DECISIONS.md` | **living** — dated log, newest first |
 | `docs/QA-RUNBOOK.md` | **living** — QA operating manual |
 | `docs/QUESTION-BANK.md` | **living** — master question corpus; seed for golden v2 |
-| `docs/HANDOFF.md` | **point-in-time handoff** (2026-07-31) — brief for the Golden v2.0 + H1 build |
+| `docs/HANDOFF.md` | **point-in-time handoff** (2026-08-04 evening) — scan_text live + flipped; next: overclaim-discipline proposal |
 | `docs/GOLDEN-V2-DESIGN-2026-07-31.md` | **adopted design** (Gate 4 spec; build authorized by David 2026-07-31 for steps 1–4 + H1) |
 | `docs/CC-AGENTS-DESIGN-2026-07-31.md` | **adopted design** (Track H) |
 | `docs/CONTEXT-SNAPSHOT-DESIGN-2026-07-30.md` | **adopted design** (Gate 3B; not built) |

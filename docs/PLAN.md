@@ -28,7 +28,7 @@ git history. Details and evidence: the gate entries below + DECISIONS.
 |---|---|
 | Test-corpus ingestion | Prototype validated |
 | Retrieval | Prototype validated; evidence-boundary correction **done** (Gate 1B: record summaries retrieval-only; citations on generated text 38% → 0) |
-| Answer quality | **Measured on golden v2** (Gate 4 harness live; strict declared-contract grading). Current read 2026-08-04: smoke 7/7, **core 22/49**, scripts 0/4 — after the coverage/honesty prompt rules (`d8b1799`, 8→13) and the judge switch (13→22 on identical answers). Judge = **headless Opus 5** (`cc` backend, `09c2261`) after a four-auditor audit found ~92% of the old judge's faithfulness flags spurious (DECISIONS 2026-08-04 ×2; RUNBOOK §8.0). Remaining failures profile as real agent work: truth-set recall/overclaims, absence disclosure, coverage statements, quotes, premise/ambiguity behavior. No baseline accepted yet (`--accept` is David's call); unassisted calibration batch pending |
+| Answer quality | **Measured on golden v2 under the capability contract** (`modes-bd3235eb` since the 2026-08-04 tool_ready flip — numbers not comparable to earlier `modes-ff08feef` reads). Current: smoke 7/7, **core 18/49**, scripts 0/4 at `fdba68a` — 14 scan cases now graded on full recall + zero overclaims (5/14 pass; adoption 100%). `scan_text` is live (`2934f7a`, engine shared with the truth builder); judge = headless Opus 5 (`cc` backend) with the completeness fix (`fdba68a`). Top measured defect: **scan-variant overclaims** (15 entities) — prompt-rule proposal owed to David. Also: recall variance run-to-run, state_absence 8. No baseline accepted yet — the `fdba68a` trio (`285902e`) is the candidate; unassisted calibration batch pending (DECISIONS 2026-08-04 ×3; RUNBOOK §8.0) |
 | ACL | Retrieval-level filter + structured-query class predicates fixed (Step 0: `evaluations_for_company` leak class, typed filter layer); **single verified request-auth context end-to-end, thread ownership, bundle/replay authz still open** (Gate 2) |
 | Service runtime | In-process psycopg pool landed (Step 0/F2); **limits, backpressure, SSE, enforceable budgets still open** (Gate 3A) |
 | Production data coverage & freshness | Not established (historical ingestion Phase 6 not started; distinct from revised Gate 6) |
@@ -184,8 +184,14 @@ acceptable-evidence groups, replay never trusts stored ACLs.
   audit (74 flags: 3 genuine) → **judge switched to headless Opus 5**
   (`09c2261`, `ADVISOR_JUDGE_BACKEND=cc`; RUNBOOK §8.0) and the run paired-
   rejudged: **core 13→22/49** on identical answers
-  (`2026-08-04_v2_core_cc_801628e_r1`). **`scan_text` build authorized by
-  David 2026-08-04 (Path B) — not started; docs pause requested first.**
+  (`2026-08-04_v2_core_cc_801628e_r1`). **`scan_text` SHIPPED 2026-08-04**
+  (`2934f7a`, Path B): engine extracted to `x1_advisor/scan.py`, shared
+  with the truth builder, digests proven unchanged; adoption 100% on first
+  run → **tool_ready flipped for all 14 scan cases** (`fdba68a`,
+  David-approved; contract → `modes-bd3235eb`; `must_not_claim_exhaustive`
+  dropped from flipped cases per §4) + judge completeness fix (v2c028
+  class). First capability trio: smoke 7/7 · core 18/49 · scripts 0/4
+  (`285902e`) — flipped 5/14, overclaims the top defect.
   **Baseline acceptance (`nightly.py --accept`) remains David's call.**) — headline:
   two waves (v2.0 context-free now,
   v2.1 after Gate 3B), deterministic truth sets for the enumeration class

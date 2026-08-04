@@ -4,6 +4,69 @@
 > engineering choices land here, newest first. Each entry names its evidence (spike
 > output, manifest path, or doc reference) and the revisit trigger if one exists.
 
+## 2026-08-04 — scan_text shipped; tool_ready flipped; first capability baseline trio
+
+Path B, David-authorized start and David-approved flip ("yes fix judge, then
+do the flip!"). Three landings, one arc:
+
+**The tool** (`2934f7a`). The bounded exhaustive scan moved out of
+`experiments/truth.py` into `x1_advisor/scan.py` and is now shared by the
+truth-set builder and the new `scan_text` agent tool — grader and tool are
+one code path by design (§5.1's compounding payoff realized). Refactor
+proven digest-identical two ways: `truth --check` 14/14 current, and the
+live tool reproduces v2c008's committed oracle byte-for-byte. Tool
+contract: per-entity `matched | no_match | not_indexed` (+ `restricted` for
+non-admin), complete coverage counts, citable excerpts (snapshot = exactly
+what the model saw), the scan itself query-kind citable evidence for
+coverage claims. Blocks only, structurally (record summaries are not
+evidence); ACL via retrieval's own `_acl_sql` (one implementation);
+premium-gated existence → `restricted` per the bank §3.2A disclosure
+policy; private/unpublished excluded from every status and count. Engine
+latency ~0.2–0.6s full-corpus over the wire — cheaper than one agent
+reasoning step. SYSTEM_PROMPT rule 5 now routes census questions to the
+tool and pins lexical-no-match semantics; both prefix hashes updated
+in-commit.
+
+**Adoption, then the flip** (`fdba68a`). First post-ship core run
+(`2026-08-04_v2_core_2934f7a_r1`, honesty contracts still in force):
+**adoption 100%** — all 14 blocked_on=scan_text cases used the tool
+unprompted, truth-graded mean recall 0.41 → 0.73 vs the pre-tool answers.
+On those numbers David approved the flip: all 14 cases now
+`tool_ready: true`, fallback contracts dropped, `must_not_claim_exhaustive`
+dropped (a census answer legitimately claims completeness for its scanned
+scope — design §4 "unless route == scan_text"). Core tier 38/49
+capability-graded (was 24). **Scoring contract moved
+`modes-ff08feef` → `modes-bd3235eb`** — comparability across the flip is
+severed; the comparator refuses to gate across it.
+
+**Judge completeness fix** (same commit; found by the 2934f7a run, v2c028).
+A live-cited factual claim the judge model inventoried but left
+verdict-null was coerced to `unverifiable`, label-failing a case whose
+every judged claim was supported. Now: one completeness retry naming the
+unverdicted claims, then UNGRADED (None) — never a synthetic verdict.
+Dead-citation claims keep their honest `unverifiable` without a retry.
+Verified in the baseline run: zero coercions, zero ungraded across 49.
+
+**First capability baseline** (trio at `fdba68a`, committed `285902e`):
+smoke **7/7** · core **18/49** · scripts **0/4** — the same core headline
+as the honesty run on a much harder bar. Flipped cases 5/14; v2c008 is the
+exemplar (recall 1.0, zero overclaims, clean pass — unanswerable two days
+prior). Failure profile is now the product's, not the harness's:
+**overclaims are the top measured defect** (15 entities; 5 of the 9 flipped
+failures; sharpest: v2c039 at recall 0.94 with 5 overclaimed) — the agent
+scans a phrase variant and reports variant hits as the asked concept. Also
+real: recall variance run-to-run (0.73 → 0.59 on identical questions; the
+agent's scan-phrase choices are nondeterministic), state_absence 8,
+judge-strictness residue ~2. Next lever: an overclaim-discipline prompt
+rule — proposal goes to David separately (prompt changes need his explicit
+approval). His open calls: accept this trio as baseline
+(`nightly --accept`), nightly cron, unassisted calibration labels,
+held-out batch.
+
+Revisit triggers: three runs of flipped-tier numbers to size recall
+variance; false-positive audit of the cc judge once flags accumulate under
+the capability contract.
+
 ## 2026-08-04 — Judge audit: ~92% false positives; judge switched to headless Opus 5
 
 A four-auditor false-positive audit of all 28 `judged:faithfulness` failures

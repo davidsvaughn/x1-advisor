@@ -1,118 +1,95 @@
-# Handoff — golden v2 QA loop live; next: `scan_text` (Path B)
+# Handoff — scan_text live, capability contract live; next: overclaim discipline
 
-> Date: 2026-08-04. Status: **point-in-time handoff**, written after the
-> judge-audit/judge-switch session. Supersedes
-> [`archive/HANDOFF-2026-07-31.md`](archive/HANDOFF-2026-07-31.md) (the
-> Golden v2.0 + H1 build brief — that build is DONE, reviewed, and repaired).
-> Authorized next scope: **`scan_text` (Path B)** — David authorized the
-> build 2026-08-04 and asked for a pause after this documentation pass, so
-> the build is **not started**. Wait for his go before writing tool code.
+> Date: 2026-08-04 (evening). Status: **point-in-time handoff**, written after
+> the scan_text build + tool_ready flip session. Supersedes the morning
+> handoff (that brief's scope — build `scan_text` — is DONE, flipped, and
+> baselined). Authorized next scope: **an overclaim-discipline prompt rule**,
+> proposal owed to David — do NOT apply prompt wording without his explicit
+> approval (standing rule).
 
 ## 0. Read first (in this order)
 
 1. [`../AGENTS.md`](../AGENTS.md) — standing rules; non-negotiable.
 2. [`PLAN.md`](PLAN.md) §R — readiness matrix + gate sequence (current truth).
-3. [`DECISIONS.md`](DECISIONS.md) — the three 2026-08-01/04 entries at the top
-   are the complete record of what happened since the last handoff.
-4. [`QA-RUNBOOK.md`](QA-RUNBOOK.md) — how to run everything; **§8.0 is the
-   current judge**; §1 has the v2 runner commands.
-5. [`GOLDEN-V2-DESIGN-2026-07-31.md`](GOLDEN-V2-DESIGN-2026-07-31.md) — §5.1
-   is the `scan_text` design seed (the truth-set builder is ~80% of the
-   tool); §4 explains the honesty→capability contract flip the tool enables.
+3. [`DECISIONS.md`](DECISIONS.md) — the top entry ("scan_text shipped;
+   tool_ready flipped") is the complete record of 2026-08-04's second half.
+4. [`QA-RUNBOOK.md`](QA-RUNBOOK.md) — §8.0 is the current judge; §1 runner
+   commands.
 
-## 1. What happened since the 2026-07-31 handoff (short version)
+## 1. Where things stand (one paragraph)
 
-Full detail lives in DECISIONS — this is the orientation map, newest first:
+`scan_text` is live (`2934f7a`): the bounded exhaustive scan engine lives in
+`x1_advisor/scan.py`, shared by the agent tool and the truth-set builder —
+one code path, digest-proven. Adoption on first contact was 100%, so David
+approved the `tool_ready` flip (`fdba68a`): the 14 scan cases are
+capability-graded (full recall + zero overclaims), the scoring contract
+moved to `modes-bd3235eb`, and nothing before the flip is comparable to
+anything after. The judge got a completeness fix in the same commit (missing
+per-claim verdicts now retry once, then leave the case UNGRADED — never a
+coerced label). The first capability trio is committed (`285902e`): smoke
+**7/7** · core **18/49** · scripts **0/4**, seed `v2-baseline`, all at
+`fdba68a`. It is the candidate baseline; acceptance is David's call.
 
-1. **Judge switched to headless Opus 5** (`09c2261`). A second-agent-style
-   audit (4 parallel auditors, all 28 faithfulness-failing cases, 74 flagged
-   claims vs the exact evidence snapshots) found ~92% false positives with
-   structural causes in the OpenAI judge pipeline: titles stripped from the
-   payload, per-claim citation tunnel vision, extractor-mutated claims,
-   hyper-literal entailment. New backend: one `claude -p` call per answer,
-   full titled evidence, labels computed in Python
-   (`x1_advisor/agent/judge_cc.py`). `ADVISOR_JUDGE_BACKEND=openai` restores
-   the old pipeline (defects documented in place, un-fixed). Paired rejudge
-   of identical answers: **core 13/49 → 22/49**
-   (`experiments.rejudge_v2`, manifest `2026-08-04_v2_core_cc_801628e_r1`).
-2. **Coverage/honesty prompt rules** (`d8b1799`, David-approved "Path A"):
-   the agent now discloses search scope, never equates empty search with
-   absence (the old prompt literally instructed that error), asserts only
-   supported matches, corrects false premises, surfaces ambiguity, declines
-   out-of-capability actions. Core 8/49 → 13/49; disclosure-cluster failures
-   collapsed (coverage_statement 18→5, overclaims 16→10).
-3. **Five harness defects fixed after a second review** (`0fb175f`,
-   2026-08-01): v2-aware comparator with identity checks, full
-   declared-contract pass composition, real-name truth keys with negation
-   handling, single-commit run identity, body-free script manifests. All
-   2026-07-31 numbers are void; `tests/test_second_review_fixes.py` pins
-   everything.
-4. **H1 is live**: deterministic nightly runner + launcher
-   (`qa/nightly.sh` — timeout, env-scrubbed triage, 0600 transcripts, exit
-   75 preflight skip). The cron line is documented there but **deliberately
-   not installed** (David stood down all crons 2026-07-08).
+## 2. The next build: overclaim discipline (proposal stage)
 
-## 2. Current state of the numbers (2026-08-04, judge = cc:opus)
+The top measured defect (15 overclaimed entities; 5 of the 9 flipped-case
+failures): the agent scans its own phrase variants, then reports variant
+hits as matches of the asked concept — sharpest at v2c039, recall 0.94 with
+5 overclaims. The fix direction discussed with David (he has NOT yet seen or
+approved wording): a rule-7-adjacent prompt rule — attribute scan matches at
+the phrase level the scan actually fired, never silently upgraded to the
+asked concept — possibly paired with `scan_text` echoing fired terms more
+prominently per entity. This is durable tool semantics (the `terms` field
+already exists per excerpt), not test-case patching; still, prompt wording
+goes to David first, with the durable rationale stated. After approval:
+apply, update `SYSTEM_PROMPT_SHA256` in-commit, fresh core run, compare
+flipped-tier movement.
 
-- smoke **7/7** · core **22/49** · scripts **0/4** — same binding seed
-  `v2-baseline` throughout; truth sets current (14/14).
-- Remaining core failures are believed to be REAL agent work: truth_set 6,
-  behavior:state_absence 6, judged:faithfulness 6, coverage_statement 5,
-  judged:citation_coverage 5, quotes_verbatim 2, must_cite 2,
-  correct_premise 2, surface_ambiguity 1.
-- Scripts fail on verbatim-quote drift across turns and one coverage
-  overclaim — deterministic units, judge-independent.
-- **No baseline has ever been accepted** (`experiments/golden/baseline.json`
-  does not exist), so every nightly comparator run reports `no-baseline`.
-  Acceptance is David's call, likely the `_cc` manifests once he trusts them.
+Second lever, cheaper: **recall variance** — scan-phrase choices differ run
+to run (mean recall 0.73 → 0.59 across two runs on identical questions).
+Watch it across the next few runs before proposing anything; it may resolve
+under the overclaim rule (both are phrase-choice discipline).
 
-## 3. The next build: `scan_text` — sketch, not yet designed in anger
+## 3. David's open decisions (his, not yours)
 
-Design §5.1 + the Gate 4 headline name it "build first". The seed: the
-truth-set builder (`experiments/truth.py`) already implements the bounded
-deterministic scan — same scope logic, per-entity
-`matched | no_match | not_indexed` statuses, coverage counts. The tool is
-that engine exposed to the agent with: ACL applied like every data-bearing
-tool, `record_summary` chunks excluded (generated text is not evidence),
-matching chunks registered in the EvidenceRegistry so results are citable,
-and a schema whose description teaches when scanning beats top-k search.
-Known decision points for the build (flag to David, don't decide silently):
+1. **Accept the baseline trio**:
+   `uv run python -m experiments.nightly --accept 2026-08-04_v2_smoke_fdba68a_r1,2026-08-04_v2_core_fdba68a_r1,2026-08-04_scripts_v2.0_fdba68a_r1`
+   — unlocks the comparator (every run since ever reports `no-baseline`).
+2. Nightly cron (line documented in `qa/nightly.sh`; all crons stood down
+   2026-07-08; ~$3/night equivalent + Max-seat judge quota).
+3. Unassisted calibration labels (runbook §7) — gates trust in judged means;
+   also the moment to re-score cc:opus vs terra fairly.
+4. Held-out batch (~10–15 questions, `.qa-artifacts/heldout/`,
+   `--suite-path`).
+5. Triage's parked case-design questions: v2c033, v2c038 oracle strictness,
+   `step_cap` funnel label (funnel.py keys on a "(wrapup)" marker bundles
+   never record).
 
-- **Refactor discipline**: sharing the scan engine between tool and oracle is
-  the design intent (capability grading checks the agent *reports* the scan
-  faithfully), but the refactor must leave truth digests byte-identical —
-  prove it with `uv run python -m experiments.truth --check` (14/14 current)
-  — or bump `BUILDER_VERSION` and rebuild, which moves oracles.
-- **`tool_ready` flip**: 24 cases carry `tool_ready: false` + a fallback
-  honesty contract. Flipping them to capability grading changes the suite
-  digest and pass semantics for half the core tier — land the tool, measure
-  adoption first, and put the flip in front of David with numbers.
-- **Tool-schema hash**: adding a tool changes `TOOL_SCHEMA_SHA256`
-  (`tests/test_agent_units.py`) — update it in the same commit, per its rule.
+## 4. Standing constraints (unchanged; enforced by AGENTS.md + tests)
 
-## 4. Open decisions (David's, not yours)
-
-1. Accept a baseline (`nightly --accept <smoke>,<core>,<scripts>` — probably
-   the 2026-08-04 `_cc` core/scripts + the `aee9de2` smoke, or rerun fresh).
-2. Install the nightly cron (line documented in `qa/nightly.sh`, ~$3/night
-   equivalent + seat quota now that the judge is subscription-billed).
-3. Author the held-out batch (~10–15 questions, `.qa-artifacts/heldout/`,
-   runner supports `--suite-path`).
-4. Unassisted calibration labels (runbook §7) — gates how much the judged
-   means may be trusted; also the right moment to re-score cc:opus vs terra.
-5. Triage's flagged case-design questions: v2c033 (constraint-setting prompt
-   graded as same-turn work), v2c038 (matched-mode people oracles counting
-   differently-sourced-but-true attributions as overclaims), `step_cap`
-   funnel label never applied (`funnel.py` keys on a `"(wrapup)"` marker
-   bundles never record).
-
-## 5. Standing constraints (unchanged, enforced by AGENTS.md + tests)
-
-TEST env only; advisor writes only the `advisor` schema; never commit `.env`.
-Manifests are immutable; truth sets are machine-built, never hand-edited; no
-case bodies/evidence in git or triage reports. No test-case hacking — prompt
-changes need David's explicit approval with a durable product rationale.
+TEST env only; advisor writes only the `advisor` schema; never commit
+`.env`. Manifests immutable; truth sets machine-built, never hand-edited; no
+case/evidence bodies in git or triage reports. No test-case hacking — prompt
+changes need David's explicit approval with durable product rationale.
 Claude Max = David-seat dev/QA only, never production; unknown models raise
-in `cost.py`, never a silent $0. Commit + push at every milestone. Never
-commit while a golden run is live (run-identity taint); never install a cron
-without David's explicit go.
+in `cost.py`. Commit + push at every milestone; never commit during a live
+golden run. `CLAUDE_CONFIG_DIR=/home/david/.claude-max` for all headless
+`claude -p` (judge included). Prompt-prefix hashes
+(`SYSTEM_PROMPT_SHA256`, `TOOL_SCHEMA_SHA256`) update in the same commit as
+any prompt/tool edit.
+
+## 5. Gotchas learned today (cheap to inherit)
+
+- The scan engine's admin path must stay byte-identical to the truth
+  builder's or every committed truth digest moves — `uv run python -m
+  experiments.truth --check` before and after touching `x1_advisor/scan.py`;
+  a semantic change means bumping `BUILDER_VERSION` and rebuilding oracles.
+- The suite's flipped cases dropped `must_not_claim_exhaustive` — do not
+  re-add it to capability cases; a census answer legitimately claims
+  completeness for its scanned scope (design §4).
+- `script_runner` died mid-run once (transient, un-reproduced); its partial
+  manifest was deleted before commit. If a runner dies, delete the partial
+  manifest and re-run — a half-manifest committed as if complete poisons
+  comparisons silently.
+- Judge cost is real: ~$8.5 seat-equivalent per judged core run. Batch your
+  reruns deliberately.
