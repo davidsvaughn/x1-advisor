@@ -22,9 +22,11 @@ from haystack.tools import Tool
 from x1_advisor.agent.evidence import EvidenceRegistry
 from x1_advisor.agent.queries import QUERIES, catalog, run_query
 from x1_advisor.cost import Tracker, Usage, estimate
-from x1_advisor.filters import FilterError, compile_filters, filters_json_schema
+from x1_advisor.filters import FIELDS, FilterError, compile_filters, filters_json_schema
 from x1_advisor.fingerprint import ACL_POLICY_VERSION
 from x1_advisor.retrieval import retrieve
+from x1_advisor.scan import ScanScope
+from x1_advisor.scan import scan as run_scan
 
 SNIPPET_CHARS = 600
 SOURCE_CHARS = 6000
@@ -32,6 +34,30 @@ SUMMARY_CONTEXT_CHARS = 400
 WEB_FINDINGS_CHARS = 1600
 SEARCH_K = 8
 WEB_MODEL = "gpt-5.1"
+
+# scan_text display caps (bank §3.2A). Counts and entity NAME lists are always
+# exact and complete — a scan that dropped a matched entity's identity would
+# re-create the sampler problem the tool exists to fix. The caps bound only
+# how many excerpt bodies ride back into context (§9), they are visible in the
+# tool contract, and overflow is flagged, never silent.
+SCAN_EXCERPT_CHARS = 240
+SCAN_EXCERPTS_PER_ENTITY = 2      # per matched entity; more via get_source
+SCAN_EXCERPT_ENTITY_CAP = 24      # entities with excerpt bodies; rest name-only
+SCAN_MAX_PHRASES = 12
+
+
+def _scan_excerpt(text: str, terms: list[str]) -> str:
+    """A window of the block around the first fired term — the citable proof a
+    match is a match. Verbatim source text (no whitespace normalization): the
+    snapshot registered for the ref must be exactly what the model was shown,
+    and quoted spans must survive a verbatim check against the source."""
+    text = (text or "").strip()
+    lower = text.lower()
+    positions = [p for p in (lower.find(t.lower()) for t in terms) if p >= 0]
+    start = max(0, min(positions) - SCAN_EXCERPT_CHARS // 3) if positions else 0
+    prefix = "… " if start > 0 else ""
+    suffix = " …" if start + SCAN_EXCERPT_CHARS < len(text) else ""
+    return prefix + text[start:start + SCAN_EXCERPT_CHARS].strip() + suffix
 
 # E7 (PLAN Gate 5): when a record summary routes retrieval to a document, is
 # its generated text shown to the model as labelled non-citable context
@@ -117,6 +143,116 @@ def build_tools(conn, *, acl: Any, registry: EvidenceRegistry,
         if gated_note:
             out["access_note"] = gated_note
         return json.dumps(out)
+
+    def scan_text(phrases: Any, entity_type: str = "startup_company",
+                  source_types: Any = None, match: str = "phrase") -> str:
+        # every validation failure is an error the model can act on — echoing
+        # the valid vocabulary, F7-style, never an empty result it might read
+        # as "the corpus holds nothing"
+        if isinstance(phrases, str):
+            phrases = [phrases]
+        phrases = [p.strip() for p in (phrases or [])
+                   if isinstance(p, str) and p.strip()]
+        if not phrases:
+            return json.dumps({"error": "phrases must be a non-empty list of "
+                                        "text phrases"})
+        if len(phrases) > SCAN_MAX_PHRASES:
+            return json.dumps({"error": f"at most {SCAN_MAX_PHRASES} phrases "
+                                        "per scan — run narrower scans"})
+        ef = FIELDS["entity_type"]
+        entity_type = ef.aliases.get(entity_type, entity_type)
+        if entity_type not in ef.values:
+            return json.dumps({"error": f"unknown entity_type {entity_type!r}; "
+                                        f"valid: {sorted(ef.values)}"})
+        sf = FIELDS["source_type"]
+        if isinstance(source_types, str):
+            source_types = [source_types]
+        source_types = list(source_types or sf.values)
+        unknown = sorted(set(source_types) - set(sf.values))
+        if unknown:
+            return json.dumps({"error": f"unknown source_types {unknown}; "
+                                        f"valid: {sorted(sf.values)}"})
+        if match not in ("phrase", "keywords"):
+            return json.dumps({"error": "match must be 'phrase' or 'keywords'"})
+
+        scope = ScanScope(entity_type=entity_type, entity_key="name",
+                          source_types=tuple(source_types),
+                          # blocks only, structurally: record summaries are
+                          # generated text, not evidence (Gate 1B) — a scan
+                          # match must be a match in a source document
+                          granularity=("block",),
+                          method="phrase" if match == "phrase" else "fts",
+                          any_terms=tuple(phrases), all_terms=())
+        result = run_scan(conn, scope, acl=acl, include_text=True)
+
+        # the scan itself is citable evidence, query-kind: deterministic and
+        # reproducible from (scope, corpus), which is exactly what a coverage
+        # claim ("3 of 52 mention X") needs behind it
+        scope_dict = {"entity_type": entity_type, "source_types": source_types,
+                      "match": match, "phrases": phrases}
+        scan_ref = registry.register_query(
+            query_name="scan_text", params=scope_dict,
+            rows=[{"entity": e["key"], "status": e["status"]}
+                  for e in result["entities"]],
+            acl_policy_version=ACL_POLICY_VERSION)
+
+        matched_out: list[dict] = []
+        capped = 0
+        for e in (e for e in result["entities"] if e["status"] == "matched"):
+            item: dict[str, Any] = {"entity": e["key"],
+                                    "matched_chunks": len(e["chunks"])}
+            if e.get("gated_unscanned"):
+                item["gated_unscanned"] = True
+            chunks = sorted(e["chunks"], key=lambda c: (c["document_id"],
+                                                        c["block_index"]))
+            if len(matched_out) < SCAN_EXCERPT_ENTITY_CAP:
+                excerpts = []
+                for chunk in chunks[:SCAN_EXCERPTS_PER_ENTITY]:
+                    excerpt = _scan_excerpt(chunk.get("text") or "",
+                                            chunk["terms"])
+                    ref = registry.register_chunk(
+                        document_id=chunk["document_id"],
+                        block_index=chunk["block_index"],
+                        page_number=chunk.get("page_number"),
+                        title=chunk.get("title"), snapshot=excerpt)
+                    ex = {"ref": ref, "title": chunk.get("title"),
+                          "terms": chunk["terms"], "excerpt": excerpt}
+                    if chunk.get("page_number") is not None:
+                        ex["page"] = chunk["page_number"]
+                    excerpts.append(ex)
+                item["excerpts"] = excerpts
+                if len(chunks) > SCAN_EXCERPTS_PER_ENTITY:
+                    # counted, just not displayed — full text via get_source
+                    item["more_matches"] = len(chunks) - SCAN_EXCERPTS_PER_ENTITY
+            else:
+                capped += 1
+                item["excerpts"] = []
+            matched_out.append(item)
+
+        out: dict[str, Any] = {
+            "ref": scan_ref, "scope": scope_dict, "counts": result["counts"],
+            "matched": matched_out,
+            "no_match": [e["key"] for e in result["entities"]
+                         if e["status"] == "no_match"],
+            "not_indexed": [e["key"] for e in result["entities"]
+                            if e["status"] == "not_indexed"],
+        }
+        restricted = [e["key"] for e in result["entities"]
+                      if e["status"] == "restricted"]
+        if restricted:
+            out["restricted"] = restricted
+            out["access_note"] = (
+                "'restricted' entities have purchase-gated material in scope "
+                "that was NOT scanned. Tell the user gated material exists for "
+                "them and requires access — do not report absence.")
+        if capped:
+            out["_excerpts_capped"] = (
+                f"excerpt bodies shown for the first {SCAN_EXCERPT_ENTITY_CAP} "
+                f"matched entities only ({capped} more listed without "
+                "excerpts); all names and counts are exact")
+        payload = json.dumps(out)
+        registry.upgrade_snapshot(scan_ref, payload)  # verbatim what the model saw
+        return payload
 
     def get_source(ref: str) -> str:
         ev = registry.get(ref)
@@ -223,12 +359,59 @@ def build_tools(conn, *, acl: Any, registry: EvidenceRegistry,
                  "the document, useful for judging relevance but NOT evidence — "
                  "cite the result's `ref`, which points at the source text, and "
                  "call get_source(ref) if you need to verify a detail the summary "
-                 "asserts."),
+                 "asserts. For exhaustive which/all/every checks over a scope, "
+                 "use scan_text instead."),
              parameters={"type": "object",
                          "properties": {"query": {"type": "string"},
                                         "filters": filters_json_schema()},
                          "required": ["query"]},
              function=search_corpus),
+        Tool(name="scan_text",
+             description=(
+                 "Exhaustively scan EVERY indexed document block in a bounded "
+                 "scope for exact phrases (or keywords), returning a per-entity "
+                 "verdict — matched / no_match / not_indexed — with complete "
+                 "coverage counts and a citable excerpt per match. Unlike "
+                 "search_corpus (a top-ranked sample), this is a census of the "
+                 "indexed text: use it for 'which/all/every/how many … mention "
+                 "X' questions over corpus entities instead of repeated "
+                 "searches, and cite the result's own `ref` for coverage "
+                 "counts. A no_match is lexical — the phrases did not appear "
+                 "in that entity's indexed text — never proof the topic is "
+                 "absent semantically."),
+             parameters={"type": "object",
+                         "properties": {
+                             "phrases": {
+                                 "type": "array", "items": {"type": "string"},
+                                 "description": (
+                                     "Short literal phrases; an entity matches "
+                                     "if ANY phrase appears (case-insensitive). "
+                                     "Include common variants (e.g. 'FDA', "
+                                     f"'CE mark'). Max {SCAN_MAX_PHRASES}.")},
+                             "entity_type": {
+                                 "type": "string",
+                                 "enum": list(FIELDS["entity_type"].values),
+                                 "description": "entity class whose documents "
+                                                "to scan (default "
+                                                "startup_company)"},
+                             "source_types": {
+                                 "description": "document classes to scan "
+                                                "(default: all)",
+                                 "anyOf": [
+                                     {"type": "string",
+                                      "enum": list(FIELDS["source_type"].values)},
+                                     {"type": "array",
+                                      "items": {"type": "string",
+                                                "enum": list(FIELDS["source_type"].values)}}]},
+                             "match": {
+                                 "type": "string",
+                                 "enum": ["phrase", "keywords"],
+                                 "description": "phrase = exact substring "
+                                                "(default); keywords = stemmed "
+                                                "full-text word matching"},
+                         },
+                         "required": ["phrases"]},
+             function=scan_text),
         Tool(name="get_source",
              description="Fetch the full text of one evidence block by its ref "
                          "(escalation path when a search snippet was truncated).",

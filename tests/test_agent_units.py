@@ -19,11 +19,12 @@ from x1_advisor.ingest.chunker import chunk_markdown
 # must be deliberate: update the hash in the same commit and say why in the
 # message. Pinning only the prompt missed four tool-description edits in Phase 4
 # alone (DESIGN-REVIEW F4).
-# 2026-08-04: coverage/honesty rules added (David-approved) — sampler-not-census
-# disclosure, absence-of-evidence wording, premise/ambiguity/decline obligations.
-SYSTEM_PROMPT_SHA256 = "b9e3dcd67810401a0af0ead00218fb259e92b574a04c9c4ec091a6dff83df942"
-# 2026-07-31 Gate 1B-4: structured_query results carry a citation ref
-TOOL_SCHEMA_SHA256 = "9ccdfb692390ceb14a64ce6dac820e5bacf19c0fbae518d2fecce41fadf0cab7"
+# 2026-08-04 (2): scan_text shipped (Path B, David-authorized) — tool list entry
+# + rule 5 now names the census tool and its lexical-no-match semantics.
+SYSTEM_PROMPT_SHA256 = "ae164ef737e6dc033ab7c1ce618e30fdc1be7c2915abc2ce7493e9ffcfde1523"
+# 2026-08-04: scan_text tool added (bank §3.2A); search_corpus description
+# gained the routing pointer to it
+TOOL_SCHEMA_SHA256 = "045f7fa6381032f50f80c96997abcd3cbaf8dbeb2eac79abb3dc65497a4918c7"
 
 
 def test_prompt_prefix_stability():

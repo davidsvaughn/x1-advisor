@@ -55,6 +55,8 @@ from experiments.cases import (
 from x1_advisor.agent.bundle import QA_ARTIFACTS_DIR
 from x1_advisor.db import connect
 from x1_advisor.fingerprint import corpus_text_watermark, sha256_text
+from x1_advisor.scan import ScanScope
+from x1_advisor.scan import scan as _engine_scan
 
 # Bump when the SCAN semantics change (match evaluation, entity keying, status
 # assignment). Every truth set records the version it was built with, and a
@@ -85,50 +87,16 @@ class TruthSetStale(Exception):
 # --- the scan -------------------------------------------------------------
 
 
-def _match_columns(spec: TruthSpec) -> tuple[str, list[str], list[str]]:
-    """One boolean column per term, evaluated in the database.
-
-    Per-term columns rather than one combined predicate: the phrase list is the
-    authored half of the oracle, so an audit has to be able to ask "which term
-    actually fired" without re-running anything.
-    """
-    terms = [*spec.any_terms, *spec.all_terms]
-    cols, params = [], []
-    for i, term in enumerate(terms):
-        if spec.method == "phrase":
-            cols.append(f"(ch.text ILIKE %s) AS t{i}")
-            params.append(f"%{term}%")
-        else:                                   # fts
-            cols.append(f"(to_tsvector('english', ch.text) "
-                        f"@@ plainto_tsquery('english', %s)) AS t{i}")
-            params.append(term)
-    return ", ".join(cols), params, terms
-
-
-def _hit(row: dict, spec: TruthSpec, terms: list[str]) -> tuple[bool, list[str]]:
-    n_any = len(spec.any_terms)
-    fired = [term for i, term in enumerate(terms) if row.get(f"t{i}")]
-    any_ok = (not spec.any_terms) or any(row.get(f"t{i}") for i in range(n_any))
-    all_ok = all(row.get(f"t{i}") for i in range(n_any, len(terms)))
-    return (any_ok and all_ok), fired
-
-
-def _entity_key(row: dict, spec: TruthSpec) -> str:
-    name = row.get("name") or f"<{spec.entity_type}:{row.get('entity_id')}>"
-    if spec.entity_key == "name":
-        return name
-    env = row.get("env") or "test"
-    return f"{env}:{row.get('entity_id') or name}"
-
-
 def scan(conn, spec: TruthSpec) -> dict[str, Any]:
     """Run the bounded scan. Pure function of (corpus, spec) — no model, no ACL
     beyond the admin scope golden runs use.
 
-    This is ~80% of `scan_text` (bank §3.2A): same bounded-scope query, same
-    per-entity `matched | no_match | not_indexed` statuses, same coverage counts.
-    When the tool ships, these cases flip from honesty- to capability-graded with
-    the oracle already in place.
+    The engine lives in `x1_advisor.scan` — it IS `scan_text` (bank §3.2A):
+    same bounded-scope query, same per-entity `matched | no_match | not_indexed`
+    statuses, same coverage counts. Sharing the code is the design intent:
+    capability grading checks that the agent *reports* this exact scan
+    faithfully, so grader and tool must never drift apart. This wrapper adds
+    the oracle policy the engine doesn't carry: truth sets are admin-scoped.
     """
     if spec.acl != "admin":
         # Gate 6 personas need their own truth sets; reusing an admin-scoped
@@ -136,90 +104,11 @@ def scan(conn, spec: TruthSpec) -> dict[str, Any]:
         # is not allowed to see.
         raise TruthSetError(f"only admin-scoped truth sets are supported, got "
                             f"acl={spec.acl!r}")
-
-    cols, params, terms = _match_columns(spec)
-    rows = conn.execute(
-        f"""SELECT ch.id AS chunk_id, ch.document_id, ch.block_index,
-                   -- CV / investor / organization chunks carry no company_name;
-                   -- the entity's NAME is the title's first ' — ' segment
-                   -- ("Paul Jaminet — CV" → "Paul Jaminet"), the same
-                   -- convention entity_vocabulary uses. The full title is a
-                   -- key no answer can ever match (builder v2).
-                   coalesce(ch.metadata->>'company_name',
-                            split_part(d.title, ' — ', 1)) AS name,
-                   coalesce(ch.metadata->>'entity_ref_env', 'test') AS env,
-                   ch.metadata->>'entity_id' AS entity_id,
-                   {cols}
-            FROM advisor.doc_chunks ch
-            JOIN advisor.documents d ON d.id = ch.document_id
-            WHERE d.superseded_by IS NULL
-              AND d.source_type = ANY(%s)
-              AND ch.granularity = ANY(%s)
-              AND ch.metadata->>'entity_type' = %s""",
-        (*params, list(spec.source_types), list(spec.granularity),
-         spec.entity_type),
-    ).fetchall()
-
-    entities: dict[str, dict[str, Any]] = {}
-    refs: set[tuple[str, str]] = set()
-    names: set[str] = set()
-    for raw in rows:
-        row = dict(raw)
-        key = _entity_key(row, spec)
-        refs.add((row.get("env") or "test",
-                  str(row.get("entity_id") or row.get("name"))))
-        if row.get("name"):
-            names.add(row["name"])
-        entity = entities.setdefault(key, {"key": key, "status": "no_match",
-                                           "scanned_chunks": 0, "chunks": [],
-                                           "records": []})
-        entity["scanned_chunks"] += 1
-        record = {"env": row.get("env") or "test", "entity_id": row.get("entity_id"),
-                  "name": row.get("name")}
-        if record not in entity["records"]:
-            entity["records"].append(record)
-        hit, fired = _hit(row, spec, terms)
-        if hit:
-            entity["status"] = "matched"
-            # every match, never a sample: a truncated oracle grades a smaller
-            # question than the one the case asks
-            entity["chunks"].append({"chunk_id": row["chunk_id"],
-                                     "document_id": row["document_id"],
-                                     "block_index": row["block_index"],
-                                     "terms": fired})
-
-    # entities the platform knows about that have nothing in scope: a coverage
-    # claim has to account for them, and "we hold no documents for X" is a
-    # different answer from "X does not mention it"
-    if spec.entity_type == "startup_company":
-        for raw in conn.execute(
-                "SELECT id, name FROM startup_companies ORDER BY id").fetchall():
-            row = {"name": raw["name"], "entity_id": str(raw["id"]), "env": "test"}
-            key = _entity_key(row, spec)
-            refs.add(("test", str(raw["id"])))
-            names.add(raw["name"])
-            if key not in entities:
-                entities[key] = {"key": key, "status": "not_indexed",
-                                 "scanned_chunks": 0, "chunks": [],
-                                 "records": [row]}
-
-    ordered = [entities[k] for k in sorted(entities)]
-    by_status = {s: sum(1 for e in ordered if e["status"] == s)
-                 for s in ("matched", "no_match", "not_indexed")}
-    return {
-        "entities": ordered,
-        "counts": {
-            "eligible": len(ordered),
-            "scanned": sum(1 for e in ordered if e["scanned_chunks"]),
-            **by_status,
-            "scanned_chunks": sum(e["scanned_chunks"] for e in ordered),
-            "matching_chunks": sum(len(e["chunks"]) for e in ordered),
-            # both denominators, always — 9 names exist in two envs, so these
-            # differ and a grader must know which one the case meant
-            "entity_names": len(names),
-            "entity_records": len(refs),
-        },
-    }
+    scope = ScanScope(entity_type=spec.entity_type, entity_key=spec.entity_key,
+                      source_types=spec.source_types,
+                      granularity=spec.granularity, method=spec.method,
+                      any_terms=spec.any_terms, all_terms=spec.all_terms)
+    return _engine_scan(conn, scope, acl="admin")
 
 
 # --- truth sets -----------------------------------------------------------
