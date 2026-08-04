@@ -19,7 +19,9 @@ from x1_advisor.ingest.chunker import chunk_markdown
 # must be deliberate: update the hash in the same commit and say why in the
 # message. Pinning only the prompt missed four tool-description edits in Phase 4
 # alone (DESIGN-REVIEW F4).
-SYSTEM_PROMPT_SHA256 = "dc236bb7a28dc61c3dde170aead6f7c328eaa10024bb763a30d6388a7ca3c13a"
+# 2026-08-04: coverage/honesty rules added (David-approved) — sampler-not-census
+# disclosure, absence-of-evidence wording, premise/ambiguity/decline obligations.
+SYSTEM_PROMPT_SHA256 = "b9e3dcd67810401a0af0ead00218fb259e92b574a04c9c4ec091a6dff83df942"
 # 2026-07-31 Gate 1B-4: structured_query results carry a citation ref
 TOOL_SCHEMA_SHA256 = "9ccdfb692390ceb14a64ce6dac820e5bacf19c0fbae518d2fecce41fadf0cab7"
 
