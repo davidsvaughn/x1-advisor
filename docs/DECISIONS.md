@@ -4,6 +4,58 @@
 > engineering choices land here, newest first. Each entry names its evidence (spike
 > output, manifest path, or doc reference) and the revisit trigger if one exists.
 
+## 2026-08-04 — Judge audit: ~92% false positives; judge switched to headless Opus 5
+
+A four-auditor false-positive audit of all 28 `judged:faithfulness` failures
+in the post-Path-A run (74 flagged claims, each checked against the exact
+evidence snapshots; full rulings owner-only at
+`.qa-artifacts/reports/2026-08-04_judge_audit.md`) found **3 judge-correct /
+68 false-positive / 3 ambiguous**. Causes were structural, in the judging
+harness, not the judge model: `evidence_texts()` stripped document titles
+(the only carrier of company names and report types), `judge_one()` showed
+each claim only its own citations (comparative claims unjudgeable by
+construction), the inventory step mutated claims before grading them, and
+the entailment prompt punished faithful paraphrase. Path-A disclosure
+sentences were separately being counted as uncited factual claims — honesty
+penalized in the citation-coverage dimension (the −0.058 dip explained).
+
+Decision (David, 2026-08-04): while golden v2 is in heavy development, **the
+judge is the auditor** — `ADVISOR_JUDGE_BACKEND=cc` (default) judges via one
+headless `claude -p` call per answer with the full titled evidence set;
+model **Opus 5** (David: "the auditor should be opus-5"). Labels and scores
+stay Python-computed, so label semantics are unchanged; the judge_model in
+every projection severs the scoring contract between backends. Dev/QA only
+per the Track H billing boundary — production judging must be API-billed.
+The OpenAI pipeline stays selectable (`ADVISOR_JUDGE_BACKEND=openai`) with
+its defects documented in place, un-fixed. Landed in `09c2261`.
+
+Evidence, calibration, and the paired rejudge (`experiments.rejudge_v2`,
+same bundles, fresh judgment, originals untouched):
+
+- cc:opus vs the 32 assisted human labels: kappa 0.56 (terra 0.63), every
+  miss a partial-boundary call, **zero false clean bills**. The replay uses
+  stored title-less pairs, so the informational fixes cannot score here;
+  the pending unassisted label batch (runbook §8) will give the real read.
+- Core, same agent outputs (`2026-08-04_v2_core_cc_801628e_r1`): **13/49 →
+  22/49**. `judged:faithfulness` failures 28 → 6; faithfulness mean 0.830 →
+  0.955, citation coverage 0.776 → 0.915. Eleven up-flips; two down-flips,
+  both defensible — v2c026 a genuine catch (platform-capability claim cited
+  to two narrative passages that say nothing about it), v2c020 a mild
+  strictness call (one over-extended claim + uncited analytic conclusions).
+- Scripts (`2026-08-04_scripts_v2.0_cc_801628e_r1`): 0/4 unchanged — those
+  failures are deterministic quote/coverage units, not judge labels.
+- Judge cost, API-equivalent (subscription-billed in practice): ~$0.17/case,
+  $7.98/core run, $1.67/scripts. Headless calls share the Max seat quota.
+
+Remaining core failure profile is now dominated by real agent work:
+truth_set 6, state_absence 6, judged:faithfulness 6, coverage_statement 5,
+judged:citation_coverage 5, quotes_verbatim 2, must_cite 2,
+correct_premise 2, surface_ambiguity 1. Next authorized step: Path B
+(`scan_text`). Revisit triggers: unassisted calibration batch before
+trusting cc-judge means as gates; audit a sample of cc-judge flags once
+enough accumulate (the auditor-judge deserves the same skepticism the old
+judge got).
+
 ## 2026-08-04 — Path A: coverage/honesty prompt rules (David-approved)
 
 David approved the full Path A draft (2026-08-04); applied in `d8b1799`:
