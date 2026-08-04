@@ -284,14 +284,39 @@ def judge_bundle_cc(conn, bundle: dict, *, tracker: Tracker | None = None,
     for attempt in range(2):
         cli_out = run(prompt, tracker=tracker, stage="judge.cc")
         try:
-            inventory = CCInventory.model_validate(
+            candidate = CCInventory.model_validate(
                 _parse_json_result((cli_out or {}).get("result", "")))
-            break
         except (ValueError, ValidationError) as exc:
             if attempt == 1:
                 return None          # ungraded, loudly — never guessed
             prompt += ("\n\nYour previous output failed to parse "
                        f"({exc.__class__.__name__}). Output ONLY the JSON object.")
+            continue
+        # A cited factual claim with LIVE evidence and no verdict is an
+        # incomplete judgment, not an unverifiable claim (2934f7a run,
+        # v2c028: coercing these to 'unverifiable' label-failed a case whose
+        # every judged claim was supported). Retry once naming the gaps;
+        # still incomplete → the case is UNGRADED. Claims whose citations
+        # all point at dead refs are excluded here — the judge was shown no
+        # evidence for them, so a null verdict is the honest output and the
+        # dead-citation branch below handles them.
+        unjudged = [c.text for c in candidate.claims
+                    if c.is_factual and c.citation_numbers and not c.verdict
+                    and any(sources.get(n, {}).get("text")
+                            for n in c.citation_numbers)]
+        if not unjudged:
+            inventory = candidate
+            break
+        if attempt == 1:
+            return None              # incomplete twice — ungraded, never coerced
+        listed = "; ".join(f'"{t[:80]}"' for t in unjudged[:10])
+        prompt += ("\n\nYour output left these cited factual assertions "
+                   f"without a verdict: {listed}. Re-output the COMPLETE JSON "
+                   "object with a verdict (supported | partial | unsupported) "
+                   "for every factual assertion that has at least one "
+                   "citation shown in the evidence.")
+    if inventory is None:
+        return None
 
     claims = inventory.claims
     factual = [c for c in claims if c.is_factual]
@@ -307,9 +332,11 @@ def judge_bundle_cc(conn, bundle: dict, *, tracker: Tracker | None = None,
                              "reason": f"no evidence text for {missing}",
                              "locators": []})
             continue
+        # by construction non-null here: live-cited claims without a verdict
+        # were retried above, and twice-incomplete judgments returned None
         verdicts.append({"claim": c.text, "citations": c.citation_numbers,
-                         "verdict": c.verdict or "unverifiable",
-                         "reason": c.reason or "judge returned no verdict",
+                         "verdict": c.verdict,
+                         "reason": c.reason or "",
                          "locators": [sources[n]["locator"]
                                       for n in c.citation_numbers
                                       if sources.get(n)]})

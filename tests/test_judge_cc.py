@@ -110,6 +110,56 @@ def test_cc_unparseable_twice_is_ungraded_never_guessed():
     assert verdict is None
 
 
+def _inventory_unjudged():
+    """A live-cited factual claim the judge inventoried but never judged —
+    the v2c028 shape (2934f7a run): coercing it to 'unverifiable' label-failed
+    a case whose every judged claim was supported."""
+    inv = _inventory()
+    inv["claims"][0] = {**inv["claims"][0], "verdict": None, "reason": None}
+    return inv
+
+
+def test_cc_unjudged_live_claim_retries_then_uses_complete_verdicts():
+    calls = []
+
+    def transport(prompt, **kw):
+        calls.append(prompt)
+        return _cli(_inventory_unjudged() if len(calls) == 1 else _inventory())
+
+    verdict = judge_bundle_cc(None, _bundle(), _transport=transport)
+    assert verdict is not None and len(calls) == 2
+    assert "without a verdict" in calls[1]
+    assert "Brian Clark led CMC" in calls[1]         # names the gap
+    by_claim = {v["claim"]: v["verdict"] for v in verdict["verdicts"]}
+    assert by_claim["Brian Clark led CMC for two FDA-approved drugs"] == "supported"
+    # the only unverifiable left is the genuinely dead ref
+    assert verdict["counts"]["unverifiable"] == 1
+
+
+def test_cc_unjudged_twice_is_ungraded_never_coerced():
+    verdict = judge_bundle_cc(
+        None, _bundle(),
+        _transport=lambda p, **kw: _cli(_inventory_unjudged()))
+    assert verdict is None
+
+
+def test_cc_dead_ref_null_verdict_is_unverifiable_without_retry():
+    """A claim whose every citation points at a dead ref was shown NO evidence
+    — a null verdict there is the honest output, not an incomplete judgment."""
+    inv = _inventory()
+    inv["claims"][4] = {**inv["claims"][4], "verdict": None, "reason": None}
+    calls = []
+
+    def transport(prompt, **kw):
+        calls.append(prompt)
+        return _cli(inv)
+
+    verdict = judge_bundle_cc(None, _bundle(), _transport=transport)
+    assert verdict is not None and len(calls) == 1   # no retry
+    assert verdict["counts"]["unverifiable"] == 1
+    assert "unverifiable_citation" in verdict["labels"]
+
+
 def test_cc_prompt_carries_titles_and_uncited_evidence():
     """The two informational fixes from the 2026-08-04 audit: titles present,
     and evidence the agent saw but did not cite still shown to the judge."""

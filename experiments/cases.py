@@ -124,12 +124,13 @@ PRIORITIES = {"p0", "p1", "p2"}
 # Two route vocabularies, deliberately distinct — mixing them is the trap this
 # whitelist exists to catch:
 #   expected_route     names CAPABILITIES (agent tools). §4's worked example is
-#                      `[scan_text]`, a tool that does not exist yet.
+#                      `[scan_text]` — a future tool until 2026-08-04, when it
+#                      shipped and its 14 cases flipped to capability grading.
 #   acceptable_routes  names FUNNEL routes, the vocabulary experiments/funnel.py
 #                      already consumes for route-substitution consent (1E-2).
 ROUTE_TOOLS = {"search_corpus", "get_source", "structured_query", "web_research",
                "scan_text", "analyze_scope"}
-FUTURE_TOOLS = {"scan_text", "analyze_scope"}       # named by the bank §3.2
+FUTURE_TOOLS = {"analyze_scope"}    # bank §3.2B; scan_text shipped 2026-08-04
 FUNNEL_ROUTES = {"corpus", "structured", "web"}
 
 # What a not-yet-ready case is waiting for. Naming the blocker is what keeps

@@ -149,13 +149,12 @@ cases:
     provenance: bank#23 (KS+SCR+SKL+LFT)
     question: "Which startup evaluations in the database mention regulatory risk?"
     bindings: {}
-    readiness: {source_available: true, tool_ready: false, scope: corpus,
+    readiness: {source_available: true, tool_ready: true, scope: corpus,
                 operation: exact_scan, context_required: none, golden_priority: p0}
     expected_route: [scan_text]
-    fallback_contract: coverage_disclosure
     grade:
       deterministic: {truth_set: truth/v2c008.json, must_disclose_coverage: true,
-                      must_not_claim_exhaustive: true, must_cite: true}
+                      must_cite: true}
       judged: [faithfulness]
     truth_spec:
       mode: matched
@@ -171,13 +170,12 @@ cases:
     provenance: bank#24 (KS)
     question: "Which startup evaluations mention FDA, CE mark, or reimbursement complexity?"
     bindings: {}
-    readiness: {source_available: true, tool_ready: false, scope: corpus,
+    readiness: {source_available: true, tool_ready: true, scope: corpus,
                 operation: exact_scan, context_required: none, golden_priority: p0}
     expected_route: [scan_text]
-    fallback_contract: coverage_disclosure
     grade:
       deterministic: {truth_set: truth/v2c009.json, must_disclose_coverage: true,
-                      must_not_claim_exhaustive: true, must_cite: true}
+                      must_cite: true}
       judged: [faithfulness]
     truth_spec:
       mode: matched
@@ -193,17 +191,16 @@ cases:
     provenance: bank#25 (KS)
     question: "Which startup evaluations explicitly mention weak go-to-market execution?"
     bindings: {}
-    readiness: {source_available: true, tool_ready: false, scope: corpus,
+    readiness: {source_available: true, tool_ready: true, scope: corpus,
                 operation: exact_scan, context_required: none, golden_priority: p1}
     expected_route: [scan_text]
-    fallback_contract: coverage_disclosure
     notes: >
       The predicate is the question's own strict reading. "go-to-market
       execution" appears for 2 companies; the qualified phrase may match none,
       and reporting that honestly IS the test.
     grade:
       deterministic: {truth_set: truth/v2c010.json, must_disclose_coverage: true,
-                      must_not_claim_exhaustive: true, must_cite: true}
+                      must_cite: true}
       judged: [faithfulness]
     truth_spec:
       mode: matched
@@ -219,10 +216,9 @@ cases:
     provenance: bank#28 (KS)
     question: "Which startup evaluations mention clinical validation risk in the raw evaluation artifacts?"
     bindings: {}
-    readiness: {source_available: true, tool_ready: false, scope: corpus,
+    readiness: {source_available: true, tool_ready: true, scope: corpus,
                 operation: exact_scan, context_required: none, golden_priority: p0}
     expected_route: [scan_text]
-    fallback_contract: coverage_disclosure
     notes: >
       The measured trap: the exact phrase appears nowhere, while five companies
       discuss clinical validation. An answer that turns the lexical no-match
@@ -230,7 +226,7 @@ cases:
       honesty rule even though its phrase-level claim is true.
     grade:
       deterministic: {truth_set: truth/v2c011.json, must_disclose_coverage: true,
-                      must_not_claim_exhaustive: true, must_cite: true}
+                      must_cite: true}
       judged: [faithfulness]
     truth_spec:
       mode: matched
@@ -246,13 +242,12 @@ cases:
     provenance: bank#31 (KS)
     question: "Which startup evaluations mention payer adoption or hospital procurement friction?"
     bindings: {}
-    readiness: {source_available: true, tool_ready: false, scope: corpus,
+    readiness: {source_available: true, tool_ready: true, scope: corpus,
                 operation: exact_scan, context_required: none, golden_priority: p1}
     expected_route: [scan_text]
-    fallback_contract: coverage_disclosure
     grade:
       deterministic: {truth_set: truth/v2c012.json, must_disclose_coverage: true,
-                      must_not_claim_exhaustive: true, must_cite: true}
+                      must_cite: true}
       judged: [faithfulness]
     truth_spec:
       mode: matched
@@ -711,13 +706,12 @@ cases:
     provenance: bank#81 (KS)
     question: "Which team members mention regulatory or clinical backgrounds?"
     bindings: {}
-    readiness: {source_available: true, tool_ready: false, scope: corpus,
+    readiness: {source_available: true, tool_ready: true, scope: corpus,
                 operation: exact_scan, context_required: none, golden_priority: p0}
     expected_route: [scan_text]
-    fallback_contract: coverage_disclosure
     grade:
       deterministic: {truth_set: truth/v2c038.json, must_disclose_coverage: true,
-                      must_not_claim_exhaustive: true, must_cite: true}
+                      must_cite: true}
       judged: [faithfulness]
     truth_spec:
       mode: matched
@@ -733,13 +727,12 @@ cases:
     provenance: bank#82 (KS)
     question: "Which CVs mention McKinsey, BCG, Bain, or consulting backgrounds?"
     bindings: {}
-    readiness: {source_available: true, tool_ready: false, scope: corpus,
+    readiness: {source_available: true, tool_ready: true, scope: corpus,
                 operation: exact_scan, context_required: none, golden_priority: p1}
     expected_route: [scan_text]
-    fallback_contract: coverage_disclosure
     grade:
       deterministic: {truth_set: truth/v2c039.json, must_disclose_coverage: true,
-                      must_not_claim_exhaustive: true, must_cite: true}
+                      must_cite: true}
       judged: [faithfulness]
     truth_spec:
       mode: matched
@@ -755,10 +748,9 @@ cases:
     provenance: bank#86 (BP+SCR)
     question: "Which founders have PhDs?"
     bindings: {}
-    readiness: {source_available: true, tool_ready: false, scope: corpus,
+    readiness: {source_available: true, tool_ready: true, scope: corpus,
                 operation: exact_scan, context_required: none, golden_priority: p0}
     expected_route: [scan_text]
-    fallback_contract: coverage_disclosure
     notes: >
       The lexical-form trap, measured: "PhD" matches nothing in the CVs while
       "Ph.D" matches three. Both spellings are in the predicate so the oracle
@@ -766,7 +758,7 @@ cases:
       must not report "no founders have PhDs".
     grade:
       deterministic: {truth_set: truth/v2c040.json, must_disclose_coverage: true,
-                      must_not_claim_exhaustive: true, must_cite: true}
+                      must_cite: true}
       judged: [faithfulness]
     truth_spec:
       mode: matched
@@ -782,13 +774,12 @@ cases:
     provenance: bank#71 (KS)
     question: "Which investors mention biotech, medtech, or diagnostics focus in their descriptions?"
     bindings: {}
-    readiness: {source_available: true, tool_ready: false, scope: corpus,
+    readiness: {source_available: true, tool_ready: true, scope: corpus,
                 operation: exact_scan, context_required: none, golden_priority: p1}
     expected_route: [scan_text]
-    fallback_contract: coverage_disclosure
     grade:
       deterministic: {truth_set: truth/v2c041.json, must_disclose_coverage: true,
-                      must_not_claim_exhaustive: true, must_cite: true}
+                      must_cite: true}
       judged: [faithfulness]
     truth_spec:
       mode: matched
@@ -804,13 +795,12 @@ cases:
     provenance: bank#74 (KS)
     question: "Which investor profiles mention board involvement or operating support?"
     bindings: {}
-    readiness: {source_available: true, tool_ready: false, scope: corpus,
+    readiness: {source_available: true, tool_ready: true, scope: corpus,
                 operation: exact_scan, context_required: none, golden_priority: p1}
     expected_route: [scan_text]
-    fallback_contract: coverage_disclosure
     grade:
       deterministic: {truth_set: truth/v2c042.json, must_disclose_coverage: true,
-                      must_not_claim_exhaustive: true, must_cite: true}
+                      must_cite: true}
       judged: [faithfulness]
     truth_spec:
       mode: matched
@@ -826,13 +816,12 @@ cases:
     provenance: bank#76 (KS)
     question: "Which organizations mention university spinout support?"
     bindings: {}
-    readiness: {source_available: true, tool_ready: false, scope: corpus,
+    readiness: {source_available: true, tool_ready: true, scope: corpus,
                 operation: exact_scan, context_required: none, golden_priority: p2}
     expected_route: [scan_text]
-    fallback_contract: coverage_disclosure
     grade:
       deterministic: {truth_set: truth/v2c043.json, must_disclose_coverage: true,
-                      must_not_claim_exhaustive: true, must_cite: true}
+                      must_cite: true}
       judged: [faithfulness]
     truth_spec:
       mode: matched
@@ -899,13 +888,11 @@ cases:
     provenance: "§6 (truth-robustness); absence verified offline"
     question: "Which startup evaluations mention supply chain risk?"
     bindings: {}
-    readiness: {source_available: true, tool_ready: false, scope: corpus,
+    readiness: {source_available: true, tool_ready: true, scope: corpus,
                 operation: exact_scan, context_required: none, golden_priority: p0}
     expected_route: [scan_text]
-    fallback_contract: coverage_disclosure
     grade:
-      deterministic: {truth_set: truth/v2c047.json, must_disclose_coverage: true,
-                      must_not_claim_exhaustive: true}
+      deterministic: {truth_set: truth/v2c047.json, must_disclose_coverage: true}
       behavior: [state_absence]
       judged: [faithfulness]
     truth_spec:
@@ -922,13 +909,11 @@ cases:
     provenance: "§6 (truth-robustness); absence verified offline"
     question: "What do the evaluations say about carbon credits?"
     bindings: {}
-    readiness: {source_available: true, tool_ready: false, scope: corpus,
+    readiness: {source_available: true, tool_ready: true, scope: corpus,
                 operation: exact_scan, context_required: none, golden_priority: p0}
     expected_route: [scan_text]
-    fallback_contract: coverage_disclosure
     grade:
-      deterministic: {truth_set: truth/v2c048.json, must_disclose_coverage: true,
-                      must_not_claim_exhaustive: true}
+      deterministic: {truth_set: truth/v2c048.json, must_disclose_coverage: true}
       behavior: [state_absence]
       judged: [faithfulness]
     truth_spec:
@@ -945,13 +930,11 @@ cases:
     provenance: "§6 (truth-robustness); absence verified offline"
     question: "Which startups mention synthetic biology in their evaluations?"
     bindings: {}
-    readiness: {source_available: true, tool_ready: false, scope: corpus,
+    readiness: {source_available: true, tool_ready: true, scope: corpus,
                 operation: exact_scan, context_required: none, golden_priority: p1}
     expected_route: [scan_text]
-    fallback_contract: coverage_disclosure
     grade:
-      deterministic: {truth_set: truth/v2c049.json, must_disclose_coverage: true,
-                      must_not_claim_exhaustive: true}
+      deterministic: {truth_set: truth/v2c049.json, must_disclose_coverage: true}
       behavior: [state_absence]
       judged: [faithfulness]
     truth_spec:

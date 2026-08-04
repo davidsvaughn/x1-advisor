@@ -23,8 +23,10 @@ from experiments.cases import (
     resolve_bindings,
 )
 
-# A minimal valid case: corpus enumeration under the honesty contract, exactly
-# the shape §4 works through.
+# A minimal valid case: corpus enumeration under the honesty contract, the
+# shape §4 works through. Routed to analyze_scope — the remaining FUTURE tool —
+# so the fixture keeps exercising the waiting-on-a-tool rules now that
+# scan_text shipped (2026-08-04) and its shipped cases are capability-graded.
 BASE_CASE = {
     "id": "v2c001",
     "class": "enumeration_text",
@@ -40,7 +42,7 @@ BASE_CASE = {
         "context_required": "none",
         "golden_priority": "p0",
     },
-    "expected_route": ["scan_text"],
+    "expected_route": ["analyze_scope"],
     "fallback_contract": "coverage_disclosure",
     "grade": {
         "deterministic": {
@@ -140,9 +142,10 @@ def test_shipped_v2_suite_compiles():
     assert len(suite.cases) >= 50 and len(suite.scripts) >= 4
 
     # the design's §4 worked example, now v2c008: honesty-graded until
-    # scan_text exists, oracle computed, not authored
+    # scan_text shipped (2026-08-04), capability-graded since — oracle
+    # computed, not authored, and the contract string moved with the flip
     v2c008 = suite.by_id("v2c008")
-    assert v2c008.grading_mode == "honesty" and v2c008.blocked_on == "scan_text"
+    assert v2c008.grading_mode == "capability" and v2c008.blocked_on is None
     assert v2c008.truth_set == "truth/v2c008.json"
 
 
@@ -264,7 +267,7 @@ def test_readiness_block_is_required_in_full(tmp_path):
 def test_case_cannot_be_tool_ready_for_a_tool_that_does_not_exist(tmp_path):
     out = errors_from(tmp_path, cases=[case(readiness={"tool_ready": True},
                                             fallback_contract=None)])
-    assert "expected_route names ['scan_text'], which does not exist yet" in out
+    assert "expected_route names ['analyze_scope'], which does not exist yet" in out
 
 
 def test_not_ready_case_must_name_what_it_waits_on(tmp_path):
@@ -292,7 +295,7 @@ def test_not_ready_case_must_name_what_it_waits_on(tmp_path):
 
 def test_future_route_supplies_the_blocker_without_restating_it(tmp_path):
     suite = build(tmp_path, cases=[BASE_CASE])
-    assert suite.by_id("v2c001").blocked_on == "scan_text"
+    assert suite.by_id("v2c001").blocked_on == "analyze_scope"
 
 
 def test_fallback_contract_is_required_exactly_when_not_tool_ready(tmp_path):
