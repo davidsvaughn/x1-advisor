@@ -4,6 +4,42 @@
 > engineering choices land here, newest first. Each entry names its evidence (spike
 > output, manifest path, or doc reference) and the revisit trigger if one exists.
 
+## 2026-08-04 — Path A: coverage/honesty prompt rules (David-approved)
+
+David approved the full Path A draft (2026-08-04); applied in `d8b1799`:
+coverage/honesty rules 5–9 in `SYSTEM_PROMPT` (sampler-not-census disclosure,
+absence-of-evidence wording, supported-matches-only, premise correction,
+ambiguity surfacing, decline-and-offer-research), a sampler note on
+`search_corpus`'s description, and a fix to the step-budget line that
+literally instructed the agent to "conclude the material is not in the
+corpus" on an empty search — the exact epistemic error the honesty tier
+grades. Prompt-cache hash pin updated in the same commit.
+
+Rerun at `d8b1799` (seed `v2-baseline`, judged, truth sets current 14/14;
+manifests `2026-08-04_v2_smoke_d8b1799_r2`, `2026-08-04_v2_core_d8b1799_r2`,
+`2026-08-04_scripts_v2.0_d8b1799_r2` — `_r1` files were empty artifacts of a
+DB-auth crash, deleted):
+
+- **Smoke 7/7** (was 7/7). **Core 13/49** (was 8/49; comparator: 6 fixed —
+  v2c017, v2c020, v2c040, v2c044, v2c048, v2c054 — 1 broken — v2c024, lost
+  on judged:faithfulness — net −5). **Scripts 0/4** (unchanged; multi-turn
+  quote drift and turn-2 coverage overclaim were not targets of this change).
+- Failing-unit shifts on core: coverage_statement 18→5, overclaimed entities
+  16→10, truth_set 9→6, behavior:state_absence 8→6, correct_premise 3→2,
+  surface_ambiguity 2→1, decline_action 1→0; must_cite 2→2, quotes_verbatim
+  2→2, judged:citation_coverage 6→6, **judged:faithfulness 27→28** — flat,
+  and now present on 28 of 36 failing cases: the faithfulness judge is the
+  dominant remaining blocker.
+- Metric means: precision 0.30→0.42, overclaims/case 1.14→0.71, recall
+  0.450→0.407 (hedging trades a little recall), faithfulness 0.830→0.837,
+  citation_coverage 0.835→0.776 (−0.058, at the measured ±0.05–0.07 noise
+  floor). Comparator verdict PASS on all three slices.
+- Baseline acceptance (`--accept`) remains David's call; next authorized step
+  is Path B (`scan_text`). Revisit trigger: if the faithfulness-label wall
+  persists after scan_text lands, audit the judge's synthesis_error label
+  against the §5.2 numeric/entity-grounding diagnostics before touching the
+  agent again.
+
 ## 2026-08-01 — Second review: five harness defects fixed; baseline re-run clean
 
 A second-agent review rejected the 2026-07-31 baseline and named five
