@@ -4,6 +4,21 @@
 > engineering choices land here, newest first. Each entry names its evidence (spike
 > output, manifest path, or doc reference) and the revisit trigger if one exists.
 
+## 2026-08-05 — Nightly cron: no — unattended runs are a production concept
+
+David, clarifying a standing misread: his earlier interest in "nightly
+processes" referred to the advisor **in production** (live users, corpus and
+provider models drifting on their own — where an unattended regression check
+earns its keep). During development, QA/eval/fix cycles are **live and
+supervised** — a change is made, the suite is run, the result is read, the
+next change follows. An unattended 2am run in dev re-measures a system
+nobody touched, spends ~$8.5 of judge seat-quota, and reports to an empty
+room. Decision: the cron is off the table until the production transition
+(his call, then). The nightly runner/comparator (`qa/nightly.sh`,
+`experiments/nightly.py`) remains in daily use as the hand-invoked harness —
+nothing built is discarded; only the scheduling concept was wrong. Do not
+re-propose the cron during dev.
+
 ## 2026-08-04 — scan_text shipped; tool_ready flipped; first capability baseline trio
 
 Path B, David-authorized start and David-approved flip ("yes fix judge, then

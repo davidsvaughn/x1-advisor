@@ -55,8 +55,10 @@ under the overclaim rule (both are phrase-choice discipline).
 1. **Accept the baseline trio**:
    `uv run python -m experiments.nightly --accept 2026-08-04_v2_smoke_fdba68a_r1,2026-08-04_v2_core_fdba68a_r1,2026-08-04_scripts_v2.0_fdba68a_r1`
    — unlocks the comparator (every run since ever reports `no-baseline`).
-2. Nightly cron (line documented in `qa/nightly.sh`; all crons stood down
-   2026-07-08; ~$3/night equivalent + Max-seat judge quota).
+2. ~~Nightly cron~~ — **decided 2026-08-05: no.** Unattended nightly runs
+   are a production-mode concept; in dev, all QA runs are live and
+   supervised. The runner/comparator stays the hand-invoked harness. Do not
+   re-propose during dev (DECISIONS 2026-08-05).
 3. Unassisted calibration labels (runbook §7) — gates trust in judged means;
    also the moment to re-score cc:opus vs terra fairly.
 4. Held-out batch (~10–15 questions, `.qa-artifacts/heldout/`,
