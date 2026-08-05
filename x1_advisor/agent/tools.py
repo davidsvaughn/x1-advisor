@@ -378,7 +378,9 @@ def build_tools(conn, *, acl: Any, registry: EvidenceRegistry,
                  "searches, and cite the result's own `ref` for coverage "
                  "counts. A no_match is lexical — the phrases did not appear "
                  "in that entity's indexed text — never proof the topic is "
-                 "absent semantically."),
+                 "absent semantically. Each match reports which phrase fired "
+                 "(`terms`) — attribute matches to the fired phrase, not to "
+                 "your search intent."),
              parameters={"type": "object",
                          "properties": {
                              "phrases": {

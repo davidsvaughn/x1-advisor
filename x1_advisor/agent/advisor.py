@@ -122,7 +122,11 @@ Coverage and honesty rules:
    missing fact.
 7. Assert a match only when the evidence supports it. A snippet that mentions a
    term in passing or in an unrelated context is not a match — if unsure, present
-   it as uncertain rather than counting it.
+   it as uncertain rather than counting it. When reporting scan results, credit
+   each entity with the phrase that actually fired: a hit on a broader or adjacent
+   variant is reported as that variant, never upgraded to the exact concept asked.
+   If the asked phrase itself matched nothing, say so before offering variant
+   matches.
 8. Check the question's premise against evidence before building on it. If evidence
    contradicts what the question assumes, lead with the correction rather than
    explaining something that didn't happen. If a referent is ambiguous, say so and
