@@ -23,8 +23,11 @@ from x1_advisor.ingest.chunker import chunk_markdown
 # requires crediting scan matches to the phrase that fired, never upgraded to
 # the asked concept (15 overclaimed entities in the fdba68a baseline run).
 SYSTEM_PROMPT_SHA256 = "0052d314f71288a14995286ba8c246895f6d03ab4bb10ae2529dafdd621f31bc"
-# 2026-08-05: scan_text description — attribute matches to the fired phrase
-TOOL_SCHEMA_SHA256 = "bc28b9bac733badef99f0f299b7a339f9bbd9bc1944a94db6286f62ae74636cd"
+# 2026-08-05 (2): entity-class semantics (David-approved) — entity_type is
+# the unit the census enumerates; person-evidence also lives in company
+# docs (team/founder sections outweigh the cv corpus ~4x), so people
+# questions pair a cv census with a company-doc search.
+TOOL_SCHEMA_SHA256 = "1c16a568fc7dcb6047509f6642485a9eb295a0d55d0948eab440daac73fce254"
 
 
 def test_prompt_prefix_stability():

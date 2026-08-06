@@ -380,7 +380,12 @@ def build_tools(conn, *, acl: Any, registry: EvidenceRegistry,
                  "in that entity's indexed text — never proof the topic is "
                  "absent semantically. Each match reports which phrase fired "
                  "(`terms`) — attribute matches to the fired phrase, not to "
-                 "your search intent."),
+                 "your search intent. A scan covers only documents attributed "
+                 "to the scanned class. Information about people also lives "
+                 "in company documents (team/founder evaluation sections, "
+                 "pitch decks) — for people questions, scan `cv` for the "
+                 "per-person census and additionally search company "
+                 "documents, attributing each finding to its source."),
              parameters={"type": "object",
                          "properties": {
                              "phrases": {
@@ -393,9 +398,13 @@ def build_tools(conn, *, acl: Any, registry: EvidenceRegistry,
                              "entity_type": {
                                  "type": "string",
                                  "enum": list(FIELDS["entity_type"].values),
-                                 "description": "entity class whose documents "
-                                                "to scan (default "
-                                                "startup_company)"},
+                                 "description": "the entity class the scan "
+                                                "enumerates — every verdict "
+                                                "and count is one entity of "
+                                                "this class (cv = an "
+                                                "individual person via their "
+                                                "CV/profile; startup_company "
+                                                "= a company)"},
                              "source_types": {
                                  "description": "document classes to scan "
                                                 "(default: all)",
