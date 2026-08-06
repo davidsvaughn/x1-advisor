@@ -4,6 +4,50 @@
 > engineering choices land here, newest first. Each entry names its evidence (spike
 > output, manifest path, or doc reference) and the revisit trigger if one exists.
 
+## 2026-08-06 — Census framing in the truth grader: exclusion groups, scope lists, trailing hedges
+
+The first fully-judged trio under truth v3 (`23eb169` manifests, core 22/49,
+zero judge coercions) exposed a pincer the same day the census-completeness
+prompt rule landed: rule 5 orders the agent to *name every lexical hit and
+file the irrelevant ones in a labeled group*, while `asserted_names` counted
+every named entity as an assertion. Three of the run's best answers graded
+worst:
+
+- **v2c012** — 11 names under "the following appear to be unrelated to payer
+  adoption or hospital procurement" → 11 overclaims; its one truth entity,
+  framed "not hospital procurement friction *per se*, but…", was
+  negation-stripped → recall 0.00 on a complete, correctly-annotated census.
+- **v2c041** — "The scan covered: …" enumerating 13 scanned investor profiles
+  on a correctly-reported empty oracle → 13 overclaims.
+- **v2c038** — the mirror jaw: the agent *didn't* name 7 weak matches
+  ("I've excluded them…" without naming) → recall 0.27. Compliance punished
+  one way, the old curation mode punished the other.
+
+**Decision: four polarity buckets in `asserted_names`** (was two). `positive`
+(recall credit + overclaim liability), `negated` (neither), `excluded` —
+named in a labeled exclusion group: recall credit, **no** liability, because
+the census reached the reader and nothing was asserted as matching — and
+`scope` — named in a scan-scope enumeration: neither credit nor liability.
+Precedence positive > excluded > negated > scope, so a disclaimed repeat can
+never hide a real claim. "not X per se" joined the hedge list (trailing form,
+gap capped at clause punctuation). Markers are lexical and conservative;
+blind spots stated in the module, same design contract as negation.
+
+**Evidence** — offline re-grade of the `23eb169` core answers, new grader vs
+old: v2c012 recall 0.00→1.00, overclaims 13→3; v2c041 overclaims 13→0; every
+other truth case byte-identical. The three residual v2c012 overclaims and
+v2c047's five are **adjacent-term assertions** ("closest substantively
+relevant mentions" beyond the lexical oracle) — the still-open Neusner-class
+policy question, deliberately untouched pending David's call. v2c038's 0.27
+also stands: that run really did drop names, and the grader must keep saying
+so.
+
+**Comparability:** grader semantics changed again, so the `23eb169` trio is a
+diagnostic artifact, not a baseline candidate; the re-accept candidate is the
+next judged trio on this commit. Revisit trigger unchanged from the v3 entry:
+any truth case passing `judged:faithfulness` while failing `truth_set` in ≥2
+runs gets a grader/oracle audit before any agent-side change.
+
 ## 2026-08-06 — Truth tier v3: word-start phrase matching + hedge-aware negation
 
 Triggered by the v2c039/v2c009 bimodality diagnosis (David: "start with the

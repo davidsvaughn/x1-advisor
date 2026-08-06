@@ -79,7 +79,7 @@ def prepare(case: Case, *, seed: str, fixtures: dict) -> dict[str, Any]:
             "bindings": {slot: entity.get("name") for slot, entity in bound.items()}}
 
 
-_TRUTH_NAME_KEYS = ("overclaimed", "negated")
+_TRUTH_NAME_KEYS = ("overclaimed", "negated", "excluded", "scope_listed")
 
 
 def _countable_truth(grade: dict | None) -> dict | None:
@@ -107,31 +107,43 @@ def grade_against_truth(answer: str, truth: dict, vocabulary: set[str]
     not match — is reported separately because it is the measured dominant
     failure (the model overstates its evidence), and averaging it into
     precision hides it.
+
+    Recall counts the CENSUS delivered to the reader: positive assertions plus
+    names filed in a labeled exclusion group (rule 5 compliance). Overclaim
+    liability attaches only to positive assertions — an entity the agent named
+    and explicitly filed as irrelevant was disclosed, not overstated. Names in
+    scope enumerations ("the scan covered: …") earn neither.
     """
     matched = {e["key"].lower() for e in truth["entities"]
                if e["status"] == "matched"}
     scanned = {e["key"].lower() for e in truth["entities"]
                if e["status"] != "not_indexed"}
     known = vocabulary | {e["key"] for e in truth["entities"]}
-    positive, negated = checkers.asserted_names(
+    buckets = checkers.asserted_names(
         checkers.strip_citations(answer), known)
 
-    hits = positive & matched
+    census = buckets.positive | buckets.excluded
+    hits = census & matched
     # positively asserted, known to the scan, and NOT in the true set
-    overclaimed = sorted((positive & scanned) - matched)
+    overclaimed = sorted((buckets.positive & scanned) - matched)
     return {
         "truth_matched": len(matched),
-        "named": len(positive),
+        "named": len(census),
         "recall": (len(hits) / len(matched)) if matched else None,
-        "precision": (len(hits) / len(positive)) if positive else None,
+        # precision stays assertion-only: of what the agent CLAIMED matched,
+        # how much did — excluded names claim nothing
+        "precision": (len(buckets.positive & matched) / len(buckets.positive))
+                     if buckets.positive else None,
         "overclaimed": overclaimed,
         "overclaim_count": len(overclaimed),
-        "negated": sorted(negated),
+        "negated": sorted(buckets.negated),
+        "excluded": sorted(buckets.excluded),
+        "scope_listed": sorted(buckets.scope),
         # an empty oracle is a real answer: the honest response positively
         # names nobody in scope (naming entities to REPORT their absence is
         # the contract being met, not broken)
-        "empty_oracle_respected": (not (positive & scanned)) if not matched
-                                  else None,
+        "empty_oracle_respected": (not (buckets.positive & scanned))
+                                  if not matched else None,
     }
 
 

@@ -359,24 +359,106 @@ def test_hedged_qualifier_is_a_positive_claim_not_a_denial():
     # on an identical census. A hedge qualifies the claim; it does not deny it.
     text = ("Other CVs with consulting-related wording (not necessarily a "
             "consulting background): Ada Mazurek, Jan Habat, and Matt Young.")
-    positive, negated = checkers.asserted_names(
+    buckets = checkers.asserted_names(
         text, ["Ada Mazurek", "Jan Habat", "Matt Young"])
-    assert positive == {"ada mazurek", "jan habat", "matt young"}
-    assert negated == set()
+    assert buckets.positive == {"ada mazurek", "jan habat", "matt young"}
+    assert buckets.negated == set()
 
 
 def test_plain_denial_still_reads_as_negated():
-    positive, negated = checkers.asserted_names(
+    buckets = checkers.asserted_names(
         "Calmr's evaluation does not mention synthetic biology.", ["Calmr"])
-    assert positive == set()
-    assert negated == {"calmr"}
+    assert buckets.positive == set()
+    assert buckets.negated == {"calmr"}
 
 
 def test_hedge_does_not_mask_a_real_denial_in_the_same_sentence():
-    positive, negated = checkers.asserted_names(
+    buckets = checkers.asserted_names(
         "Calmr did not match, and not necessarily for lack of coverage.",
         ["Calmr"])
-    assert negated == {"calmr"}
+    assert buckets.negated == {"calmr"}
+
+
+def test_not_per_se_is_a_qualified_yes_not_a_denial():
+    # v2c012's measured failure: "BMI OrganBank — not hospital procurement
+    # friction per se, but hospital-adoption friction" graded negated, so the
+    # case's one truth entity could never be credited (recall 0.00).
+    buckets = checkers.asserted_names(
+        "BMI OrganBank — not hospital procurement friction per se, but its "
+        "evaluation highlights hospital-adoption friction.",
+        ["BMI OrganBank"])
+    assert buckets.positive == {"bmi organbank"}
+    # the trailing hedge must not reach across clause punctuation to mask a
+    # genuine denial in the next clause
+    buckets = checkers.asserted_names(
+        "Calmr did not match; the term is common per se.", ["Calmr"])
+    assert buckets.negated == {"calmr"}
+
+
+# --- census framing: exclusion groups and scope lists (2026-08-06) ---------
+
+
+def test_exclusion_group_names_carry_no_overclaim_liability():
+    # v2c012's measured failure: 11 names filed under "the following appear
+    # to be unrelated to payer adoption or hospital procurement" — exactly
+    # what prompt rule 5 orders — graded as 11 overclaims.
+    text = ("Cimple directly addresses procurement friction. For "
+            "completeness, the following appear to be unrelated to payer "
+            "adoption or hospital procurement: Beespenser, Calmr, and "
+            "X1 Pipeline.")
+    buckets = checkers.asserted_names(
+        text, ["Cimple", "Beespenser", "Calmr", "X1 Pipeline"])
+    assert buckets.positive == {"cimple"}
+    assert buckets.excluded == {"beespenser", "calmr", "x1 pipeline"}
+    assert buckets.negated == set()
+
+
+def test_truth_entity_named_only_in_an_exclusion_group_earns_recall():
+    # The other jaw of the pincer (v2c038's curation mode): naming a true
+    # match inside a labeled exclusion group still delivers the census —
+    # recall credits it; silently dropping it would not.
+    from experiments.run_v2 import grade_against_truth
+
+    truth = {"entities": [
+        {"key": "calmr", "status": "matched"},
+        {"key": "beespenser", "status": "scanned"},
+    ]}
+    grade = grade_against_truth(
+        "No evaluation states this directly. Two lexical hits appear "
+        "irrelevant on inspection: Calmr and Beespenser.",
+        truth, {"calmr", "beespenser"})
+    assert grade["recall"] == 1.0
+    assert grade["overclaim_count"] == 0
+    assert grade["excluded"] == ["beespenser", "calmr"]
+
+
+def test_scope_list_names_earn_neither_credit_nor_liability():
+    # v2c041's measured failure: "The scan covered: A, B, …" — 13 names
+    # enumerating the inputs searched, graded as 13 overclaims on an empty
+    # oracle. A scope list delivers no verdict on any name in it.
+    from experiments.run_v2 import grade_against_truth
+
+    truth = {"entities": [
+        {"key": "ada mazurek", "status": "scanned"},
+        {"key": "hall martin", "status": "scanned"},
+    ]}
+    grade = grade_against_truth(
+        "None of the indexed investor profiles mention biotech. "
+        "The scan covered: Ada Mazurek and Hall Martin.",
+        truth, {"ada mazurek", "hall martin"})
+    assert grade["overclaim_count"] == 0
+    assert grade["empty_oracle_respected"] is True
+    assert grade["scope_listed"] == ["ada mazurek", "hall martin"]
+
+
+def test_positive_assertion_elsewhere_beats_census_framing():
+    # precedence: a name asserted positively in ANY sentence stays positive —
+    # a scope list or exclusion group cannot launder a real claim
+    buckets = checkers.asserted_names(
+        "The scan covered: Calmr and Xident. Calmr mentions reimbursement.",
+        ["Calmr", "Xident"])
+    assert buckets.positive == {"calmr"}
+    assert buckets.scope == {"xident"}
 
 
 # --- phrase matching: word-start boundary (builder v3, 2026-08-06) ---------
@@ -404,13 +486,13 @@ def test_phrase_patterns_are_word_start_anchored_regexes():
 def test_middle_initials_do_not_split_a_name_across_sentences():
     # "Randolph W. Hubbell" was split after "W.", so the full name never
     # appeared in any one sentence — no answer could ever be credited for it.
-    positive, negated = checkers.asserted_names(
+    buckets = checkers.asserted_names(
         "Randolph W. Hubbell has FDA regulatory strategy expertise.",
         ["Randolph W. Hubbell"])
-    assert positive == {"randolph w. hubbell"}
+    assert buckets.positive == {"randolph w. hubbell"}
     # real sentence boundaries still split: the denial must not leak polarity
     # into the neighbouring positive sentence
-    positive, negated = checkers.asserted_names(
+    buckets = checkers.asserted_names(
         "Calmr matched the scan. Xident did not match.", ["Calmr", "Xident"])
-    assert positive == {"calmr"}
-    assert negated == {"xident"}
+    assert buckets.positive == {"calmr"}
+    assert buckets.negated == {"xident"}
