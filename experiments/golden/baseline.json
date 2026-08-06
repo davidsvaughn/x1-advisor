@@ -1,12 +1,12 @@
 {
   "manifests": {
-    "core": "2026-08-06_v2_core_410a95c_r1.jsonl",
-    "scripts": "2026-08-06_scripts_v2.0_410a95c_r1.jsonl",
-    "smoke": "2026-08-06_v2_smoke_410a95c_r1.jsonl"
+    "core": "2026-08-06_v2_core_5b416d4_r2.jsonl",
+    "scripts": "2026-08-06_scripts_v2.0_5b416d4_r1.jsonl",
+    "smoke": "2026-08-06_v2_smoke_64d063d_r1.jsonl"
   },
   "suite": "v2.0",
-  "scoring_contract": "golden-v2.0/s5/modes-046b5064",
-  "suite_digest": "8409ee58a03a509c4eee8d4eaaebdca165ad79bde89f1c119fd6c625c5867bbc",
+  "scoring_contract": "golden-v2.0/s6/modes-046b5064",
+  "suite_digest": "7adae9182b5cca9271699ddff9a52fcdde23815ebf10e638889ffd4ecd7c96f3",
   "truth_digests": {
     "v2c008": "51a9af5325aa3f8ef8d52d65a0ffd6be772bfb01eb641b4b019dc534ba4e42bc",
     "v2c009": "ad59b584dd6f0b600f8abf92533b03bda0fa589d07593ac8025a2ea185d607e7",

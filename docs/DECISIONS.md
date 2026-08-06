@@ -4,6 +4,54 @@
 > engineering choices land here, newest first. Each entry names its evidence (spike
 > output, manifest path, or doc reference) and the revisit trigger if one exists.
 
+## 2026-08-07 — s6 accepted from a replicate median; parallel harness; variance measured
+
+Three threads landed together:
+
+**Behavior gate (s6) — and the harness catching its first bad rubric.** The
+targeted behavior judge failed v2c026 twice for not reciting the
+state_absence parenthetical while the answer stated the absence and where
+market scores live; terra is now the DETECTOR and unmet flags escalate to
+the cc judge (`adjudicate_behavior`). Rubric v1 failed calibration exactly
+as the replay harness exists to detect: 0.40 agreement with TWO
+leniency-ratchet breaches (the judge second-guessed case-verified
+presuppositions from the answer's confidence) plus an anchoring inversion
+(it verified the detector's wording complaint instead of judging
+reader-substance). v3 (presupposition = declared ground truth; the
+detector's complaint quoted as "usually literally true — not the
+question"; statistic-paired-with-absence named as the honest form):
+behavior 1.00/1.00, full set 45/46, 0 breaches, the one stable miss the
+recorded cc03 strict-side tension. Also: `single_evaluation_startup` pool
+gained a normalized-name collision guard (2ndCourt.com/2ndCourtcom,
+AcceliumPartnersAG — one evaluation per record, two under the user-typed
+name; regenerated, 3 entities out).
+
+**Parallel harness (5b416d4, David: "I don't want to wait").** Pooled k=3
+gate samples, 4-wide case workers (own DB connection each), 4-wide script
+workers, one global judge-subprocess semaphore
+(ADVISOR_JUDGE_CONCURRENCY), a Tracker lock. Orchestration only — no
+grading semantics; judged core wall time ~3x better; drift-free manifests
+verified. The killed sequential run's partial core manifest was deleted,
+not completed: rows spanning two shas are the exact mixed identity the
+harness refuses.
+
+**Replicate-median baseline (David: "okay do 2").** Three core replicates
+at 5b416d4, same seed: **35 / 39 / 39** (mean entity recall .849/.889/.866)
+— the first measured variance band, and proof single-run baselines were
+±4-6 noise (yesterday's 41 was the lucky tail; rerun-until-green stays
+forbidden, the median replaces it). Accepted: core r2 (39/49, median,
+nearest the consensus failure set), smoke 64d063d_r1 (7/7), scripts
+5b416d4_r1 (0/4 — low tail; sequential history 0/4→3/4 on fresh answers).
+**Stable failures, all three runs — the real work list:** census
+under-enumeration/overclaims (v2c010/011/012/040/047, gate-examined),
+v2c033 (a scoping instruction answered with an acknowledgment and no
+search), v2c051 (Accelium AG/GmbH ambiguity never surfaced). Flagged, not
+decided: the cc judge refuted list-scoped claims ("which of these…") with
+scan hits from outside the list — an error class landing in `unsupported`,
+which never escalates by design; relief would mean touching the calibrated
+CC judge prompt (David's call). Revisit: baseline accepts use a replicate
+median from here on; any rubric edit replays the calibration set first.
+
 ## 2026-08-07 — s5: the gates reach everything (scripts 0/4 → 3/4); baseline re-accepted
 
 The scripts diagnosis (David: "proceed with the scripts failures") found every
