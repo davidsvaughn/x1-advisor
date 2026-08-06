@@ -399,3 +399,18 @@ def test_phrase_patterns_are_word_start_anchored_regexes():
     # regex metacharacters in the term are escaped, not interpreted
     assert r"\." in params[1] and params[1].startswith(r"\m")
     assert terms == ["CE mark", "Ph.D"]
+
+
+def test_middle_initials_do_not_split_a_name_across_sentences():
+    # "Randolph W. Hubbell" was split after "W.", so the full name never
+    # appeared in any one sentence — no answer could ever be credited for it.
+    positive, negated = checkers.asserted_names(
+        "Randolph W. Hubbell has FDA regulatory strategy expertise.",
+        ["Randolph W. Hubbell"])
+    assert positive == {"randolph w. hubbell"}
+    # real sentence boundaries still split: the denial must not leak polarity
+    # into the neighbouring positive sentence
+    positive, negated = checkers.asserted_names(
+        "Calmr matched the scan. Xident did not match.", ["Calmr", "Xident"])
+    assert positive == {"calmr"}
+    assert negated == {"xident"}

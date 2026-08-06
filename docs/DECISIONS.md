@@ -54,6 +54,25 @@ tune the agent toward a defective answer key. Revisit trigger: any truth
 case whose `judged:faithfulness` passes while `truth_set` fails in ≥2 runs
 gets an oracle audit before any agent-side change.
 
+**Same-day follow-up (the two remaining census defects).** (1) v2c039's
+predicate now carries the concept's lexical forms — "consultant",
+"consultancy" join "consulting" (the v2c040 PhD/Ph.D pattern; a CV titled
+"Operations Consultant" mentions a consulting background). Truth 16→21
+matched; the three stored 1bb0fe1 answers re-grade **1.00/0, 1.00/0,
+1.00/0** — the case is fully solved by the harness corrections alone.
+(2) `_SENTENCE_SPLIT_RE` no longer splits after a single-capital initial:
+"Randolph W. Hubbell" was cut mid-name, so no answer could ever be credited
+for him — a structural recall cap of 0.94 on every v2c039 run and one lost
+name per v2c038 run. Remaining, deliberately not "fixed": v2c038's
+adjacent-term reporting (an entity matched only via "medical device"
+asserted under a regulatory/clinical question — ~1 entity residual cost,
+watch under the fixed tool before widening any predicate) and the census
+curation habit (one run dropped 4 matched names as "incidental" without
+naming them — agent-side, prompt rule proposed to David). Most re-graded
+overclaims elsewhere are stale-tool residue: those bundles ran against the
+substring tool, whose phantom matches the agent faithfully relayed; the
+fixed engine cannot produce them.
+
 ## 2026-08-05 — Nightly cron: no — unattended runs are a production concept
 
 David, clarifying a standing misread: his earlier interest in "nightly

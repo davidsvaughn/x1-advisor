@@ -220,16 +220,16 @@
       }
     },
     "v2c039": {
-      "digest": "c1fb6c440addd2a6d66bdd3c7092f83a3d701ba9c01047f0eb80e29e0606edaa",
+      "digest": "749d45e1d53cd0040049fb8bac2e34f04039982e0d70e9fc360404ae101274c4",
       "builder_version": 3,
       "counts": {
         "eligible": 72,
         "scanned": 72,
-        "matched": 16,
-        "no_match": 56,
+        "matched": 21,
+        "no_match": 51,
         "not_indexed": 0,
         "scanned_chunks": 353,
-        "matching_chunks": 21,
+        "matching_chunks": 36,
         "entity_names": 72,
         "entity_records": 75
       },
@@ -250,7 +250,9 @@
             "McKinsey",
             "BCG",
             "Bain",
-            "consulting"
+            "consulting",
+            "consultant",
+            "consultancy"
           ],
           "all": []
         }

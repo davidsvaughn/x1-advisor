@@ -730,6 +730,12 @@ cases:
     readiness: {source_available: true, tool_ready: true, scope: corpus,
                 operation: exact_scan, context_required: none, golden_priority: p1}
     expected_route: [scan_text]
+    notes: >
+      The predicate carries the concept's lexical forms (the v2c040 pattern):
+      a CV whose title says "Operations Consultant" mentions a consulting
+      background, so "consultant"/"consultancy" are in the oracle alongside
+      "consulting". A scan that tries only the question's literal token and
+      misses the variant people fails recall by design.
     grade:
       deterministic: {truth_set: truth/v2c039.json, must_disclose_coverage: true,
                       must_cite: true}
@@ -740,7 +746,8 @@ cases:
       entity_key: name
       source_types: [profile]
       granularity: [block]
-      match: {method: phrase, any: ["McKinsey", "BCG", "Bain", "consulting"]}
+      match: {method: phrase, any: ["McKinsey", "BCG", "Bain", "consulting",
+                                     "consultant", "consultancy"]}
 
   - id: v2c040
     class: people_cv

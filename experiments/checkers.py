@@ -149,7 +149,11 @@ _NEGATION_RE = re.compile(
 _HEDGE_RE = re.compile(
     r"\bnot\s+(?:necessarily|always|only|exclusively|solely|merely|just)\b",
     re.I)
-_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+|\n+")
+# The period after a single-capital initial is not a sentence end: splitting
+# "Randolph W. Hubbell" mid-name means the full name can never be found in
+# any one sentence, structurally capping recall below 1.0 for every answer
+# that names him. ("U.S. market" stops splitting too, for the same reason.)
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])(?<![A-Z]\.)\s+|\n+")
 
 
 def names_in_text(text: str, names: Iterable[str]) -> set[str]:
