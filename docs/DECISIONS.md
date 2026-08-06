@@ -60,10 +60,22 @@ fact, or quantities beyond the evidence = unfaithful). "unsupported" and
 "unverifiable" NEVER escalate — with any present the gate cannot flip and
 spends nothing; fabrication stays out of reach by construction, per David's
 standing "never absolve B." Verified on the stored v2c021 partials: 4/4
-faithful, unanimous 3/3, units flip to pass. Calibration set now 23 labels
-(+4 real hedged-synthesis, +2 synthetic must-fail). Remaining follow-up
-before nightly-scale trust: the adjudication replay harness
-(judge_calibrate.py style) over the labeled set.
+faithful, unanimous 3/3, units flip to pass. Calibration set now 26 labels
+(+4 real hedged-synthesis, +2 synthetic must-fail).
+
+**Replay harness shipped and green (d31d67f)** — the recorded trust
+condition before nightly scale. `experiments/adjudicate_calibrate.py`
+replays every labeled item through the production gate functions — same
+rubrics, same k=3 majority — so a rubric edit becomes a measured change
+instead of a vibed one. The five synthetic must-fail bodies (uncited
+headline, citation theater, uncited quantitative thesis, fabricated
+causality dressed as a sourced finding, quantity beyond the evidence) were
+authored owner-only beside the real items' bundle pointers; a must-fail
+item judged lenient exits nonzero, so nothing automated can shrug the
+ratchet moving. First live replay (2026-08-06, cc Opus): **26/26
+agreement, kappa 1.00 on all three gates, 0 leniency breaches**, $3.60 —
+the never-before-judged synthetics included. Run it after any rubric edit
+and before trusting a re-baseline.
 
 ## 2026-08-06 — Coverage + aggregate registry queries: the state_absence cluster unblocked
 
