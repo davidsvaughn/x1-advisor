@@ -182,7 +182,11 @@ DETERMINISTIC_CHECKS: dict[str, type | tuple[type, ...]] = {
 # obligations, so they get their own block and their own vocabulary.
 BEHAVIOR_OBLIGATIONS = {
     "correct_premise": "reject the false premise instead of explaining it",
-    "state_absence": "say the corpus does not contain it, and what was searched",
+    # scope-general since the registry era: an honest absence names where it
+    # looked — a registry-scoped absence is not a corpus-search failure
+    "state_absence": ("say plainly that the requested information is not "
+                      "there, naming the scope checked (corpus search, "
+                      "registry query, or both)"),
     "surface_ambiguity": "notice the ambiguous referent; disambiguate or cover both",
     "surface_conflict": "present the disagreement rather than averaging it away",
     "decline_action": "decline the action gracefully; offer the research instead",
