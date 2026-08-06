@@ -4,6 +4,60 @@
 > engineering choices land here, newest first. Each entry names its evidence (spike
 > output, manifest path, or doc reference) and the revisit trigger if one exists.
 
+## 2026-08-06 — Escalation gates (s3): the formula flags, the judge disposes — David's methodology call
+
+Prompted by the citation_coverage post-mortem: the bracket-counting formula
+failed answers whose every claim the Opus judge had verified TRUE, because
+bold bullet headlines carry no bracket while their elaborating sentences one
+line down are fully cited (v2c019: 21/21 supported, cc 0.67, case fail; the
+judge's own reason lines showed it saw this). Third such episode in a week
+(census buckets/list-inheritance; the state_absence obligation phrasing) —
+each one a formula misfire that an intelligent reader of the pipeline's own
+output overrode by hand. David's call, generalizing beyond the instance:
+**stop distilling judge intelligence into formulas that gate. The formula is
+a detector; the calibrated judge adjudicates its flags against an intent
+rubric. Expected to become the default methodology.** Field practice agrees
+(hybrid norm; escalation-with-ensemble on flagged cases; "citation theater"
+is a named Goodhart mode — sources in the 2026-08-06 session log).
+
+**Shipped** (`experiments/adjudicate.py`, 7179497 + 35bb106; scoring
+contract severs s2 → s3): two gates —
+
+- **citation_coverage**: uncited-claim flags adjudicated for reader
+  traceability (a headline whose adjacent cited sentences genuinely support
+  it is adequately attributed; citation theater is not). Wrong-ref claims
+  (the v2c036 swap) are structurally untouched: they fail *faithfulness*,
+  which no adjudication reaches.
+- **asserted_names**: overclaim/miss flags adjudicated against rule-5 census
+  intent. The ORACLE stays deterministic forever — only the parser's reading
+  of prose escalates. Note: the rubric's variant-attribution clause realizes
+  the semantics of the parked truth-v4 "adjacent tier" (Option A) through
+  judgment instead of oracle machinery.
+
+Safety properties, test-pinned: escalation only (clean formula passes never
+spend judge tokens); fail-safe (unusable judge → the formula failure stands);
+k=3 per-item majority; formula output rides in every manifest beside the
+adjudication (leniency-ratchet tripwire); body-free projections.
+
+**Verification on the stored baseline answers** (the artifacts that motivated
+the build; all votes unanimous 3/3): v2c019's 7 flagged headlines → adequate,
+gate passes. v2c021's thesis + closing recap → adequate. v2c047's 8 formula
+overclaims → 7 disclosed-not-asserted (broader-term census inside a
+disclaimed group), **1 upheld** (an entity the answer singled out as a
+most-risk-like reference) — case still fails, correctly. Relief where the
+formula misread, no relief where the answer overstated.
+
+**Calibration debt (open):** `experiments/adjudication_calibration.jsonl`
+holds the 17 seed labels as `assistant-proposed` (bodies owner-only in
+`.qa-artifacts/calibration/adjudication_items.jsonl`) — David to review, esp.
+the thesis/closing-recap taste call (cit08/cit09). A replay harness in the
+style of judge_calibrate.py is the follow-up before the adjudicated gates are
+trusted at nightly scale. Known adjacent boundary, deliberately NOT built:
+faithfulness "partial" verdicts on hedged synthesis claims (v2c021's fresh
+run: 4 partials, 3 of which the judge itself located support for in uncited
+refs elsewhere in the turn) — the same escalation shape fits, awaiting
+David's scope call.
+
 ## 2026-08-06 — Coverage + aggregate registry queries: the state_absence cluster unblocked
 
 First capability build of the post-baseline queue (David: "start on real
