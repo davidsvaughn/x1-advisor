@@ -48,7 +48,8 @@ from experiments.cases import (
 )
 from experiments.adjudicate import (adjudicate_asserted_names,
                                     adjudicate_citation_coverage,
-                                    adjudicate_faithfulness)
+                                    adjudicate_faithfulness,
+                                    escalate_assertions)
 from experiments.behavior import judge_behaviors
 from experiments.funnel import classify
 from experiments.manifest import code_fingerprint, git_sha, open_new_manifest
@@ -263,6 +264,12 @@ def run_case(conn, case: Case, *, suite: Suite, seed: str, vocabulary: set[str],
                                             truth_grade, tracker=tracker)
             if adj:
                 truth_grade["adjudication"] = adj
+        # s5: formula-failed gated assertions (quotes_verbatim,
+        # coverage_statement) escalate too — mutated in place, formula
+        # verdict preserved in detail["formula_passed"]
+        escalate_assertions(assertions, question=prepared["question"],
+                            answer=answer, evidence=record.evidence,
+                            tracker=tracker)
 
     labels = classify(conn, bundle, {"id": case.id, "category": case.cls,
                                      "acceptable_routes": list(case.acceptable_routes)})

@@ -140,7 +140,11 @@ def test_shipped_v2_suite_compiles():
     # s3 (2026-08-06): escalation gates — formula-flagged failures gate on
     # judge adjudication (experiments/adjudicate.py, David's methodology call).
     # s4 (same day): faithfulness partials join the escalation.
-    assert identity["scoring_contract"].startswith("golden-v2.0/s4/modes-")
+    # s5 (2026-08-07, David: "sounds great!"): gates reach deterministic
+    # assertions (quotes_verbatim, coverage_statement), cross-turn checks and
+    # script turns; quote matching canonicalized; scan coverage counts in the
+    # searched denominator.
+    assert identity["scoring_contract"].startswith("golden-v2.0/s5/modes-")
     assert len(identity["suite_digest"]) == 64
     assert len(suite.cases) >= 50 and len(suite.scripts) >= 4
 

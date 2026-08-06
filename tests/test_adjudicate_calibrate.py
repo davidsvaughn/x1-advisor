@@ -165,4 +165,8 @@ def test_committed_labels_file_carries_no_bodies():
         assert set(rec) <= allowed, f"{rec['id']}: unexpected keys {set(rec) - allowed}"
         assert rec["label"] in {"adequate", "inadequate", "faithful",
                                 "unfaithful", "asserted", "not_asserted",
-                                "credited", "uncredited"}
+                                "credited", "uncredited",
+                                # s5 gates
+                                "disclosed", "undisclosed",
+                                "overclaim", "not_overclaim",
+                                "grounded", "ungrounded"}

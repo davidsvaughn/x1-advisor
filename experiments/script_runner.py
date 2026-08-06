@@ -36,6 +36,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from experiments import checkers
+from experiments.adjudicate import (adjudicate_citation_coverage,
+                                    adjudicate_faithfulness,
+                                    escalate_assertions)
 from experiments.behavior import judge_behaviors
 from experiments.cases import (
     CaseValidationError,
@@ -73,6 +76,10 @@ class TurnRecord:
     searched_documents: int = 0
     searched_rows: int = 0          # structured_query rows
     searched_chunks: int = 0
+    # entities a scan_text call actually scanned (its own counts.scanned) —
+    # the d3afbc7 run showed the doc/row denominator crediting 1 while the
+    # scan had covered 25 entities' text
+    searched_scan_entities: int = 0
 
     @property
     def entities(self) -> list[str]:
@@ -156,16 +163,19 @@ def assert_coverage_claim_grounded(records: dict[int, TurnRecord], turn: int,
     actually searched across the conversation so far; a claim larger than the
     evidence is not grounded.
     """
-    # documents shown OR structured rows returned — a listing answered from the
-    # registry searched rows, not documents, and both are honest denominators
-    searched = max((max(records[n].searched_documents, records[n].searched_rows)
+    # documents shown, structured rows returned, or entities a scan actually
+    # scanned — a listing answered from the registry searched rows, a text
+    # scan searched entities, and all three are honest denominators
+    searched = max((max(records[n].searched_documents,
+                        records[n].searched_rows,
+                        records[n].searched_scan_entities)
                     for n in records if n <= turn), default=0)
     answer = checkers.strip_citations(records[turn].answer)
     claimed = [int(float(n)) for n in checkers.numerals(answer)
                if n.replace(".", "").isdigit()]
     overclaims = sorted({n for n in claimed if n > searched})
     return _diag("coverage_claim_grounded", not overclaims, turn=turn,
-                 searched_documents=searched, overclaimed=overclaims)
+                 searched=searched, overclaimed=overclaims)
 
 
 CROSS_TURN_IMPL = {
@@ -186,6 +196,59 @@ def evaluate_cross_turn(script: Script, records: dict[int, TurnRecord],
         impl = CROSS_TURN_IMPL[kind.pop("type")]
         out.append(impl(records, vocabulary=vocabulary, **kind))
     return out
+
+
+def escalate_cross_turn(cross: list[checkers.Diagnostic],
+                        records: dict[int, TurnRecord], *,
+                        tracker: Tracker | None = None,
+                        _transport=None) -> None:
+    """Escalate formula-failed cross-turn assertions to the judge (s5).
+
+    Same contract as every gate: formula stays the detector and its verdict
+    survives as telemetry; the judge adjudicates the flags against intent.
+    The d3afbc7 run's evidence for why each of these needs a gate: quotes
+    failing on marked elision and bracketed splices; an honest "25 searchable,
+    39 not indexed" disclosure failing because its numbers exceeded a
+    denominator of 1; a corpus record the agent discovered via cited evidence
+    flagged as an invented entity."""
+    from experiments.adjudicate import (adjudicate_coverage_claims,
+                                        adjudicate_entity_intrusion,
+                                        adjudicate_quotes,
+                                        attach_adjudication)
+
+    for i, d in enumerate(cross):
+        if d.passed:
+            continue
+        det = d.detail
+        if d.check == "quotes_from_turn":
+            ft, tt = det["from_turn"], det["to_turn"]
+            evidence = [t for n in range(ft, tt + 1) for t in records[n].evidence]
+            adj = adjudicate_quotes(records[tt].question, records[tt].answer,
+                                    det.get("unfound") or [], evidence,
+                                    tracker=tracker, _transport=_transport)
+        elif d.check == "coverage_claim_grounded":
+            turn = det["turn"]
+            telemetry = {f"turn{n}": {
+                "documents_shown": records[n].searched_documents,
+                "structured_rows": records[n].searched_rows,
+                "chunks_returned": records[n].searched_chunks,
+                "scan_entities_scanned": records[n].searched_scan_entities}
+                for n in sorted(records) if n <= turn}
+            adj = adjudicate_coverage_claims(
+                records[turn].question, records[turn].answer,
+                det.get("overclaimed") or [], telemetry,
+                records[turn].evidence, tracker=tracker, _transport=_transport)
+        elif d.check == "no_new_entities":
+            ft, tt = det["from_turn"], det["to_turn"]
+            evidence = [t for n in range(ft, tt + 1) for t in records[n].evidence]
+            adj = adjudicate_entity_intrusion(
+                records[tt].question, records[tt].answer,
+                det.get("intruders") or [], evidence,
+                tracker=tracker, _transport=_transport)
+        else:
+            continue
+        if adj is not None:
+            cross[i] = attach_adjudication(d, adj)
 
 
 def entity_vocabulary(conn) -> set[str]:
@@ -230,6 +293,9 @@ def turn_record(conn, n: int, question: str, result: dict) -> TurnRecord:
     rows = sum((call["payload"] or {}).get("row_count") or 0
                for call in tool_results(bundle)
                if call["tool"] == "structured_query")
+    scanned = max((((call["payload"] or {}).get("counts") or {}).get("scanned") or 0
+                   for call in tool_results(bundle)
+                   if call["tool"] == "scan_text"), default=0)
     return TurnRecord(
         n=n, question=question,
         answer=bundle.get("validation", {}).get("answer") or "",
@@ -237,7 +303,8 @@ def turn_record(conn, n: int, question: str, result: dict) -> TurnRecord:
                   for ref in refs.values() if isinstance(ref, dict)],
         searched_documents=len(documents),
         searched_rows=rows,
-        searched_chunks=len(returned))
+        searched_chunks=len(returned),
+        searched_scan_entities=scanned)
 
 
 def run_script(conn, script: Script, *, fixtures: dict, seed: int | str,
@@ -274,6 +341,19 @@ def run_script(conn, script: Script, *, fixtures: dict, seed: int | str,
                 behavior_verdicts = judge_behaviors(question, answer,
                                                     turn.grade.behavior,
                                                     tracker=tracker)
+            # escalation gates, script parity (s5): the d3afbc7 run left
+            # script turns as the one judged path without them — v2s004's
+            # three cited-elaboration headlines failed unadjudicated
+            if verdict and "citation_coverage" in turn.grade.judged:
+                adj = adjudicate_citation_coverage(result["bundle"], verdict,
+                                                   tracker=tracker)
+                if adj:
+                    verdict.setdefault("adjudications", {})["citation_coverage"] = adj
+            if verdict and "faithfulness" in turn.grade.judged:
+                adj = adjudicate_faithfulness(result["bundle"], verdict,
+                                              tracker=tracker)
+                if adj:
+                    verdict.setdefault("adjudications", {})["faithfulness"] = adj
 
         # two different things, kept apart on purpose: the assertions this turn
         # DECLARED are its grading contract, while the §5.2 globals are
@@ -283,6 +363,9 @@ def run_script(conn, script: Script, *, fixtures: dict, seed: int | str,
             answer, evidence=record.evidence,
             deterministic=turn.grade.deterministic,
             citation_stats=result["citation_stats"])
+        if judge:
+            escalate_assertions(assertions, question=question, answer=answer,
+                                evidence=record.evidence, tracker=tracker)
         diagnostics = checkers.run_global_checkers(
             answer, evidence=record.evidence, question=question)
         # the funnel wants a question-shaped dict; a script turn has no
@@ -320,6 +403,8 @@ def run_script(conn, script: Script, *, fixtures: dict, seed: int | str,
         })
 
     cross = evaluate_cross_turn(script, records, vocabulary)
+    if judge:
+        escalate_cross_turn(cross, records, tracker=tracker)
     # §8: the gate unit is the script. A declared per-turn unit failing —
     # deterministic assertion, judged dimension, or behavior obligation — or
     # any cross-turn assertion failing, fails the whole sequence; passing four

@@ -85,7 +85,9 @@ def test_coverage_claim_is_graded_against_the_bundle_not_the_claim():
                    "Yes — I searched all 20 startups.", searched_documents=0))
     diagnostic = assert_coverage_claim_grounded(r, 2)
     assert not diagnostic.passed
-    assert diagnostic.detail["searched_documents"] == 8
+    # s5: the detail key is `searched` — documents, structured rows, or
+    # scan-covered entities, whichever is largest
+    assert diagnostic.detail["searched"] == 8
     assert 20 in diagnostic.detail["overclaimed"]
 
 

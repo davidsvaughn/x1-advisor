@@ -338,6 +338,369 @@ def adjudicate_faithfulness(bundle: dict, verdict: dict, *,
     }
 
 
+QUOTES_RUBRIC = """\
+A verbatim-quote check flagged quoted spans in this ANSWER that it could not
+find byte-exact in the evidence. Adjudicate each flag against the product's
+quotation INTENT:
+
+INTENT: words inside quotation marks are the source's words — the reader
+trusts that. A flagged span is a FAITHFUL quotation when its wording appears
+in the evidence with meaning intact, allowing the standard editorial
+conventions: marked elision ("…") joining verbatim pieces, bracketed splices
+("[its]") for grammar, typographic variants (quote marks, hyphens, spacing),
+added emphasis, and dropped inline links or citation markers. It is NOT
+faithful when the span paraphrases the source while presenting itself as
+quotation, when an elision or splice changes what the source meant, when the
+quoted words put something in the source's mouth it does not say, or when the
+span appears nowhere in the evidence.
+
+Do not use any tools. Respond with ONLY a JSON object — no prose, no fences:
+{"verdicts": [{"id": 1, "faithful": true, "reason": "one sentence"}, ...]}
+One entry per flagged span id.
+
+QUESTION:
+{question}
+
+ANSWER:
+---
+{answer}
+---
+
+FLAGGED QUOTED SPANS:
+{flagged}
+
+EVIDENCE (everything shown across the turns in scope):
+{evidence}
+"""
+
+
+COVERAGE_STATEMENT_RUBRIC = """\
+A pattern check found no coverage disclosure in this ANSWER, which was
+required to state its search scope (must_disclose_coverage). Adjudicate
+against the product's INTENT:
+
+INTENT: when the agent answers from a search or scan, the reader must learn
+the scope — what was actually searched or covered, and what was not
+(unindexed, missing, out of reach) — in any phrasing whatsoever. The check
+is about substance, not wording: "the remaining 12 listed startups had no
+indexed evaluation text in this scan" is a disclosure; a bare list of
+findings with no scope statement is not.
+
+Do not use any tools. Respond with ONLY a JSON object — no prose, no fences:
+{"disclosed": true, "reason": "one sentence"}
+
+QUESTION:
+{question}
+
+ANSWER:
+---
+{answer}
+---
+"""
+
+
+COVERAGE_CLAIMS_RUBRIC = """\
+A numeric check flagged numbers in this ANSWER as possible coverage
+overclaims: each flagged number exceeds the checker's own count of what this
+conversation actually searched. Adjudicate each flag against the product's
+INTENT:
+
+INTENT: the agent must never claim broader search coverage than actually
+happened — "yes, I searched all 20" when eight documents were shown is the
+failure this exists to catch. But a number is not automatically a coverage
+claim: corpus inventory statistics the agent's tools reported (how many
+entities exist, how many hold evaluations, how many were not indexed) and
+quantities quoted from the evidence are legitimate reporting. For each
+flagged number: overclaim=true only when the answer uses it to assert the
+agent SEARCHED, read or checked that many — beyond what the SEARCH TELEMETRY
+supports; overclaim=false when the number describes inventory, tool-reported
+coverage, or evidence content.
+
+SEARCH TELEMETRY (deterministic, trusted — what the conversation actually
+put in front of the model):
+{telemetry}
+
+Do not use any tools. Respond with ONLY a JSON object — no prose, no fences:
+{"verdicts": [{"id": 1, "overclaim": false, "reason": "one sentence"}, ...]}
+One entry per flagged number id.
+
+QUESTION:
+{question}
+
+ANSWER:
+---
+{answer}
+---
+
+FLAGGED NUMBERS:
+{flagged}
+
+EVIDENCE (everything shown this turn):
+{evidence}
+"""
+
+
+ENTITY_INTRUSION_RUBRIC = """\
+A set-continuity check flagged entity names that a later turn introduced
+without their being in the set an earlier turn established. Adjudicate each
+flag against the product's INTENT:
+
+INTENT: the model must not invent entities or drift to entities outside the
+conversation's evidence. But an entity is LEGITIMATE when the conversation's
+own evidence introduced it — a record surfaced by a tool or scan in any turn
+shown below — and the answer presents it for what the evidence shows it to
+be. For each flagged name: grounded=true when the evidence shown introduced
+the entity; grounded=false when the name has no basis in the evidence.
+
+Do not use any tools. Respond with ONLY a JSON object — no prose, no fences:
+{"verdicts": [{"id": 1, "grounded": true, "reason": "one sentence"}, ...]}
+One entry per flagged name id.
+
+QUESTION:
+{question}
+
+ANSWER:
+---
+{answer}
+---
+
+FLAGGED NAMES:
+{flagged}
+
+EVIDENCE (everything shown across the turns in scope):
+{evidence}
+"""
+
+
+class _CoverageVerdict(BaseModel):
+    disclosed: bool
+    reason: str
+
+
+class _NumberVerdict(BaseModel):
+    id: int
+    overclaim: bool
+    reason: str
+
+
+class _NumberVerdicts(BaseModel):
+    verdicts: list[_NumberVerdict]
+
+
+class _GroundedVerdict(BaseModel):
+    id: int
+    grounded: bool
+    reason: str
+
+
+class _GroundedVerdicts(BaseModel):
+    verdicts: list[_GroundedVerdict]
+
+
+def _clip_evidence(evidence: list[str]) -> str:
+    from x1_advisor.agent.judge import EVIDENCE_CHARS
+    return "\n\n".join(f"[{i + 1}] {t[:EVIDENCE_CHARS]}"
+                       for i, t in enumerate(evidence) if t)
+
+
+def adjudicate_quotes(question: str, answer: str, unfound: list[str],
+                      evidence: list[str], *, tracker: Any = None,
+                      _transport: Callable | None = None,
+                      ) -> dict[str, Any] | None:
+    """Escalate quote spans the byte-exact matcher could not find.
+
+    The matcher (with its deterministic canonicalization) stays the detector;
+    what escalates is whether a still-unmatched span is a faithful quotation
+    under standard editorial conventions or a fabricated/meaning-altered one.
+    `passed` is True only when EVERY flagged span earns a faithful-majority."""
+    if not unfound:
+        return None
+    listed = "\n".join(f"{i + 1}. \"{q}\"" for i, q in enumerate(unfound))
+    prompt = (QUOTES_RUBRIC
+              .replace("{question}", question)
+              .replace("{answer}", answer)
+              .replace("{flagged}", listed)
+              .replace("{evidence}", _clip_evidence(evidence)))
+    samples, model = _samples(prompt, _FaithVerdicts, tracker=tracker,
+                              stage="adjudicate.quotes", transport=_transport)
+    per_item: list[dict[str, Any]] = []
+    for i, q in enumerate(unfound):
+        votes = [v.faithful for s in samples for v in s.verdicts if v.id == i + 1]
+        reasons = [v.reason for s in samples for v in s.verdicts if v.id == i + 1]
+        faithful = _majority(votes)
+        per_item.append({"quote": q, "faithful": bool(faithful),  # None → False
+                         "votes": votes, "reasons": reasons})
+    return {
+        "gate": "quotes",
+        "flagged": len(unfound),
+        "inadequate": sum(1 for c in per_item if not c["faithful"]),
+        "passed": (all(c["faithful"] for c in per_item) if samples else False),
+        "samples": ADJ_SAMPLES, "samples_used": len(samples),
+        "judge_model": model,
+        # bundle-only detail (quotes the answer)
+        "per_item": per_item,
+    }
+
+
+def adjudicate_coverage_statement(question: str, answer: str, *,
+                                  tracker: Any = None,
+                                  _transport: Callable | None = None,
+                                  ) -> dict[str, Any]:
+    """Escalate a zero-pattern-match coverage disclosure to the judge.
+
+    Single whole-answer verdict: did the answer state its search scope in
+    substance? Fail-safe as ever — no usable votes leaves the formula
+    failure standing."""
+    prompt = (COVERAGE_STATEMENT_RUBRIC
+              .replace("{question}", question)
+              .replace("{answer}", answer))
+    samples, model = _samples(prompt, _CoverageVerdict, tracker=tracker,
+                              stage="adjudicate.coverage_statement",
+                              transport=_transport)
+    votes = [s.disclosed for s in samples]
+    disclosed = _majority(votes)
+    return {
+        "gate": "coverage_statement",
+        "flagged": 1,
+        "inadequate": 0 if disclosed else 1,
+        "passed": bool(disclosed),               # None → False, fail-safe
+        "samples": ADJ_SAMPLES, "samples_used": len(samples),
+        "judge_model": model,
+        "per_item": [{"disclosed": bool(disclosed), "votes": votes,
+                      "reasons": [s.reason for s in samples]}],
+    }
+
+
+def adjudicate_coverage_claims(question: str, answer: str,
+                               flagged: list[int], telemetry: dict[str, Any],
+                               evidence: list[str], *, tracker: Any = None,
+                               _transport: Callable | None = None,
+                               ) -> dict[str, Any] | None:
+    """Escalate numerals the coverage-grounding formula flagged.
+
+    The denominator — what WAS searched — stays deterministic and rides in
+    the prompt as trusted telemetry; only the reading of which numbers are
+    coverage CLAIMS escalates. fail_default is overclaim=True: a flag with no
+    earned verdict keeps its formula failure."""
+    if not flagged:
+        return None
+    listed = "\n".join(f"{i + 1}. {n}" for i, n in enumerate(flagged))
+    prompt = (COVERAGE_CLAIMS_RUBRIC
+              .replace("{telemetry}", json.dumps(telemetry, sort_keys=True))
+              .replace("{question}", question)
+              .replace("{answer}", answer)
+              .replace("{flagged}", listed)
+              .replace("{evidence}", _clip_evidence(evidence)))
+    samples, model = _samples(prompt, _NumberVerdicts, tracker=tracker,
+                              stage="adjudicate.coverage_claims",
+                              transport=_transport)
+    per_item: list[dict[str, Any]] = []
+    for i, n in enumerate(flagged):
+        votes = [v.overclaim for s in samples for v in s.verdicts if v.id == i + 1]
+        reasons = [v.reason for s in samples for v in s.verdicts if v.id == i + 1]
+        verdict = _majority(votes)
+        per_item.append({"number": n,
+                         "overclaim": True if verdict is None else verdict,
+                         "votes": votes, "reasons": reasons})
+    return {
+        "gate": "coverage_claims",
+        "flagged": len(flagged),
+        "inadequate": sum(1 for c in per_item if c["overclaim"]),
+        "passed": (not any(c["overclaim"] for c in per_item)
+                   if samples else False),
+        "samples": ADJ_SAMPLES, "samples_used": len(samples),
+        "judge_model": model,
+        "per_item": per_item,
+    }
+
+
+def adjudicate_entity_intrusion(question: str, answer: str,
+                                intruders: list[str], evidence: list[str], *,
+                                tracker: Any = None,
+                                _transport: Callable | None = None,
+                                ) -> dict[str, Any] | None:
+    """Escalate entity names the set-continuity formula called intruders.
+
+    An entity the conversation's own evidence surfaced is not an invention;
+    one with no evidentiary basis keeps its formula failure (fail_default:
+    ungrounded)."""
+    if not intruders:
+        return None
+    listed = "\n".join(f"{i + 1}. {n}" for i, n in enumerate(intruders))
+    prompt = (ENTITY_INTRUSION_RUBRIC
+              .replace("{question}", question)
+              .replace("{answer}", answer)
+              .replace("{flagged}", listed)
+              .replace("{evidence}", _clip_evidence(evidence)))
+    samples, model = _samples(prompt, _GroundedVerdicts, tracker=tracker,
+                              stage="adjudicate.entity_intrusion",
+                              transport=_transport)
+    per_item: list[dict[str, Any]] = []
+    for i, name in enumerate(intruders):
+        votes = [v.grounded for s in samples for v in s.verdicts if v.id == i + 1]
+        reasons = [v.reason for s in samples for v in s.verdicts if v.id == i + 1]
+        grounded = _majority(votes)
+        per_item.append({"name": name, "grounded": bool(grounded),  # None → False
+                         "votes": votes, "reasons": reasons})
+    return {
+        "gate": "entity_intrusion",
+        "flagged": len(intruders),
+        "inadequate": sum(1 for c in per_item if not c["grounded"]),
+        "passed": (all(c["grounded"] for c in per_item) if samples else False),
+        "samples": ADJ_SAMPLES, "samples_used": len(samples),
+        "judge_model": model,
+        "per_item": per_item,
+    }
+
+
+# body-free summary keys copied into diagnostic detail (and thence into
+# manifests via checkers.countable); per_item stays bundle-only under the
+# NAMED_DETAIL projection
+_SUMMARY_KEYS = ("gate", "flagged", "inadequate", "passed",
+                 "samples", "samples_used", "judge_model")
+
+
+def attach_adjudication(diagnostic: Any, adj: dict[str, Any]) -> Any:
+    """A new Diagnostic carrying the adjudicated verdict: the formula verdict
+    survives in detail["formula_passed"], the body-free summary rides beside
+    it (manifest-safe), per-item detail stays bundle-only (NAMED_DETAIL).
+    Diagnostics are frozen, so the caller swaps this into its list."""
+    import dataclasses
+    return dataclasses.replace(
+        diagnostic, passed=adj["passed"],
+        detail={**diagnostic.detail,
+                "formula_passed": diagnostic.passed,
+                "adjudication": {k: adj.get(k) for k in _SUMMARY_KEYS},
+                "adjudication_items": adj["per_item"]})
+
+
+def escalate_assertions(assertions: list, *, question: str, answer: str,
+                        evidence: list[str], tracker: Any = None,
+                        _transport: Callable | None = None) -> None:
+    """Escalate formula-failed gated ASSERTIONS, swapping adjudicated
+    replacements into the list (s5).
+
+    quotes_verbatim and coverage_statement join the judged dimensions in the
+    escalation pattern. A quotes failure with NO quotes at all
+    (require_quotes unmet) is a real absence, not a formula misread — it
+    never escalates."""
+    for i, a in enumerate(assertions):
+        if a.passed:
+            continue
+        if a.check == "quotes_verbatim":
+            unfound = a.detail.get("unfound") or []
+            adj = adjudicate_quotes(question, answer, unfound, evidence,
+                                    tracker=tracker, _transport=_transport)
+        elif a.check == "coverage_statement":
+            adj = adjudicate_coverage_statement(question, answer,
+                                                tracker=tracker,
+                                                _transport=_transport)
+        else:
+            continue
+        if adj is not None:
+            assertions[i] = attach_adjudication(a, adj)
+
+
 def adjudicate_asserted_names(question: str, answer: str, grade: dict, *,
                               tracker: Any = None,
                               _transport: Callable | None = None,

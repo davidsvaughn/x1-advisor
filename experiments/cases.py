@@ -61,7 +61,8 @@ GOLDEN_DIR = Path(__file__).parent / "golden"
 #     obligations, the truth unit) instead of only mechanical assertions —
 #     pre-v2 manifests' pass values are vacuous and must never be compared
 #     against post-v2 ones (second review, finding 2).
-SCHEMA_VERSION = 4   # s3: escalation gates — formula flags, judge disposes
+SCHEMA_VERSION = 5   # s5: gates reach assertions + cross-turn + scripts;
+                     # quote canonicalization (s3/s4: judged-dim gates)
                      # (experiments/adjudicate.py; David, 2026-08-06).
                      # s4, same day: faithfulness "partial" flags join the
                      # escalation (David: lean less nitpicky); "unsupported"

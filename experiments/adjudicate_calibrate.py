@@ -41,7 +41,11 @@ from pathlib import Path
 
 from experiments.adjudicate import (ADJ_SAMPLES, adjudicate_asserted_names,
                                     adjudicate_citation_coverage,
-                                    adjudicate_faithfulness)
+                                    adjudicate_coverage_claims,
+                                    adjudicate_coverage_statement,
+                                    adjudicate_entity_intrusion,
+                                    adjudicate_faithfulness,
+                                    adjudicate_quotes)
 from experiments.judge_calibrate import cohens_kappa
 from x1_advisor.agent.bundle import QA_ARTIFACTS_DIR
 from x1_advisor.cost import Tracker
@@ -55,7 +59,8 @@ REPO_ROOT = QA_ARTIFACTS_DIR.parent.parent
 # overclaim side a True verdict UPHOLDS the formula, so lenient is
 # `not_asserted`; `credited` is lenient only toward recall, but a must-fail
 # miss item would still be a ratchet breach if credited.)
-_LENIENT = frozenset({"adequate", "faithful", "not_asserted", "credited"})
+_LENIENT = frozenset({"adequate", "faithful", "not_asserted", "credited",
+                      "disclosed", "not_overclaim", "grounded"})
 
 
 @dataclass
@@ -167,9 +172,82 @@ def replay_names(items: list[dict], *, tracker=None,
     return out
 
 
+def _qa_of(item: dict) -> tuple[str, str]:
+    """(question, answer) — s5 inline items carry them flat; real items point
+    at a bundle."""
+    if item.get("inline") and "question" in item["inline"]:
+        return item["inline"]["question"], item["inline"]["answer"]
+    b = _bundle_of(item)
+    q = ((b.get("request") or {}).get("question")
+         or (b.get("request") or {}).get("prompt") or "")
+    return q, b.get("validation", {}).get("answer", "")
+
+
+def _evidence_of(item: dict) -> list[str]:
+    """Raw evidence texts for the s5 gates: inline strings, or snapshots from
+    the item's evidence_bundles (falling back to its own bundle)."""
+    if item.get("inline") and "evidence" in item["inline"]:
+        ev = item["inline"]["evidence"]
+        return list(ev) if isinstance(ev[0], str) else \
+            [e.get("snapshot") or "" for e in ev]
+    paths = item.get("evidence_bundles") or [item["bundle"]]
+    return [e.get("snapshot") or ""
+            for p in paths
+            for e in (json.loads((REPO_ROOT / p).read_text())
+                      .get("evidence") or [])]
+
+
+def replay_quotes(items: list[dict], *, tracker=None,
+                  _transport=None) -> list[tuple[dict, str, list]]:
+    question, answer = _qa_of(items[0])
+    adj = adjudicate_quotes(question, answer,
+                            [it["quote"] for it in items],
+                            _evidence_of(items[0]), tracker=tracker,
+                            _transport=_transport)
+    return [(it, "faithful" if pc["faithful"] else "unfaithful", pc["votes"])
+            for it, pc in zip(items, adj["per_item"])]
+
+
+def replay_coverage_statement(items: list[dict], *, tracker=None,
+                              _transport=None) -> list[tuple[dict, str, list]]:
+    question, answer = _qa_of(items[0])
+    adj = adjudicate_coverage_statement(question, answer, tracker=tracker,
+                                        _transport=_transport)
+    pc = adj["per_item"][0]
+    return [(items[0], "disclosed" if pc["disclosed"] else "undisclosed",
+             pc["votes"])]
+
+
+def replay_coverage_claims(items: list[dict], *, tracker=None,
+                           _transport=None) -> list[tuple[dict, str, list]]:
+    question, answer = _qa_of(items[0])
+    adj = adjudicate_coverage_claims(question, answer,
+                                     [it["number"] for it in items],
+                                     items[0].get("telemetry") or {},
+                                     _evidence_of(items[0]), tracker=tracker,
+                                     _transport=_transport)
+    return [(it, "overclaim" if pc["overclaim"] else "not_overclaim",
+             pc["votes"]) for it, pc in zip(items, adj["per_item"])]
+
+
+def replay_entity_intrusion(items: list[dict], *, tracker=None,
+                            _transport=None) -> list[tuple[dict, str, list]]:
+    question, answer = _qa_of(items[0])
+    adj = adjudicate_entity_intrusion(question, answer,
+                                      [it["entity"] for it in items],
+                                      _evidence_of(items[0]), tracker=tracker,
+                                      _transport=_transport)
+    return [(it, "grounded" if pc["grounded"] else "ungrounded", pc["votes"])
+            for it, pc in zip(items, adj["per_item"])]
+
+
 _REPLAY = {"citation_coverage": replay_citation,
            "faithfulness": replay_faithfulness,
-           "asserted_names": replay_names}
+           "asserted_names": replay_names,
+           "quotes": replay_quotes,
+           "coverage_statement": replay_coverage_statement,
+           "coverage_claims": replay_coverage_claims,
+           "entity_intrusion": replay_entity_intrusion}
 
 
 def replay(labels: list[dict], items: list[dict], *, tracker=None,

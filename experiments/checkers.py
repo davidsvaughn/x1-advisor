@@ -377,12 +377,44 @@ def check_no_exhaustive_claim(answer: str) -> Diagnostic:
                       detail={"matched_patterns": hits})
 
 
+# Canonical form for verbatim-quote matching (s5): typographic variants,
+# markdown emphasis and inline links are FORMATTING, not different words. The
+# d3afbc7 scripts run failed quotes that differed from their sources only by a
+# non-breaking hyphen (U+2011), curly-vs-straight quote marks, added **bold**,
+# or a dropped inline link — canonicalizing both sides keeps the detector
+# honest; what still misses escalates to the quotes gate (adjudicate.py).
+_QUOTE_CANON = str.maketrans({
+    # ALL quote marks fold to one character: quoting a double-quoted source
+    # inside a double-quoted span converts the inner marks to singles by
+    # convention (v2s001t5's 'wellness companion'), and both sides get the
+    # same folding so nothing is lost for matching
+    "“": "'", "”": "'", "‘": "'", "’": "'", '"': "'",
+    "‐": "-", "‑": "-", "‒": "-", "–": "-", "—": "-", "−": "-",
+    "\u00a0": " ",   # non-breaking space
+})
+# `([text](url))` is an inline citation parenthetical — dropped whole;
+# a bare `[text](url)` keeps its text
+_MD_LINK_RE = re.compile(r"\(\s*\[([^\]]*)\]\([^\s)]*\)\s*\)"
+                         r"|\[([^\]]*)\]\([^\s)]*\)")
+
+
+def _canon_quote(text: str) -> str:
+    text = (text or "").translate(_QUOTE_CANON)
+    text = _MD_LINK_RE.sub(
+        lambda m: "" if m.group(1) is not None else (m.group(2) or ""), text)
+    text = text.replace("**", "").replace("*", "").replace("`", "")
+    text = re.sub(r"\s+([.,;:!?])", r"\1", " ".join(text.split()))
+    return text.lower()
+
+
 def check_quotes_verbatim(answer: str, evidence: Iterable[str],
                           require_quotes: bool = False) -> Diagnostic:
     """Quoted spans must appear verbatim in the evidence (bank §1.10).
 
-    Whitespace-normalized on both sides — a line break inside a source sentence
-    is a formatting artifact, not a different quote.
+    Canonicalized on both sides (`_canon_quote`, s5): whitespace, typographic
+    hyphens/quote marks, markdown emphasis and inline links are formatting
+    artifacts, not different quotes. Spans that still miss are recorded in
+    `unfound` — original wording — for the quotes escalation gate.
 
     `require_quotes` is set when a case DECLARES `must_quote_verbatim`: the
     case asked for quotes, so an answer containing none has not met the
@@ -390,10 +422,10 @@ def check_quotes_verbatim(answer: str, evidence: Iterable[str],
     review caught an answer with no excerpts and no citations passing evidence
     fidelity.
     """
-    haystacks = [_norm_ws(chunk).lower() for chunk in evidence]
+    haystacks = [_canon_quote(chunk) for chunk in evidence]
     quotes = [_norm_ws(m.group(1)) for m in _QUOTE_RE.finditer(answer or "")]
     unfound = [q for q in quotes
-               if not any(q.lower() in hay for hay in haystacks)]
+               if not any(_canon_quote(q) in hay for hay in haystacks)]
     passed = not unfound and not (require_quotes and not quotes)
     return Diagnostic(check="quotes_verbatim", passed=passed,
                       detail={"quotes": len(quotes), "unfound": unfound,
@@ -436,7 +468,7 @@ def check_absent_strings(answer: str, terms: Iterable[str]) -> Diagnostic:
 # Manifests are committed and must stay body-free (QA-LOOP §4.1) — the same
 # reason truth sets are untracked. Full detail lives in the owner-only bundle.
 NAMED_DETAIL = ("ungrounded", "overclaimed", "intruders", "present", "missing",
-                "unfound", "matched_patterns")
+                "unfound", "matched_patterns", "adjudication_items")
 
 
 def countable(diagnostic: Any) -> dict[str, Any]:
