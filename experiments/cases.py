@@ -61,7 +61,8 @@ GOLDEN_DIR = Path(__file__).parent / "golden"
 #     obligations, the truth unit) instead of only mechanical assertions —
 #     pre-v2 manifests' pass values are vacuous and must never be compared
 #     against post-v2 ones (second review, finding 2).
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3   # s3: escalation gates — formula flags, judge disposes
+                     # (experiments/adjudicate.py; David, 2026-08-06)
 
 # --- taxonomies -----------------------------------------------------------
 # Class keys follow the §3 composition table and the §6 additions. The value is

@@ -478,8 +478,15 @@ def unit_verdicts(assertions: list, judged_dims: Iterable[str],
     units: dict[str, bool | None] = {a.check: a.passed for a in assertions}
     labels = set((verdict or {}).get("labels") or [])
     for dim in judged_dims:
-        units[f"judged:{dim}"] = (not (labels & DIMENSION_FAIL_LABELS[dim])
-                                  if verdict else None)
+        # escalation gate (s3): a formula-flagged failure the judge
+        # adjudicated gates on the adjudicated verdict; the formula labels
+        # stay recorded as telemetry (experiments/adjudicate.py)
+        adj = ((verdict or {}).get("adjudications") or {}).get(dim)
+        if adj is not None and adj.get("passed") is not None:
+            units[f"judged:{dim}"] = adj["passed"]
+        else:
+            units[f"judged:{dim}"] = (not (labels & DIMENSION_FAIL_LABELS[dim])
+                                      if verdict else None)
     met = {v["obligation"]: v["met"] for v in behavior_verdicts}
     for obligation in behavior_obligations:
         units[f"behavior:{obligation}"] = met.get(obligation)

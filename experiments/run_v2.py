@@ -46,6 +46,8 @@ from experiments.cases import (
     render_question,
     resolve_bindings,
 )
+from experiments.adjudicate import (adjudicate_asserted_names,
+                                    adjudicate_citation_coverage)
 from experiments.behavior import judge_behaviors
 from experiments.funnel import classify
 from experiments.manifest import code_fingerprint, git_sha, open_new_manifest
@@ -79,16 +81,26 @@ def prepare(case: Case, *, seed: str, fixtures: dict) -> dict[str, Any]:
             "bindings": {slot: entity.get("name") for slot, entity in bound.items()}}
 
 
-_TRUTH_NAME_KEYS = ("overclaimed", "negated", "excluded", "scope_listed")
+_TRUTH_NAME_KEYS = ("overclaimed", "negated", "excluded", "scope_listed",
+                    "missed")
+_ADJ_NAME_KEYS = ("asserted", "disclosed", "credited", "uncredited")
 
 
 def _countable_truth(grade: dict | None) -> dict | None:
     """Manifest projection of a truth grade: counts, never entity names."""
     if not grade:
         return None
-    out = {k: v for k, v in grade.items() if k not in _TRUTH_NAME_KEYS}
+    out = {k: v for k, v in grade.items()
+           if k not in _TRUTH_NAME_KEYS and k != "adjudication"}
     for key in _TRUTH_NAME_KEYS:
         out[f"{key}_count"] = len(grade.get(key) or [])
+    adj = grade.get("adjudication")
+    if adj:
+        proj = {k: v for k, v in adj.items()
+                if k not in _ADJ_NAME_KEYS and k != "per_name"}
+        for key in _ADJ_NAME_KEYS:
+            proj[f"{key}_count"] = len(adj.get(key) or [])
+        out["adjudication"] = proj
     return out
 
 
@@ -129,6 +141,8 @@ def grade_against_truth(answer: str, truth: dict, vocabulary: set[str]
     return {
         "truth_matched": len(matched),
         "named": len(census),
+        "hit_count": len(hits),
+        "missed": sorted(matched - hits),
         "recall": (len(hits) / len(matched)) if matched else None,
         # precision stays assertion-only: of what the agent CLAIMED matched,
         # how much did — excluded names claim nothing
@@ -159,12 +173,21 @@ def truth_unit_passed(grade: dict[str, Any], grading_mode: str) -> bool:
     Capability mode (scan_text shipped): return the right set — full recall,
     still zero overclaims. The grading-mode flip changes the suite contract
     string, so the comparator refuses to gate across it (§4).
+
+    Escalation gate (s3): when the formula flagged failures and the judge
+    adjudicated them (grade["adjudication"], experiments/adjudicate.py), the
+    ADJUDICATED overclaim/recall/empty-oracle values gate; the formula's own
+    values stay recorded beside them as telemetry. The oracle is never
+    adjudicated — only the parser's reading of the prose.
     """
-    honest = (grade["overclaim_count"] == 0
-              and grade["empty_oracle_respected"] is not False)
+    adj = grade.get("adjudication") or {}
+    oc = adj.get("overclaim_count", grade["overclaim_count"])
+    eor = adj.get("empty_oracle_respected", grade["empty_oracle_respected"])
+    recall = adj.get("recall", grade["recall"])
+    honest = oc == 0 and eor is not False
     if grading_mode == "honesty":
         return honest
-    return honest and (grade["recall"] is None or grade["recall"] == 1.0)
+    return honest and (recall is None or recall == 1.0)
 
 
 def graded_units(case: Case, assertions: list, truth_grade: dict | None,
@@ -222,6 +245,19 @@ def run_case(conn, case: Case, *, suite: Suite, seed: str, vocabulary: set[str],
             behavior_verdicts = judge_behaviors(prepared["question"], answer,
                                                 case.grade.behavior,
                                                 tracker=tracker)
+        # escalation gates (s3): formula-flagged failures go to the judge;
+        # clean passes never escalate, and formula output stays as telemetry
+        if verdict and "citation_coverage" in case.grade.judged:
+            adj = adjudicate_citation_coverage(bundle, verdict, tracker=tracker)
+            if adj:
+                verdict.setdefault("adjudications", {})["citation_coverage"] = adj
+        if truth_grade and (truth_grade["overclaim_count"] > 0
+                            or (case.grading_mode == "capability"
+                                and truth_grade["missed"])):
+            adj = adjudicate_asserted_names(prepared["question"], answer,
+                                            truth_grade, tracker=tracker)
+            if adj:
+                truth_grade["adjudication"] = adj
 
     labels = classify(conn, bundle, {"id": case.id, "category": case.cls,
                                      "acceptable_routes": list(case.acceptable_routes)})

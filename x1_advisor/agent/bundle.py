@@ -156,10 +156,19 @@ def judge_manifest_projection(verdict: dict | None) -> dict[str, Any] | None:
     """
     if not verdict:
         return None
-    return ({k: verdict.get(k) for k in ("labels", "counts", "scores")}
-            | {"calibration_state": (verdict.get("calibration") or {}).get("state"),
-               "evidence_provenance": verdict.get("evidence_provenance"),
-               "judge_model": verdict.get("judge_model")})
+    out = ({k: verdict.get(k) for k in ("labels", "counts", "scores")}
+           | {"calibration_state": (verdict.get("calibration") or {}).get("state"),
+              "evidence_provenance": verdict.get("evidence_provenance"),
+              "judge_model": verdict.get("judge_model")})
+    # escalation-gate adjudications (s3): counts and verdicts only — per-claim
+    # detail quotes the answer and stays in the bundle
+    if verdict.get("adjudications"):
+        out["adjudications"] = {
+            dim: {k: adj.get(k) for k in ("passed", "flagged", "inadequate",
+                                          "samples", "samples_used",
+                                          "judge_model")}
+            for dim, adj in verdict["adjudications"].items()}
+    return out
 
 
 def manifest_record(bundle: dict) -> dict[str, Any]:
