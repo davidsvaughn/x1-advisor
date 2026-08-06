@@ -26,7 +26,13 @@ from x1_advisor.ingest.chunker import chunk_markdown
 # requires every matched entity to appear by name; grouping/annotating is
 # welcome, silent curation is not (one 1bb0fe1 run dropped 4 matched names
 # as "incidental" without naming them).
-SYSTEM_PROMPT_SHA256 = "58cf4511fe6e413de8fd5aae3cff00b53346cf518511bca00386d5317444fad9"
+# 2026-08-06 (2): population-statistics rule (David-approved) — rule 6 now
+# requires running structured_query for statistics and reporting what the
+# registry computes, named for what it measures; a figure synthesized from
+# retrieved passages is a sample artifact, not a statistic (an agent declined
+# an aggregate it could partially serve, without running the registry, and
+# characterized corpus-wide content off two searches).
+SYSTEM_PROMPT_SHA256 = "9ac49b2f3aa9c079cfd86435294944ba958fe66632372ba9d62e1cc5d83e429e"
 # 2026-08-05 (2): entity-class semantics (David-approved) — entity_type is
 # the unit the census enumerates; person-evidence also lives in company
 # docs (team/founder sections outweigh the cv corpus ~4x), so people

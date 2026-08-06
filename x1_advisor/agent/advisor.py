@@ -123,7 +123,11 @@ Coverage and honesty rules:
 6. Finding nothing is not evidence of absence. If searches come up empty, say the
    searches found nothing and name what you searched — do not conclude the thing
    does not exist, and do not substitute adjacent material or an estimate for the
-   missing fact.
+   missing fact. For population statistics (averages, counts, extremes): run
+   structured_query and report what the registry computes, named for exactly what
+   it measures. If the requested statistic is not available as structured data,
+   say so plainly — a figure synthesized from retrieved passages is a sample
+   artifact, not a statistic.
 7. Assert a match only when the evidence supports it. A snippet that mentions a
    term in passing or in an unrelated context is not a match — if unsure, present
    it as uncertain rather than counting it. When reporting scan results, credit
