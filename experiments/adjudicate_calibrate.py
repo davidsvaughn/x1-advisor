@@ -60,7 +60,7 @@ REPO_ROOT = QA_ARTIFACTS_DIR.parent.parent
 # `not_asserted`; `credited` is lenient only toward recall, but a must-fail
 # miss item would still be a ratchet breach if credited.)
 _LENIENT = frozenset({"adequate", "faithful", "not_asserted", "credited",
-                      "disclosed", "not_overclaim", "grounded"})
+                      "disclosed", "not_overclaim", "grounded", "met"})
 
 
 @dataclass
@@ -241,13 +241,42 @@ def replay_entity_intrusion(items: list[dict], *, tracker=None,
             for it, pc in zip(items, adj["per_item"])]
 
 
+def replay_behavior(items: list[dict], *, tracker=None,
+                    _transport=None) -> list[tuple[dict, str, list]]:
+    from experiments.adjudicate import adjudicate_behavior
+    from experiments.cases import BEHAVIOR_OBLIGATIONS
+
+    out = []
+    for it in items:                    # one obligation per invocation
+        if it.get("inline"):
+            q, a = it["inline"]["question"], it["inline"]["answer"]
+            reason = it["inline"].get("reason", "")
+        else:
+            q, a = _qa_of(it)
+            b = _bundle_of(it)
+            v = next((v for v in b.get("behavior_verdicts") or []
+                      if v["obligation"] == it["obligation"]), None)
+            if v is None:
+                raise SystemExit(f"{it['id']}: obligation {it['obligation']} "
+                                 f"not in {it['bundle']} behavior_verdicts")
+            reason = v.get("reason", "")
+        adj = adjudicate_behavior(q, a, it["obligation"],
+                                  BEHAVIOR_OBLIGATIONS[it["obligation"]],
+                                  reason, tracker=tracker,
+                                  _transport=_transport)
+        pc = adj["per_item"][0]
+        out.append((it, "met" if pc["met"] else "unmet", pc["votes"]))
+    return out
+
+
 _REPLAY = {"citation_coverage": replay_citation,
            "faithfulness": replay_faithfulness,
            "asserted_names": replay_names,
            "quotes": replay_quotes,
            "coverage_statement": replay_coverage_statement,
            "coverage_claims": replay_coverage_claims,
-           "entity_intrusion": replay_entity_intrusion}
+           "entity_intrusion": replay_entity_intrusion,
+           "behavior": replay_behavior}
 
 
 def replay(labels: list[dict], items: list[dict], *, tracker=None,

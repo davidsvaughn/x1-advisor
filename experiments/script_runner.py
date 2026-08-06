@@ -395,7 +395,10 @@ def run_script(conn, script: Script, *, fixtures: dict, seed: int | str,
             "assertions": [checkers.countable(d) for d in assertions],
             "diagnostics": [checkers.countable(d) for d in diagnostics],
             "labels": labels["labels"], "notes": labels["notes"],
-            "behavior": [{"obligation": v["obligation"], "met": v["met"]}
+            "behavior": [{"obligation": v["obligation"], "met": v["met"],
+                      **({"formula_met": v["formula_met"],
+                          "adjudication": v["adjudication"]}
+                         if "adjudication" in v else {})}
                          for v in behavior_verdicts],
             "graded_units": turn_units[turn.n],
             "judge": judge_manifest_projection(verdict),

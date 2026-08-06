@@ -49,7 +49,7 @@ from experiments.cases import (
 from experiments.adjudicate import (adjudicate_asserted_names,
                                     adjudicate_citation_coverage,
                                     adjudicate_faithfulness,
-                                    escalate_assertions)
+                                    escalate_assertions, escalate_behaviors)
 from experiments.behavior import judge_behaviors
 from experiments.funnel import classify
 from experiments.manifest import code_fingerprint, git_sha, open_new_manifest
@@ -270,6 +270,10 @@ def run_case(conn, case: Case, *, suite: Suite, seed: str, vocabulary: set[str],
         escalate_assertions(assertions, question=prepared["question"],
                             answer=answer, evidence=record.evidence,
                             tracker=tracker)
+        # s6: unmet behavior obligations escalate — the targeted behavior
+        # judge is the detector, its verdict survives as formula_met
+        escalate_behaviors(behavior_verdicts, question=prepared["question"],
+                           answer=answer, tracker=tracker)
 
     labels = classify(conn, bundle, {"id": case.id, "category": case.cls,
                                      "acceptable_routes": list(case.acceptable_routes)})
@@ -297,7 +301,10 @@ def run_case(conn, case: Case, *, suite: Suite, seed: str, vocabulary: set[str],
         "assertions": [checkers.countable(a) for a in assertions],
         "diagnostics": [checkers.countable(d) for d in diagnostics],
         "truth_grade": _countable_truth(truth_grade),
-        "behavior": [{"obligation": v["obligation"], "met": v["met"]}
+        "behavior": [{"obligation": v["obligation"], "met": v["met"],
+                      **({"formula_met": v["formula_met"],
+                          "adjudication": v["adjudication"]}
+                         if "adjudication" in v else {})}
                      for v in behavior_verdicts],
         "searched_documents": record.searched_documents,
         "searched_rows": record.searched_rows,

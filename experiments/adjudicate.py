@@ -653,6 +653,103 @@ def adjudicate_entity_intrusion(question: str, answer: str,
     }
 
 
+BEHAVIOR_RUBRIC = """\
+A targeted behavior judge marked an OBLIGATION unmet on this ANSWER (its
+reason is below). Adjudicate against the obligation's INTENT, not its
+wording:
+
+INTENT: behavior obligations describe what the reader must come away with —
+product substance, never phrasings to recite. An obligation is MET when the
+answer delivers that substance in any wording at all: a scope disclosure is
+met when the answer's own text and citations make plain what was consulted
+and where the absence lies, whether or not it repeats the obligation's
+vocabulary. It is UNMET when the substance is genuinely missing — the reader
+would not learn what the obligation exists to guarantee: an absence never
+stated, a false premise played along with, an ambiguity silently resolved,
+a caveat the reader needed and never got.
+
+OBLIGATION ({obligation}): {obligation_text}
+
+FIRST JUDGE'S REASON FOR UNMET: {reason}
+
+Do not use any tools. Respond with ONLY a JSON object — no prose, no fences:
+{"met": true, "reason": "one sentence"}
+
+QUESTION:
+{question}
+
+ANSWER:
+---
+{answer}
+---
+"""
+
+
+class _MetVerdict(BaseModel):
+    met: bool
+    reason: str
+
+
+def adjudicate_behavior(question: str, answer: str, obligation: str,
+                        obligation_text: str, reason: str, *,
+                        tracker: Any = None,
+                        _transport: Callable | None = None) -> dict[str, Any]:
+    """Escalate one unmet behavior obligation to the judge.
+
+    The targeted behavior judge stays the DETECTOR — cheap, per-obligation,
+    literal. Its unmet flags escalate here with its own reason attached, and
+    the Opus judge answers a different question: did the answer deliver the
+    obligation's substance? (v2c026: "the platform does not provide a
+    structured market average; market scores live in evaluation documents"
+    plus a cited registry aggregate was failed for not reciting 'corpus
+    search, registry query, or both'.) Fail-safe: no usable votes leaves the
+    detector's failure standing."""
+    prompt = (BEHAVIOR_RUBRIC
+              .replace("{obligation}", obligation)
+              .replace("{obligation_text}", obligation_text)
+              .replace("{reason}", reason or "(none given)")
+              .replace("{question}", question)
+              .replace("{answer}", answer))
+    samples, model = _samples(prompt, _MetVerdict, tracker=tracker,
+                              stage="adjudicate.behavior",
+                              transport=_transport)
+    votes = [s.met for s in samples]
+    met = _majority(votes)
+    return {
+        "gate": "behavior",
+        "flagged": 1,
+        "inadequate": 0 if met else 1,
+        "passed": bool(met),                     # None → False, fail-safe
+        "samples": ADJ_SAMPLES, "samples_used": len(samples),
+        "judge_model": model,
+        "per_item": [{"obligation": obligation, "met": bool(met),
+                      "votes": votes, "reasons": [s.reason for s in samples]}],
+    }
+
+
+def escalate_behaviors(behavior_verdicts: list[dict], *, question: str,
+                       answer: str, tracker: Any = None,
+                       _transport: Callable | None = None) -> None:
+    """Escalate every unmet behavior verdict in place (s6).
+
+    The detector's verdict survives as `formula_met`; `met` becomes the
+    adjudicated verdict; the body-free summary rides in the dict (projected
+    into manifests) while per-sample reasons stay bundle-only."""
+    from experiments.cases import BEHAVIOR_OBLIGATIONS
+
+    for v in behavior_verdicts:
+        if v.get("met") is not False:
+            continue
+        adj = adjudicate_behavior(question, answer, v["obligation"],
+                                  BEHAVIOR_OBLIGATIONS[v["obligation"]],
+                                  v.get("reason", ""), tracker=tracker,
+                                  _transport=_transport)
+        v["formula_met"] = False
+        v["adjudication"] = {k: adj.get(k) for k in _SUMMARY_KEYS}
+        v["adjudication_reasons"] = adj["per_item"][0]["reasons"]
+        v["met"] = adj["passed"]
+
+
 # body-free summary keys copied into diagnostic detail (and thence into
 # manifests via checkers.countable); per_item stays bundle-only under the
 # NAMED_DETAIL projection

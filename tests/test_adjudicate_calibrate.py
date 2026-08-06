@@ -169,4 +169,6 @@ def test_committed_labels_file_carries_no_bodies():
                                 # s5 gates
                                 "disclosed", "undisclosed",
                                 "overclaim", "not_overclaim",
-                                "grounded", "ungrounded"}
+                                "grounded", "ungrounded",
+                                # s6 behavior gate
+                                "met", "unmet"}

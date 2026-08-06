@@ -61,8 +61,9 @@ GOLDEN_DIR = Path(__file__).parent / "golden"
 #     obligations, the truth unit) instead of only mechanical assertions —
 #     pre-v2 manifests' pass values are vacuous and must never be compared
 #     against post-v2 ones (second review, finding 2).
-SCHEMA_VERSION = 5   # s5: gates reach assertions + cross-turn + scripts;
-                     # quote canonicalization (s3/s4: judged-dim gates)
+SCHEMA_VERSION = 6   # s6: behavior obligations escalate (terra detects,
+                     # Opus adjudicates intent); s5: assertion/cross-turn/
+                     # script gates + quote canonicalization
                      # (experiments/adjudicate.py; David, 2026-08-06).
                      # s4, same day: faithfulness "partial" flags join the
                      # escalation (David: lean less nitpicky); "unsupported"

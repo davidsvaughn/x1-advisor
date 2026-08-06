@@ -144,7 +144,11 @@ def test_shipped_v2_suite_compiles():
     # assertions (quotes_verbatim, coverage_statement), cross-turn checks and
     # script turns; quote matching canonicalized; scan coverage counts in the
     # searched denominator.
-    assert identity["scoring_contract"].startswith("golden-v2.0/s5/modes-")
+    # s6 (same day, David: "proceed with the remaining core failures"):
+    # behavior obligations escalate — the targeted behavior judge stays the
+    # detector, unmet flags adjudicate against obligation INTENT (v2c026's
+    # scope-recitation nitpick vs v2c045/051's genuine misses).
+    assert identity["scoring_contract"].startswith("golden-v2.0/s6/modes-")
     assert len(identity["suite_digest"]) == 64
     assert len(suite.cases) >= 50 and len(suite.scripts) >= 4
 

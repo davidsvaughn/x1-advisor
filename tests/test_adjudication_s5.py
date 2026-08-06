@@ -252,3 +252,62 @@ def test_cross_turn_fail_safe_keeps_formula_failure():
                         _transport=lambda p, *, tracker=None, stage="":
                         {"result": "garbage", "modelUsage": {}})
     assert cross[0].passed is False
+
+
+# --- behavior gate (s6) ----------------------------------------------------
+
+
+def _unmet(obligation="state_absence", reason="does not name the scope"):
+    return {"obligation": obligation, "met": False, "reason": reason,
+            "judge_model": "gpt-5.6-terra"}
+
+
+def test_behavior_gate_flips_substance_delivered_in_any_wording():
+    from experiments.adjudicate import escalate_behaviors
+    verdicts = [_unmet()]
+    ok = {"met": True, "reason": "absence stated; citations show the scope"}
+    escalate_behaviors(verdicts, question="avg market score?",
+                       answer="No structured market average exists; scores "
+                              "live in evaluation documents. Overall: 67.9 [1]",
+                       _transport=_transport_returning(ok))
+    v = verdicts[0]
+    assert v["met"] is True and v["formula_met"] is False
+    assert v["adjudication"]["gate"] == "behavior"
+
+
+def test_behavior_gate_upholds_a_genuine_miss():
+    from experiments.adjudicate import escalate_behaviors
+    verdicts = [_unmet("correct_premise", "played along with the premise")]
+    bad = {"met": False, "reason": "attributes content to a nonexistent "
+                                   "second evaluation"}
+    escalate_behaviors(verdicts, question="what did the second evaluation say?",
+                       answer="The second evaluation said traction was fine.",
+                       _transport=_transport_returning(bad))
+    assert verdicts[0]["met"] is False
+
+
+def test_behavior_gate_fail_safe_and_met_verdicts_untouched():
+    from experiments.adjudicate import escalate_behaviors
+    verdicts = [{"obligation": "state_absence", "met": True, "reason": "ok",
+                 "judge_model": "gpt-5.6-terra"},
+                _unmet()]
+    escalate_behaviors(verdicts, question="q", answer="a",
+                       _transport=lambda p, *, tracker=None, stage="":
+                       {"result": "garbage", "modelUsage": {}})
+    assert verdicts[0]["met"] is True and "adjudication" not in verdicts[0]
+    assert verdicts[1]["met"] is False        # fail-safe: detector stands
+    assert verdicts[1]["formula_met"] is False
+
+
+def test_behavior_gate_prompt_carries_obligation_text_and_reason():
+    from experiments.adjudicate import escalate_behaviors
+    seen = {}
+
+    def spy(prompt, *, tracker=None, stage=""):
+        seen["prompt"] = prompt
+        return {"result": json.dumps({"met": True, "reason": "r"}),
+                "modelUsage": {}}
+    escalate_behaviors([_unmet(reason="missing incantation")],
+                       question="q", answer="a", _transport=spy)
+    assert "missing incantation" in seen["prompt"]
+    assert "naming the scope checked" in seen["prompt"]   # the rubric line
