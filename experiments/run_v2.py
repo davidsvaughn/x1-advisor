@@ -342,6 +342,12 @@ def main() -> None:
     ap.add_argument("--seed", default="v2-baseline",
                     help="binding seed; paired runs MUST use the same one (§4)")
     ap.add_argument("--judge", action="store_true")
+    ap.add_argument("--workers", type=int,
+                    default=int(os.environ.get("ADVISOR_RUN_WORKERS", "4")),
+                    help="concurrent cases (each on its own DB connection); "
+                         "judge subprocess pressure is bounded globally by "
+                         "ADVISOR_JUDGE_CONCURRENCY, so this parallelizes "
+                         "wall-clock, not seat load")
     args = ap.parse_args()
 
     try:
@@ -374,13 +380,29 @@ def main() -> None:
     started_sha, started_fp = git_sha(), code_fingerprint()
 
     rows, stale = [], []
-    with connect() as conn, manifest_file as manifest:
+    with connect() as conn:
         vocabulary = entity_vocabulary(conn)
-        for case in cases:
+
+    # Cases run CONCURRENTLY (2026-08-07): each worker gets its own DB
+    # connection; the shared judge-subprocess bound lives in judge_cc.
+    # Manifest rows are written from this thread as cases COMPLETE — row
+    # order is completion order, which carries no meaning (rows are keyed
+    # by case_id and identity is stamped per row).
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    def one(case):
+        with connect() as case_conn:
+            return run_case(case_conn, case, suite=suite, seed=args.seed,
+                            vocabulary=vocabulary, judge=args.judge,
+                            tracker=tracker, run_id=run_id)
+
+    with manifest_file as manifest, \
+            ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
+        futures = {pool.submit(one, case): case for case in cases}
+        for fut in as_completed(futures):
+            case = futures[fut]
             try:
-                row = run_case(conn, case, suite=suite, seed=args.seed,
-                               vocabulary=vocabulary, judge=args.judge,
-                               tracker=tracker, run_id=run_id)
+                row = fut.result()
             except TruthSetStale as exc:
                 # loud, and the case is not counted: grading against an oracle
                 # built from a different corpus would produce confident numbers

@@ -38,6 +38,7 @@ Usage
 from __future__ import annotations
 
 import json
+import threading
 from dataclasses import asdict, dataclass, field
 from typing import Any, Iterable, Literal, Protocol
 
@@ -340,6 +341,10 @@ class Tracker:
         self.caps = _Caps(per_run_soft_cap_usd=per_run_soft_cap_usd)
         self._run_total: float = 0.0
         self.records: list[CostRecord] = []
+        # one tracker is shared across case/script workers (parallel harness,
+        # 2026-08-07); float += is not atomic, and a dropped increment is
+        # silently under-reported spend
+        self._lock = threading.Lock()
 
     def log(
         self,
@@ -357,8 +362,9 @@ class Tracker:
             run_id=self.run_id, provider=provider, model=model, stage=stage,
             purpose=purpose, usage=usage, breakdown=bd, tool_calls=tools,
         )
-        self._run_total += bd.total
-        self.records.append(rec)
+        with self._lock:
+            self._run_total += bd.total
+            self.records.append(rec)
         self.sink.record(rec)
         return rec
 

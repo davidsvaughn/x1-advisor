@@ -36,6 +36,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
 from pathlib import Path
 from typing import Any, Callable
 
@@ -167,6 +168,14 @@ def _claude_env() -> dict[str, str]:
     }
 
 
+# Global bound on concurrent headless judge processes (2026-08-07, the
+# parallel harness): case workers × pooled gate samples would otherwise
+# multiply into dozens of simultaneous CLI subprocesses on the shared seat.
+# One semaphore here bounds the whole process regardless of who is calling.
+_JUDGE_GATE = threading.Semaphore(
+    int(os.environ.get("ADVISOR_JUDGE_CONCURRENCY", "6")))
+
+
 def _run_claude(prompt: str, *, tracker: Tracker | None,
                 stage: str) -> dict[str, Any] | None:
     """One headless call → parsed CLI JSON result, cost logged per model.
@@ -187,12 +196,13 @@ def _run_claude(prompt: str, *, tracker: Tracker | None,
         # anyway, one turn is burned on the denial and it needs another to
         # produce the JSON. With 1 the CLI exits is_error on the first stray
         # tool call — which killed a whole 47-bundle rejudge on 2026-08-04.
-        proc = subprocess.run(
-            [binary, "-p", "--model", CC_MODEL, "--output-format", "json",
-             "--max-turns", "3", "--settings", str(_SETTINGS)],
-            input=prompt, capture_output=True, text=True,
-            timeout=CC_TIMEOUT, cwd=cwd, env=_claude_env(),
-        )
+        with _JUDGE_GATE:
+            proc = subprocess.run(
+                [binary, "-p", "--model", CC_MODEL, "--output-format", "json",
+                 "--max-turns", "3", "--settings", str(_SETTINGS)],
+                input=prompt, capture_output=True, text=True,
+                timeout=CC_TIMEOUT, cwd=cwd, env=_claude_env(),
+            )
     finally:
         shutil.rmtree(cwd, ignore_errors=True)
     if proc.returncode != 0:

@@ -154,14 +154,28 @@ MISS-FLAGGED (oracle says: matched, parser says: not credited):
 def _samples(prompt: str, schema: type[BaseModel], *, tracker: Any,
              stage: str, transport: Callable | None) -> tuple[list[BaseModel], str]:
     """ADJ_SAMPLES independent judge reads; unparseable samples are dropped,
-    never coerced. Returns (parsed samples, judge model string)."""
+    never coerced. Returns (parsed samples, judge model string).
+
+    Live reads run CONCURRENTLY — the samples are independent by design, and
+    serial reads made every gate invocation pay k× judge latency. Injected
+    test transports stay sequential: the stubs are ordered and not
+    thread-safe, and determinism is what they are for. Global judge-process
+    pressure is bounded by judge_cc's concurrency gate, not here."""
     from x1_advisor.agent.judge_cc import (_judged_model, _parse_json_result,
                                            _run_claude)
     run = transport or _run_claude
+    if transport is not None:
+        outs = [run(prompt, tracker=tracker, stage=stage)
+                for _ in range(ADJ_SAMPLES)]
+    else:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=ADJ_SAMPLES) as pool:
+            outs = list(pool.map(
+                lambda _: run(prompt, tracker=tracker, stage=stage),
+                range(ADJ_SAMPLES)))
     parsed: list[BaseModel] = []
     model = ""
-    for _ in range(ADJ_SAMPLES):
-        out = run(prompt, tracker=tracker, stage=stage)
+    for out in outs:
         model = model or _judged_model(out)
         try:
             parsed.append(schema.model_validate(

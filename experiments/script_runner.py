@@ -443,6 +443,11 @@ def main() -> None:
                     help="binding seed; paired runs MUST use the same one (§4)")
     ap.add_argument("--judge", action="store_true",
                     help="run the claim/citation judge on turns that ask for it")
+    ap.add_argument("--workers", type=int,
+                    default=int(os.environ.get("ADVISOR_RUN_WORKERS", "4")),
+                    help="concurrent SCRIPTS (turns within a script stay "
+                         "sequential — they are one conversation); judge "
+                         "pressure bounded by ADVISOR_JUDGE_CONCURRENCY")
     args = ap.parse_args()
 
     try:
@@ -468,14 +473,28 @@ def main() -> None:
     started_sha, started_fp = git_sha(), code_fingerprint()
 
     results = []
-    with connect() as conn, manifest_file as manifest:
+    with connect() as conn:
         vocabulary = entity_vocabulary(conn)
-        for script in scripts:
+
+    # Scripts run CONCURRENTLY (2026-08-07): each is an independent
+    # conversation on its own DB connection; turns within a script remain
+    # strictly sequential. Output is printed per script as it completes.
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    def one(script):
+        with connect() as script_conn:
+            return run_script(script_conn, script, fixtures=suite.fixtures,
+                              seed=args.seed, judge=args.judge,
+                              tracker=tracker, run_id=run_id,
+                              vocabulary=vocabulary)
+
+    with manifest_file as manifest, \
+            ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
+        futures = {pool.submit(one, script): script for script in scripts}
+        for fut in as_completed(futures):
+            script = futures[fut]
+            result = fut.result()
             print(f"\n== {script.id} ({script.cls}, {len(script.turns)} turns) ==")
-            result = run_script(conn, script, fixtures=suite.fixtures,
-                                seed=args.seed, judge=args.judge,
-                                tracker=tracker, run_id=run_id,
-                                vocabulary=vocabulary)
             for turn in result["turns"]:
                 failed = [name for name, ok in turn["graded_units"].items()
                           if ok is False]
