@@ -77,6 +77,26 @@ agreement, kappa 1.00 on all three gates, 0 leniency breaches**, $3.60 —
 the never-before-judged synthetics included. Run it after any rubric edit
 and before trusting a re-baseline.
 
+**Baseline re-accepted under s4 (`d3afbc7` trio, seed `v2-baseline`,
+judged, no identity drift)** — the first accepted reference where the gates
+are live. Smoke **7/7** (= bar). Core **37/49** vs the s2 bar's 20/49 — the
+step change is the session's three workstreams landing together: registry
+queries unblocking the state_absence cluster, the population-statistics
+prompt rule, and the escalation gates ending the formula-artifact failures.
+Scripts **0/4**, identical to the s2 bar (quotes_verbatim carryover,
+coverage_claim_grounded, multi-turn citation coverage — real multi-turn
+defects, next in line as capability work). In-run gate telemetry: 11
+adjudications across 9 cases — 10 unanimous 3/3 overturns of formula
+artifacts (incl. v2c036's once-flip-flopping faithfulness partial, now
+stable under k=3), and **1 upheld failure** (v2c014 faithfulness, 1/1
+inadequate) — relief and anti-leniency demonstrated in the same manifest.
+Judge spend for the full judged trio: ~$20. Remaining core failures are
+real signal, not formula noise: state_absence behavior (v2c026/031),
+faithfulness (v2c014/024/046), truth-set (v2c009/047), quotes_verbatim
+(v2c032/033), correct_premise (v2c045/046), coverage_statement (v2c015),
+surface_ambiguity (v2c051). Revisit trigger: any rubric edit re-runs
+`experiments.adjudicate_calibrate` before the next accept.
+
 ## 2026-08-06 — Coverage + aggregate registry queries: the state_absence cluster unblocked
 
 First capability build of the post-baseline queue (David: "start on real
