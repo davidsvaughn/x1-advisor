@@ -1,9 +1,9 @@
 {
-  "builder_version": 2,
+  "builder_version": 3,
   "truth_sets": {
     "v2c008": {
-      "digest": "d20ea9e9923a5e93d125dcd07094cf95e885c85700603e0322ab03f46b2f2dbc",
-      "builder_version": 2,
+      "digest": "51a9af5325aa3f8ef8d52d65a0ffd6be772bfb01eb641b4b019dc534ba4e42bc",
+      "builder_version": 3,
       "counts": {
         "eligible": 64,
         "scanned": 25,
@@ -38,16 +38,16 @@
       }
     },
     "v2c009": {
-      "digest": "59fb787b2824f178171a887ef8b722a895d4e5f5f75592b63fc74e8727f3e63f",
-      "builder_version": 2,
+      "digest": "ad59b584dd6f0b600f8abf92533b03bda0fa589d07593ac8025a2ea185d607e7",
+      "builder_version": 3,
       "counts": {
         "eligible": 64,
         "scanned": 25,
-        "matched": 14,
-        "no_match": 11,
+        "matched": 5,
+        "no_match": 20,
         "not_indexed": 39,
         "scanned_chunks": 6459,
-        "matching_chunks": 178,
+        "matching_chunks": 120,
         "entity_names": 64,
         "entity_records": 74
       },
@@ -76,8 +76,8 @@
       }
     },
     "v2c010": {
-      "digest": "1516bcc4680a8eafb05ad892afc87fbc5005a98e0c2e708b9b7ea1be45163255",
-      "builder_version": 2,
+      "digest": "e44ab163fc338e610ff66fd354c8df14ef950a5329f54b187ed8b835c71e8fe4",
+      "builder_version": 3,
       "counts": {
         "eligible": 64,
         "scanned": 25,
@@ -112,8 +112,8 @@
       }
     },
     "v2c011": {
-      "digest": "5d7ce5a29da8ff8d84090f0a9063cf628355f0d17b13b6ed5143df915ba182c9",
-      "builder_version": 2,
+      "digest": "8cf08680122f3f1ce057c56d08ed9c420eab5d778da6ff60b605006d9cb2768b",
+      "builder_version": 3,
       "counts": {
         "eligible": 64,
         "scanned": 25,
@@ -148,8 +148,8 @@
       }
     },
     "v2c012": {
-      "digest": "e6754d5bebd018443e01322687b45ecbdf74ecc8aa9ddd231e813bba510bce4d",
-      "builder_version": 2,
+      "digest": "cc110d1bd31158a82e63f296235925f32dd7e0942cc73f4c8c857e78e7c2d494",
+      "builder_version": 3,
       "counts": {
         "eligible": 64,
         "scanned": 25,
@@ -185,16 +185,16 @@
       }
     },
     "v2c038": {
-      "digest": "1d7ef907093fd51cef7f5e702647dba6f8591e56c55057865924b05ad67e6c2e",
-      "builder_version": 2,
+      "digest": "ac6c113bc7114523246be67dec47c214a242fefe58157c4aa94e2fb4907406ea",
+      "builder_version": 3,
       "counts": {
         "eligible": 72,
         "scanned": 72,
-        "matched": 12,
-        "no_match": 60,
+        "matched": 11,
+        "no_match": 61,
         "not_indexed": 0,
         "scanned_chunks": 353,
-        "matching_chunks": 40,
+        "matching_chunks": 36,
         "entity_names": 72,
         "entity_records": 75
       },
@@ -220,8 +220,8 @@
       }
     },
     "v2c039": {
-      "digest": "3ba4fda136cd92ea496232b4e0f0d09a43258c3faadb55c5e4f6fa7b34496183",
-      "builder_version": 2,
+      "digest": "c1fb6c440addd2a6d66bdd3c7092f83a3d701ba9c01047f0eb80e29e0606edaa",
+      "builder_version": 3,
       "counts": {
         "eligible": 72,
         "scanned": 72,
@@ -257,8 +257,8 @@
       }
     },
     "v2c040": {
-      "digest": "8a1868d5aad571d3d0d5c7daba9625d8e1b789a014599d29a2a6711a02f22c66",
-      "builder_version": 2,
+      "digest": "2d03b9cafc7c5b9588db3f6376e1872d602e8b02dd4071d16baecb8c3af1d110",
+      "builder_version": 3,
       "counts": {
         "eligible": 72,
         "scanned": 72,
@@ -292,8 +292,8 @@
       }
     },
     "v2c041": {
-      "digest": "99ad57df68ec21b6e91fda5036dcc841c1c093871a1c1927289698ccf464b299",
-      "builder_version": 2,
+      "digest": "64b297c224940500e8d618f70f0e63b84a54a605cc4ee47d6e6bc734c30541ca",
+      "builder_version": 3,
       "counts": {
         "eligible": 13,
         "scanned": 13,
@@ -328,8 +328,8 @@
       }
     },
     "v2c042": {
-      "digest": "032d41ef1b2e9cd0e4018a720f42c1ae6be64290597e55cb54336af75e3202f9",
-      "builder_version": 2,
+      "digest": "1f5b4a8672d0546194f4ce7014dc57edb83ca6bc079297dad4532be1a2ba444a",
+      "builder_version": 3,
       "counts": {
         "eligible": 13,
         "scanned": 13,
@@ -363,8 +363,8 @@
       }
     },
     "v2c043": {
-      "digest": "2611a3451d5a43bbf79159a9a6a50764c6e6a49823ccea20ccc2e4e88ed17737",
-      "builder_version": 2,
+      "digest": "54a1d69da40096861ea8a0f39527fcba073a29c956e90e15af5a4de3de6cfdc9",
+      "builder_version": 3,
       "counts": {
         "eligible": 3,
         "scanned": 3,
@@ -398,8 +398,8 @@
       }
     },
     "v2c047": {
-      "digest": "396169866353e10e568ae1d095364146d8a67cc57a26c4d70a0bb535f88bcaf9",
-      "builder_version": 2,
+      "digest": "7238d1e4ad80d8d5a8bb311262224e7b659cfa1ce6967e2fdfe16fd242b13526",
+      "builder_version": 3,
       "counts": {
         "eligible": 64,
         "scanned": 25,
@@ -434,8 +434,8 @@
       }
     },
     "v2c048": {
-      "digest": "1a8f09701989964e990d1611fafd2cd65cf8aab70b24cf9d07e5cbba7d7897a3",
-      "builder_version": 2,
+      "digest": "33b379f0c3d60e5cce85001f31e5c363f389f35b62f6eac2e12d29aadb54d60f",
+      "builder_version": 3,
       "counts": {
         "eligible": 64,
         "scanned": 25,
@@ -470,8 +470,8 @@
       }
     },
     "v2c049": {
-      "digest": "7b9133b38c915d67fb638e88e4573f2464fc8509c34064cc880a9981aa8609bd",
-      "builder_version": 2,
+      "digest": "c9c1045638190dd46de16ad6027169684acba0c74e0d694d1c2daa480a3b1b02",
+      "builder_version": 3,
       "counts": {
         "eligible": 64,
         "scanned": 25,

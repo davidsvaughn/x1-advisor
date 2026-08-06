@@ -29,6 +29,7 @@ semantic negative (bank §3.2 honesty rule).
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -50,7 +51,7 @@ class ScanScope:
     granularity: tuple[str, ...]        # ('block',) everywhere that matters:
                                         # record summaries are generated text,
                                         # not evidence (Gate 1B)
-    method: str                         # 'phrase' (ILIKE) | 'fts'
+    method: str                         # 'phrase' (word-start match) | 'fts'
     any_terms: tuple[str, ...]
     all_terms: tuple[str, ...]
 
@@ -66,8 +67,17 @@ def _match_columns(scope: ScanScope) -> tuple[str, list[str], list[str]]:
     cols, params = [], []
     for i, term in enumerate(terms):
         if scope.method == "phrase":
-            cols.append(f"(c.text ILIKE %s) AS t{i}")
-            params.append(f"%{term}%")
+            # Word-start match, open on the right: "CE mark" matches
+            # "CE marked" but never "performance marketing"; "FDA" never
+            # fires inside a URL token. The right edge stays open so
+            # inflections ("regulatory risks") keep matching. \m anchors to
+            # a word character, so terms starting with punctuation stay
+            # bare-substring.
+            pat = re.escape(term)
+            if term[:1].isalnum() or term[:1] == "_":
+                pat = r"\m" + pat
+            cols.append(f"(c.text ~* %s) AS t{i}")
+            params.append(pat)
         else:                                   # fts
             cols.append(f"(to_tsvector('english', c.text) "
                         f"@@ plainto_tsquery('english', %s)) AS t{i}")

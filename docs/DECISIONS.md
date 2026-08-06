@@ -4,6 +4,56 @@
 > engineering choices land here, newest first. Each entry names its evidence (spike
 > output, manifest path, or doc reference) and the revisit trigger if one exists.
 
+## 2026-08-06 — Truth tier v3: word-start phrase matching + hedge-aware negation
+
+Triggered by the v2c039/v2c009 bimodality diagnosis (David: "start with the
+v2c diagnosis"). Both bimodalities were **harness defects, not agent
+variance** — the agent ran identical, correct scans in every run.
+
+**Defect 1 — oracle corruption (engine).** `phrase` matching was bare
+substring (`ILIKE '%term%'`): "CE mark" fired inside "performance
+marketing", "FDA" inside a GCS URL token, "clinical" inside "preclinical".
+Corpus audit of all 14 truth sets: 9 of v2c009's 14 matched entities were
+artifacts (only BMI OrganBank genuinely mentions CE marking); v2c038 carried
+one (Paul Jaminet via "preclinical"); v2c008's flagged hits were legitimate
+plural inflections. The run that *detected* the artifacts from excerpts and
+declined to repeat them scored recall 0.29; the run that repeated them with
+a caveat scored 0.86 — the grader rewarded credulity. Fix: `scan.py
+_match_columns` phrase terms are now word-start-anchored regexes (`~*`,
+`\m` + escaped term) — left edge closed, right edge open, so "regulatory
+risks" and "CE marked" still match. `BUILDER_VERSION` 2→3, all 14 truth
+sets rebuilt (`truth_digests.json`): v2c009 14→5 matched, v2c038 12→11,
+all other counts unchanged. Post-rebuild audit: zero artifact-only entities.
+Known open-right cost, accepted: "Bain" matches "Bainbridge" (no instance
+in the current corpus). The shared engine means the fix lands in the live
+tool and the oracle at once — users stop seeing phantom matches too.
+
+**Defect 2 — negation scope (checker).** `asserted_names` grades polarity
+per sentence; an honest hedged group ("consulting-related wording — not
+necessarily a consulting background: A, B, C…") read as a denial of every
+name in it. Measured: v2c039's identical 21-name census graded 0.94 when
+bulleted, 0.44 when hedged in prose (12 names negated). Fix: hedge patterns
+("not necessarily/always/only/exclusively/solely/merely/just") are masked
+before the negation test. Real denials still negate; remaining blind spots
+(double negation, mixed-polarity sentences) stay documented in checkers.py.
+
+**Effect, same stored answers re-graded** (three 1bb0fe1 runs, zero new
+cost): v2c039 0.94/0.94/0.44 → **0.94 all three** (bimodality was entirely
+the checker); v2c009 0.29/0.36/0.86 → **0.80/1.00/0.80 with the polarity
+inverted** — the artifact-skeptic answer now top-scores and the credulous
+answer's repeats count as 8 overclaims, which is the incentive pointing the
+right way. Mean truth recall 0.77/0.87/0.80 → 0.87/0.97/0.88.
+
+Comparability: truth-tier numbers before this change are not comparable to
+numbers after it (per-case `truth_digest` moved on every truth case; the
+scoring-contract modes string is unchanged). The accepted baseline trio
+(`fdba68a`, `experiments/golden/baseline.json`) predates v3 — re-accept at
+the next judged run (David's call). Principle recorded: **when the agent
+outsmarts the oracle, the oracle is wrong** — audit it, fix it, and never
+tune the agent toward a defective answer key. Revisit trigger: any truth
+case whose `judged:faithfulness` passes while `truth_set` fails in ≥2 runs
+gets an oracle audit before any agent-side change.
+
 ## 2026-08-05 — Nightly cron: no — unattended runs are a production concept
 
 David, clarifying a standing misread: his earlier interest in "nightly

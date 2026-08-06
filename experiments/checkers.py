@@ -133,15 +133,22 @@ def entity_mentions(text: str) -> list[str]:
 # Sentence-level negation markers. Deliberately coarse: the unit of scope is
 # the sentence, so "ButterBeKind's evaluation does not mention synthetic
 # biology" reads as a NEGATED mention of ButterBeKind. Blind spots, stated:
-# double negation, "not only ... but also", and a positive and negative claim
-# sharing one sentence all mis-classify. A name asserted positively in ANY
-# sentence counts as positive, so hedged repeats cannot hide a real claim.
+# double negation and a positive and negative claim sharing one sentence
+# mis-classify. A name asserted positively in ANY sentence counts as
+# positive, so hedged repeats cannot hide a real claim.
 _NEGATION_RE = re.compile(
     r"\b(?:no|not|never|none|neither|nor|without|lacks?|lacking|absent|absence|"
     r"missing|unmentioned|zero|cannot|can't|couldn't|won't|wouldn't|doesn't|"
     r"don't|didn't|isn't|aren't|wasn't|weren't|does\s+not|do\s+not|did\s+not|"
     r"fail(?:s|ed)?\s+to|found\s+no|no\s+(?:mention|evidence|match(?:es)?|"
     r"hits?|results?|reference))\b", re.I)
+# Hedges that contain a negation token without denying the claim: "consulting-
+# related wording — not necessarily a consulting background: A, B, C" REPORTS
+# A, B, C as matched; scoring it as denial punishes exactly the qualified
+# disclosure rule 7 demands. Masked before the negation test.
+_HEDGE_RE = re.compile(
+    r"\bnot\s+(?:necessarily|always|only|exclusively|solely|merely|just)\b",
+    re.I)
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+|\n+")
 
 
@@ -180,7 +187,7 @@ def asserted_names(text: str, names: Iterable[str]
         hits = names_in_text(sentence, names)
         if not hits:
             continue
-        if _NEGATION_RE.search(sentence):
+        if _NEGATION_RE.search(_HEDGE_RE.sub(" ", sentence)):
             negated |= hits
         else:
             positive |= hits

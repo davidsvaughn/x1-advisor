@@ -66,7 +66,13 @@ from x1_advisor.scan import scan as _engine_scan
 #     script_runner.entity_vocabulary. v1 keyed those entities by the full
 #     title, which no answer ever names — recall was structurally zero for
 #     every people/investor case (second review, finding 3).
-BUILDER_VERSION = 2
+# v3: phrase matching requires a word-start boundary (scan.py _match_columns).
+#     v2's bare-substring ILIKE manufactured phantom entities — "CE mark"
+#     fired inside "performance marketing", "FDA" inside a URL token — and the
+#     2026-08-06 oracle audit found 9 of v2c009's 14 matched entities were
+#     artifacts. The right edge stays open ("regulatory risk" still matches
+#     "regulatory risks").
+BUILDER_VERSION = 3
 
 # Truth sets contain corpus-derived match sets (which companies say what), so
 # they live in owner-only local storage with the bundles, not in git. Only

@@ -348,3 +348,54 @@ def test_declared_quotes_fail_when_the_answer_contains_none():
         evidence=["… faces high regulatory execution risk going forward …"],
         deterministic={"must_quote_verbatim": True})
     assert [d.passed for d in quoted] == [True]
+
+
+# --- assertion polarity: hedges are not denials (2026-08-06) ---------------
+
+
+def test_hedged_qualifier_is_a_positive_claim_not_a_denial():
+    # v2c039's measured failure: 12 correctly-reported names in one prose
+    # sentence with "not necessarily ..." graded negated — recall 0.94 → 0.44
+    # on an identical census. A hedge qualifies the claim; it does not deny it.
+    text = ("Other CVs with consulting-related wording (not necessarily a "
+            "consulting background): Ada Mazurek, Jan Habat, and Matt Young.")
+    positive, negated = checkers.asserted_names(
+        text, ["Ada Mazurek", "Jan Habat", "Matt Young"])
+    assert positive == {"ada mazurek", "jan habat", "matt young"}
+    assert negated == set()
+
+
+def test_plain_denial_still_reads_as_negated():
+    positive, negated = checkers.asserted_names(
+        "Calmr's evaluation does not mention synthetic biology.", ["Calmr"])
+    assert positive == set()
+    assert negated == {"calmr"}
+
+
+def test_hedge_does_not_mask_a_real_denial_in_the_same_sentence():
+    positive, negated = checkers.asserted_names(
+        "Calmr did not match, and not necessarily for lack of coverage.",
+        ["Calmr"])
+    assert negated == {"calmr"}
+
+
+# --- phrase matching: word-start boundary (builder v3, 2026-08-06) ---------
+
+
+def test_phrase_patterns_are_word_start_anchored_regexes():
+    # Builder v2's bare-substring ILIKE manufactured phantom truth entities:
+    # "CE mark" fired inside "performance marketing", "FDA" inside a URL
+    # token. v3 anchors the left edge and leaves the right open, so
+    # "regulatory risks" (inflection) still matches.
+    from x1_advisor.scan import ScanScope, _match_columns
+
+    scope = ScanScope(entity_type="startup_company", entity_key="name",
+                      source_types=("eval_section",), granularity=("block",),
+                      method="phrase", any_terms=("CE mark", "Ph.D"),
+                      all_terms=())
+    cols, params, terms = _match_columns(scope)
+    assert "~*" in cols and "ILIKE" not in cols
+    assert params[0] == r"\mCE\ mark" or params[0].startswith(r"\m")
+    # regex metacharacters in the term are escaped, not interpreted
+    assert r"\." in params[1] and params[1].startswith(r"\m")
+    assert terms == ["CE mark", "Ph.D"]
