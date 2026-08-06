@@ -512,10 +512,12 @@ cases:
     readiness: {source_available: true, tool_ready: true, scope: registry,
                 operation: aggregate, context_required: none, golden_priority: p1}
     expected_route: [structured_query]
-    notes: "count_cvs (2026-08-06) counts under the CV ACL."
+    notes: >
+      count_cvs (2026-08-06) counts under the CV ACL. state_absence came off
+      with the flip: a correct capability answer reports presence, which no
+      absence statement can honestly decorate.
     grade:
       deterministic: {must_cite: true}
-      behavior: [state_absence]
       judged: [faithfulness]
 
   # ======================================================================
@@ -641,7 +643,6 @@ cases:
     expected_route: [structured_query]
     grade:
       deterministic: {must_cite: true}
-      behavior: [state_absence]
       judged: [faithfulness]
 
   - id: v2c035
@@ -676,7 +677,6 @@ cases:
     expected_route: [structured_query]
     grade:
       deterministic: {must_cite: true}
-      behavior: [state_absence]
       judged: [faithfulness]
 
   - id: v2c037
@@ -691,7 +691,6 @@ cases:
     expected_route: [structured_query]
     grade:
       deterministic: {must_cite: true}
-      behavior: [state_absence]
       judged: [faithfulness]
 
   # ======================================================================

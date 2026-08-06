@@ -167,23 +167,23 @@ lexical no-match as a semantic negative.
 | 53 | What's the market score for StartupX? | EDS | ✅ |
 | 54 | Which startups scored above 70 overall? | EDS+SCR ("score over 77") | ✅ |
 | 55 | How many startups in the current results have uploaded pitch decks? | P4 | WS+🔧 (doc-inventory query) |
-| 56 | What investors are associated with this startup? | P4 | SEL+🔧 (relationship query not in registry) |
+| 56 | What investors are associated with this startup? | P4 | SEL+✅ (investors_for_company, 2026-08-06) |
 | 57 | How many startups are in the database? | e2e smoke | ✅ |
 | 58 | Which startups currently on screen were created in the last 12 months? | P4 | WS |
 | 59 | Which currently filtered startups are based in Switzerland? | P4 | WS |
-| 60 | What's the average market score? | BP | 🔧 (no avg query in registry) |
-| 61 | How does VeraAI compare to the average market score? | CAP | 🔧 (depends on #60) |
+| 60 | What's the average market score? | BP | ✅* (evaluation_score_stats, 2026-08-06 — overall score only; dimension scores are not structured data) |
+| 61 | How does VeraAI compare to the average market score? | CAP | ✅* (same caveat as #60) |
 | 62 | Which fund has the largest committed capital? / Compare fund durations | SKL | 🔧 (no fund queries in registry) |
-| 63 | How many CVs are open to work? / Who has the most skills? | SKL | 🔧 (no CV queries in registry) |
+| 63 | How many CVs are open to work? / Who has the most skills? | SKL | ✅/🔧 (count_cvs 2026-08-06 answers the count; no skills aggregate) |
 
 ### 1.5 Inventory / coverage (route: sql/coverage registry — see §3.3)
 
 | # | Question | Src | Status |
 |---|---|---|---|
-| 64 | What documents are available for this startup? | P4 (compact #3) | SEL+🔧 (coverage query — §3.3) |
-| 65 | Do we have a pitch deck for this startup? | P4 (compact #4) | SEL+🔧 (coverage query) |
-| 66 | What evaluation bundles exist for this startup? | P4 | SEL+🔧 (coverage query) |
-| 67 | Which document types are searchable for this startup? | P4 | SEL+🔧 (coverage query) |
+| 64 | What documents are available for this startup? | P4 (compact #3) | SEL+✅ (documents_for_company, 2026-08-06) |
+| 65 | Do we have a pitch deck for this startup? | P4 (compact #4) | SEL+✅ (documents_for_company) |
+| 66 | What evaluation bundles exist for this startup? | P4 | SEL+✅ (documents_for_company) |
+| 67 | Which document types are searchable for this startup? | P4 | SEL+✅ (documents_for_company) |
 | 68 | Across the startups currently on screen, which ones have pitch decks? | P4 | WS+🔧 |
 | 69 | Which startups passing the current filters have any searchable documents at all? | P4 | WS+🔧 |
 | 70 | For the current working set, which startups have both evaluation bundles and uploaded documents? | P4 | WS+🔧 |

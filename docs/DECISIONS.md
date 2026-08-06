@@ -4,6 +4,63 @@
 > engineering choices land here, newest first. Each entry names its evidence (spike
 > output, manifest path, or doc reference) and the revisit trigger if one exists.
 
+## 2026-08-06 — Coverage + aggregate registry queries: the state_absence cluster unblocked
+
+First capability build of the post-baseline queue (David: "start on real
+queue"). Four registry queries shipped in `queries.QUERIES` (dc3044f) — the
+surface the `registry_query`/`coverage_query` cases had waited on since the
+bank review:
+
+- **documents_for_company** — the §3.3 coverage surface: indexed corpus
+  documents matched by the title-name convention (spans both fixture envs,
+  which the app-id join cannot), each with per-requester searchable/gated
+  status derived from the retriever's own premium chunk predicate, plus app
+  uploads on record — files, never presented as searchable text.
+- **evaluation_score_stats** — avg/min/max/count of the **overall** X1 score.
+  Only the overall score is structured data (schema recon: evaluations'
+  `raw_json` column holds a report file path, not JSON); dimension scores
+  live in evaluation document text, and the query description says so.
+- **investors_for_company** — the platform match registry; empty is an honest
+  "none recorded" (the registry has no rows on the test corpus).
+- **count_cvs** — total / open-to-work / published under the CV ACL.
+
+ACL: `_owner_published_acl` generalizes drafts-are-owner-only across the
+startup/investor/CV profile tables; `_doc_acl` mirrors `retrieval._acl_sql`
+at document level; premium gating is existence-visible / text-gated, the same
+posture as scan's `restricted` surfacing. Live-verified in both directions
+(non-admin sees BMI OrganBank's premium report `gated: true` and loses the
+private deck uploads; stats population shifts 79→71 evals under ACL).
+
+**Case flips** — v2c025–027 + v2c034–037 to `tool_ready: true`; contract
+`modes-bd3235eb → modes-046b5064` (§4: never silent). The first capability
+run (manifests `2026-08-06_v2_core_dc3044f_r1–r7`, clean tree) exposed a
+spec artifact: the four presence-answering cases failed **only**
+`behavior:state_absence` — an obligation ordering the answer to "say the
+corpus does not contain it" against answers correctly reporting presence
+(v2c034 returned the full 12-document inventory; the judge could only rule
+the obligation unmet). state_absence was the honesty-era fallback bar; it
+stays where absence genuinely is the answer (v2c025 empty registry, v2c026
+missing market dimension, v2c035 deck-searchability nuance) and came off the
+four presence cases — `cases.py` itself requires it only for class
+`known_absence`. A dirty-tree verification regrade confirmed all four pass
+under the corrected blocks (manifests deleted per run-identity hygiene; the
+clean-sha rerun follows this commit).
+
+**Cluster after: 6 of 7 pass.** The residual fail is product signal, not
+measurement: **v2c026** ("average market score") — the agent demonstrably
+read the new catalog (its answer scopes overall-vs-dimension exactly as the
+description states) and correctly declined to estimate, but never *called*
+evaluation_score_stats, and asserted "no extractable numeric market scores"
+off two corpus searches (judge: unsupported claim; faithfulness 0.33). The
+durable gap is behavior — run the registry aggregate and pair the overall
+statistic with the dimension-absence statement — which is prompt/routing
+work needing its own approval, not a case edit.
+
+Revisit triggers: the match registry gains rows (v2c025 flips to presence —
+recheck its obligation); dimension scores land as structured columns
+(v2c026's premise changes); working-set inventory (bank #68–70) waits on
+Gate 3B context.
+
 ## 2026-08-06 — Census framing in the truth grader: exclusion groups, scope lists, trailing hedges
 
 The first fully-judged trio under truth v3 (`23eb169` manifests, core 22/49,
