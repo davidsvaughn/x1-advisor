@@ -34,16 +34,23 @@ def _check_acl(acl: Any) -> None:
         raise ValueError("acl must be 'admin' or a class-filter dict")
 
 
-def _company_acl(acl: Any, alias: str = "s") -> tuple[str, list]:
-    """Draft (unpublished) startup profiles are owner-only."""
+def _owner_published_acl(acl: Any, alias: str, entity_type: str) -> tuple[str, list]:
+    """Draft (unpublished) profiles are owner-only — one class predicate for
+    every published/owned profile table (startups, investors, CVs), not a
+    per-table re-derivation."""
     _check_acl(acl)
     if acl == "admin":
         return "", []
     owned = [int(i) for i in
-             ((acl.get("owned_entity_ids") or {}).get("startup_company") or [])]
+             ((acl.get("owned_entity_ids") or {}).get(entity_type) or [])]
     if owned:
         return f" AND ({alias}.is_published OR {alias}.id = ANY(%s))", [owned]
     return f" AND {alias}.is_published", []
+
+
+def _company_acl(acl: Any, alias: str = "s") -> tuple[str, list]:
+    """Draft (unpublished) startup profiles are owner-only."""
+    return _owner_published_acl(acl, alias, "startup_company")
 
 
 def _eval_acl(acl: Any, alias: str = "e") -> tuple[str, list]:
@@ -139,6 +146,154 @@ def _evaluations_for_company(conn, params: dict, acl: Any) -> list[dict]:
     ).fetchall()
 
 
+def _doc_acl(acl: Any) -> tuple[str, list]:
+    """Doc-level mirror of retrieval._acl_sql over advisor.documents: private
+    docs and drafts are owner-only; platform-hidden evaluations are admin-only.
+    Premium gating is chunk-level and handled by the caller."""
+    _check_acl(acl)
+    if acl == "admin":
+        return "", []
+    params: list = []
+    owned = acl.get("owned_entity_ids") or {}
+    owned_pairs = [(t, int(i)) for t, ids in owned.items() for i in ids]
+    owned_clause = ""
+    if owned_pairs:
+        owned_clause = (" OR (d.entity_type, d.entity_id) IN ("
+                        + ",".join(["(%s,%s)"] * len(owned_pairs)) + ")")
+    sql = f" AND (d.visibility <> 'private'{owned_clause})"
+    for t, i in owned_pairs:
+        params.extend([t, i])
+    sql += f" AND (d.is_published{owned_clause})"
+    for t, i in owned_pairs:
+        params.extend([t, i])
+    sql += " AND COALESCE(d.eval_is_visible, true)"
+    return sql, params
+
+
+def _required_name(params: dict) -> str:
+    name = str(params.get("company_name") or "").strip()
+    if not name:
+        raise ValueError("company_name is required (a substring of the company name)")
+    return name
+
+
+def _documents_for_company(conn, params: dict, acl: Any) -> list[dict]:
+    """Coverage/inventory (bank §3.3): what exists for this company, and what
+    of it is searchable text vs a file on record vs premium-gated."""
+    name = _required_name(params)
+    doc_sql, doc_args = _doc_acl(acl)
+    # a doc is searchable for THIS requester if any of its source blocks
+    # survives the same premium predicate the retriever applies
+    if acl == "admin":
+        open_filter = "c.granularity = 'block'"
+        open_args: list = []
+    else:
+        prem = "COALESCE((c.metadata->>'acl_premium_gated')::boolean, false) = false"
+        purchased = [int(i) for i in (acl.get("purchased_evaluation_ids") or [])]
+        if purchased:
+            prem = (f"({prem} OR (c.metadata->>'evaluation_id')::bigint = ANY(%s))")
+            open_args = [purchased]
+        else:
+            open_args = []
+        open_filter = f"c.granularity = 'block' AND {prem}"
+    # the entity's name is the title's first ' — ' segment (scan.py convention)
+    # — it spans fixture envs the app-table id join cannot see
+    indexed = conn.execute(
+        f"""SELECT d.title, d.source_type, d.version, d.visibility, d.is_published,
+                   coalesce(max(c.metadata->>'entity_ref_env'), 'test') AS env,
+                   count(c.id) FILTER (WHERE c.granularity = 'block') AS blocks,
+                   count(c.id) FILTER (WHERE {open_filter}) AS open_blocks
+            FROM advisor.documents d
+            JOIN advisor.doc_chunks c ON c.document_id = d.id
+            WHERE d.entity_type = 'startup_company'
+              AND d.superseded_by IS NULL
+              AND split_part(d.title, ' — ', 1) ILIKE '%%' || %s || '%%'{doc_sql}
+            GROUP BY d.id
+            ORDER BY d.source_type, d.title, d.version""",
+        (*open_args, name, *doc_args),
+    ).fetchall()
+
+    c_sql, c_args = _company_acl(acl)
+    up_sql, up_args = "", []
+    if acl != "admin":
+        owned = [int(i) for i in
+                 ((acl.get("owned_entity_ids") or {}).get("startup_company") or [])]
+        if owned:
+            up_sql, up_args = " AND (sd.visibility <> 'private' OR s.id = ANY(%s))", [owned]
+        else:
+            up_sql = " AND sd.visibility <> 'private'"
+    uploads = conn.execute(
+        f"""SELECT sd.document_type, sd.file_name, sd.visibility,
+                   sd.created_at::date AS uploaded
+            FROM startup_company_documents sd
+            JOIN startup_companies s ON s.id = sd.startup_company_id
+            WHERE s.name ILIKE '%%' || %s || '%%'{c_sql}{up_sql}
+            ORDER BY sd.document_type, sd.created_at""",
+        (name, *c_args, *up_args),
+    ).fetchall()
+
+    out: list[dict] = []
+    for r in indexed:
+        row = {"kind": "indexed", "title": r["title"],
+               "source_type": r["source_type"], "version": r["version"],
+               "env": r["env"], "visibility": r["visibility"],
+               "is_published": r["is_published"], "blocks": r["blocks"],
+               "searchable": r["open_blocks"] > 0}
+        if r["blocks"] and not r["open_blocks"]:
+            row["gated"] = True     # exists; its text is premium-gated for you
+        out.append(row)
+    for r in uploads:
+        out.append({"kind": "upload", "document_type": r["document_type"],
+                    "file_name": r["file_name"], "visibility": r["visibility"],
+                    "uploaded": r["uploaded"]})
+    return out
+
+
+def _evaluation_score_stats(conn, params: dict, acl: Any) -> list[dict]:
+    e_sql, e_args = _eval_acl(acl)
+    c_sql, c_args = _company_acl(acl)
+    return conn.execute(
+        f"""SELECT count(*) AS evaluations,
+                   count(DISTINCT e.startup_company_id) AS evaluated_startups,
+                   round(avg(e.overall_score), 1) AS avg_overall_score,
+                   min(e.overall_score) AS min_overall_score,
+                   max(e.overall_score) AS max_overall_score
+            FROM startup_company_evaluations e
+            JOIN startup_companies s ON s.id = e.startup_company_id
+            WHERE true{e_sql}{c_sql}""",
+        e_args + c_args,
+    ).fetchall()
+
+
+def _investors_for_company(conn, params: dict, acl: Any) -> list[dict]:
+    name = _required_name(params)
+    c_sql, c_args = _company_acl(acl)
+    i_sql, i_args = _owner_published_acl(acl, "i", "investor")
+    return conn.execute(
+        f"""SELECT coalesce(i.display_name, i.slug) AS investor, i.investor_type,
+                   m.match_score, m.is_active, i.is_published
+            FROM investor_startup_matches m
+            JOIN investors i ON i.id = m.investor_id
+            JOIN startup_companies s ON s.id = m.startup_company_id
+            WHERE s.name ILIKE '%%' || %s || '%%'{c_sql}{i_sql}
+            ORDER BY m.match_score DESC NULLS LAST, investor
+            LIMIT %s""",
+        (name, *c_args, *i_args, MAX_ROWS),
+    ).fetchall()
+
+
+def _count_cvs(conn, params: dict, acl: Any) -> list[dict]:
+    v_sql, v_args = _owner_published_acl(acl, "v", "cv")
+    return conn.execute(
+        f"""SELECT count(*) AS cvs,
+                   count(*) FILTER (WHERE v.open_to_work) AS open_to_work,
+                   count(*) FILTER (WHERE v.is_published) AS published
+            FROM cvs v
+            WHERE true{v_sql}""",
+        v_args,
+    ).fetchall()
+
+
 QUERIES: dict[str, dict[str, Any]] = {
     "count_startups": {
         "fn": _count_startups, "params": {},
@@ -162,6 +317,34 @@ QUERIES: dict[str, dict[str, Any]] = {
         "fn": _evaluations_for_company,
         "params": {"company_name": "required substring match"},
         "description": "Evaluation history (scores + dates) visible to you for a named company.",
+    },
+    "documents_for_company": {
+        "fn": _documents_for_company,
+        "params": {"company_name": "required substring match"},
+        "description": ("Document inventory visible to you for a named company: "
+                        "indexed corpus documents (searchable text — eval "
+                        "sections/basic/premium, profile, deck extract, website) "
+                        "with per-document searchable/gated status, plus uploaded "
+                        "files on record (pitch decks etc.), which are not "
+                        "searchable text."),
+    },
+    "evaluation_score_stats": {
+        "fn": _evaluation_score_stats, "params": {},
+        "description": ("Avg/min/max overall X1 score and counts across "
+                        "evaluations visible to you. Only the overall score is "
+                        "structured data; dimension scores (market, team, …) "
+                        "live in evaluation document text."),
+    },
+    "investors_for_company": {
+        "fn": _investors_for_company,
+        "params": {"company_name": "required substring match"},
+        "description": ("Investor associations recorded for a named company in "
+                        "the platform match registry (investor, type, match "
+                        "score, active). Empty means none recorded."),
+    },
+    "count_cvs": {
+        "fn": _count_cvs, "params": {},
+        "description": "CV counts visible to you (total, open to work, published).",
     },
 }
 

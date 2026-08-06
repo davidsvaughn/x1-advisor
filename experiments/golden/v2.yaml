@@ -468,13 +468,16 @@ cases:
     question: "What investors are associated with this startup?"
     bindings: {startup: evaluated_startup}
     binding_mode: selected_entity
-    readiness: {source_available: true, tool_ready: false, scope: entity,
+    readiness: {source_available: true, tool_ready: true, scope: entity,
                 operation: aggregate, context_required: selected, golden_priority: p1}
     expected_route: [structured_query]
-    blocked_on: registry_query
-    fallback_contract: decline_not_estimate
-    notes: "No relationship query exists in queries.QUERIES (bank §1.4 🔧)."
+    notes: >
+      investors_for_company queries the platform match registry (2026-08-06).
+      An empty result is an honest "none recorded" — the state_absence bar is
+      saying so with the query cited, never inventing associations from
+      narrative text.
     grade:
+      deterministic: {must_cite: true}
       behavior: [state_absence]
       judged: [faithfulness]
 
@@ -484,16 +487,19 @@ cases:
     provenance: bank#60 (BP)
     question: "What's the average market score?"
     bindings: {}
-    readiness: {source_available: true, tool_ready: false, scope: registry,
+    readiness: {source_available: true, tool_ready: true, scope: registry,
                 operation: aggregate, context_required: none, golden_priority: p0}
     expected_route: [structured_query]
-    blocked_on: registry_query
-    fallback_contract: decline_not_estimate
     notes: >
-      No average query in the registry. The failure this guards is an
-      average computed from whatever handful of rows a listing query returned
-      and presented as the population mean.
+      evaluation_score_stats aggregates in SQL (2026-08-06) — but only the
+      overall X1 score is structured data; dimension scores live in evaluation
+      document text. The failure this guards is an average computed from
+      whatever handful of rows a listing query returned and presented as the
+      population mean — including a "market" average invented from text. The
+      honest answer pairs the overall-score statistic with the absence of a
+      structured market dimension.
     grade:
+      deterministic: {must_cite: true}
       behavior: [state_absence]
       judged: [faithfulness]
 
@@ -503,12 +509,12 @@ cases:
     provenance: bank#63 (SKL)
     question: "How many CVs are open to work?"
     bindings: {}
-    readiness: {source_available: true, tool_ready: false, scope: registry,
+    readiness: {source_available: true, tool_ready: true, scope: registry,
                 operation: aggregate, context_required: none, golden_priority: p1}
     expected_route: [structured_query]
-    blocked_on: registry_query
-    fallback_contract: decline_not_estimate
+    notes: "count_cvs (2026-08-06) counts under the CV ACL."
     grade:
+      deterministic: {must_cite: true}
       behavior: [state_absence]
       judged: [faithfulness]
 
@@ -617,9 +623,10 @@ cases:
       judged: [faithfulness]
 
   # ======================================================================
-  # CORE — inventory / coverage (bank §1.5, design §3.3). No coverage registry
-  # query exists yet, so these are honesty-graded: what we hold, what we do
-  # not, and never a guess dressed as an inventory.
+  # CORE — inventory / coverage (bank §1.5, design §3.3). Served by
+  # documents_for_company (2026-08-06): indexed corpus docs with per-requester
+  # searchable/gated status plus uploads on record. The bar is unchanged in
+  # spirit: what we hold, what we do not, never a guess dressed as inventory.
   # ======================================================================
 
   - id: v2c034
@@ -629,11 +636,9 @@ cases:
     question: "What documents are available for this startup?"
     bindings: {startup: evaluated_startup}
     binding_mode: selected_entity
-    readiness: {source_available: true, tool_ready: false, scope: entity,
+    readiness: {source_available: true, tool_ready: true, scope: entity,
                 operation: inventory, context_required: selected, golden_priority: p0}
     expected_route: [structured_query]
-    blocked_on: coverage_query
-    fallback_contract: honest_absence
     grade:
       deterministic: {must_cite: true}
       behavior: [state_absence]
@@ -646,14 +651,14 @@ cases:
     question: "Do we have a pitch deck for this startup?"
     bindings: {startup: evaluated_startup}
     binding_mode: selected_entity
-    readiness: {source_available: true, tool_ready: false, scope: entity,
+    readiness: {source_available: true, tool_ready: true, scope: entity,
                 operation: inventory, context_required: selected, golden_priority: p0}
     expected_route: [structured_query]
-    blocked_on: coverage_query
-    fallback_contract: honest_absence
     notes: >
       Bound to evaluated_startup, deliberately NOT to deck_startup: binding the
       pool that guarantees a deck would decide the answer before the run.
+      An upload row is a file on record, not searchable text — conflating the
+      two is the failure this case now watches.
     grade:
       deterministic: {must_cite: true}
       behavior: [state_absence]
@@ -666,11 +671,9 @@ cases:
     question: "What evaluation bundles exist for this startup?"
     bindings: {startup: evaluated_startup}
     binding_mode: selected_entity
-    readiness: {source_available: true, tool_ready: false, scope: entity,
+    readiness: {source_available: true, tool_ready: true, scope: entity,
                 operation: inventory, context_required: selected, golden_priority: p1}
     expected_route: [structured_query]
-    blocked_on: coverage_query
-    fallback_contract: honest_absence
     grade:
       deterministic: {must_cite: true}
       behavior: [state_absence]
@@ -683,11 +686,9 @@ cases:
     question: "Which document types are searchable for this startup?"
     bindings: {startup: evaluated_startup}
     binding_mode: selected_entity
-    readiness: {source_available: true, tool_ready: false, scope: entity,
+    readiness: {source_available: true, tool_ready: true, scope: entity,
                 operation: inventory, context_required: selected, golden_priority: p1}
     expected_route: [structured_query]
-    blocked_on: coverage_query
-    fallback_contract: honest_absence
     grade:
       deterministic: {must_cite: true}
       behavior: [state_absence]

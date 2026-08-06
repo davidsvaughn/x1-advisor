@@ -39,7 +39,11 @@ SYSTEM_PROMPT_SHA256 = "58cf4511fe6e413de8fd5aae3cff00b53346cf518511bca00386d531
 # reports exact per-phrase matching-chunk counts; excerpt sampling hid
 # which phrase fired (v2c012: agent asserted an exact phrase was absent
 # corpus-wide while it appeared verbatim in an unsampled chunk).
-TOOL_SCHEMA_SHA256 = "bf204f5a25ecc9b011b2b7593d7fc5f8fa25e5414c3822a7576167238784c978"
+# 2026-08-06 (3): four registry queries (the David-approved coverage/aggregate
+# capability build, bank §1.4/§1.5/§3.3): documents_for_company,
+# evaluation_score_stats, investors_for_company, count_cvs — the catalog is
+# embedded in structured_query's description, so the digest moves.
+TOOL_SCHEMA_SHA256 = "45c9ce1de30f99c4e8c14abddfdaa9fac2fcac7e91adae3f8d31c33b641e460c"
 
 
 def test_prompt_prefix_stability():
