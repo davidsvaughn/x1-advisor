@@ -47,16 +47,23 @@ disclaimed group), **1 upheld** (an entity the answer singled out as a
 most-risk-like reference) — case still fails, correctly. Relief where the
 formula misread, no relief where the answer overstated.
 
-**Calibration debt (open):** `experiments/adjudication_calibration.jsonl`
-holds the 17 seed labels as `assistant-proposed` (bodies owner-only in
-`.qa-artifacts/calibration/adjudication_items.jsonl`) — David to review, esp.
-the thesis/closing-recap taste call (cit08/cit09). A replay harness in the
-style of judge_calibrate.py is the follow-up before the adjudicated gates are
-trusted at nightly scale. Known adjacent boundary, deliberately NOT built:
-faithfulness "partial" verdicts on hedged synthesis claims (v2c021's fresh
-run: 4 partials, 3 of which the judge itself located support for in uncited
-refs elsewhere in the turn) — the same escalation shape fits, awaiting
-David's scope call.
+**Same-day follow-up (s4)** — David resolved both open items with one
+directive: "I'd always lean towards being LESS nitpicky rather than more,"
+delegated. So: (1) the seed calibration labels are ratified as proposed
+(thesis/closing-recap = adequate when every element maps to a cited bullet);
+(2) faithfulness joined the escalation (c274559, contract s3 → s4 — no
+baseline was ever accepted on s3). Scope is deliberately asymmetric: ONLY
+"partial" entailment flags escalate, adjudicated for
+would-the-reader-be-misled against the WHOLE turn evidence set (hedged,
+labeled inference over cited inputs = faithful; inference dressed as sourced
+fact, or quantities beyond the evidence = unfaithful). "unsupported" and
+"unverifiable" NEVER escalate — with any present the gate cannot flip and
+spends nothing; fabrication stays out of reach by construction, per David's
+standing "never absolve B." Verified on the stored v2c021 partials: 4/4
+faithful, unanimous 3/3, units flip to pass. Calibration set now 23 labels
+(+4 real hedged-synthesis, +2 synthetic must-fail). Remaining follow-up
+before nightly-scale trust: the adjudication replay harness
+(judge_calibrate.py style) over the labeled set.
 
 ## 2026-08-06 — Coverage + aggregate registry queries: the state_absence cluster unblocked
 
