@@ -35,7 +35,11 @@ SYSTEM_PROMPT_SHA256 = "58cf4511fe6e413de8fd5aae3cff00b53346cf518511bca00386d531
 # tells the agent to probe each concept's base token alongside compound
 # phrases; a compound-only scan reliably missed a base-token-only entity
 # in all three post-fix measurement runs.
-TOOL_SCHEMA_SHA256 = "3942e9327b46e3c5bab79ae9fde19d6b6094c55edc632795351610ae190b793d"
+# 2026-08-06 (2): terms_fired rollup (David-approved) — each matched entity
+# reports exact per-phrase matching-chunk counts; excerpt sampling hid
+# which phrase fired (v2c012: agent asserted an exact phrase was absent
+# corpus-wide while it appeared verbatim in an unsampled chunk).
+TOOL_SCHEMA_SHA256 = "bf204f5a25ecc9b011b2b7593d7fc5f8fa25e5414c3822a7576167238784c978"
 
 
 def test_prompt_prefix_stability():

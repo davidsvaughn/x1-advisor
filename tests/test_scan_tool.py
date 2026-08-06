@@ -151,6 +151,32 @@ def test_scan_text_caps_are_flagged_and_counts_stay_exact():
     assert out["counts"]["matching_chunks"] == 4
 
 
+def test_terms_fired_is_exact_across_all_chunks_not_the_excerpt_sample():
+    # v2c012's measured failure: BMI OrganBank matched 41 chunks, the 2
+    # sampled excerpts both fired the broad token, and the one chunk where
+    # the exact phrase fired verbatim never surfaced — so the agent told the
+    # user the exact phrase appeared nowhere. The rollup is computed over
+    # ALL matched chunks and keyed in scan-phrase order.
+    rows = [dict(CHUNK_ROWS[0], chunk_id=100 + i, block_index=i,
+                 text="procurement offices", t0=False, t1=True, t2=False)
+            for i in range(SCAN_EXCERPTS_PER_ENTITY)]
+    rows.append(dict(CHUNK_ROWS[0], chunk_id=200,
+                     block_index=SCAN_EXCERPTS_PER_ENTITY,
+                     text="hospital procurement staff", t0=True, t1=True,
+                     t2=False))
+    conn = StubConn(chunk_rows=rows, company_rows=[])
+    scan_text, _ = _scan_tool(conn)
+    out = json.loads(scan_text(
+        phrases=["hospital procurement", "procurement", "payer adoption"]))
+
+    (calmr,) = out["matched"]
+    assert len(calmr["excerpts"]) == SCAN_EXCERPTS_PER_ENTITY
+    # exact rollup, phrase order preserved; a phrase that fired nowhere is
+    # omitted, never reported as zero
+    assert calmr["terms_fired"] == {"hospital procurement": 1,
+                                    "procurement": 3}
+
+
 def test_scan_text_entity_cap_never_drops_a_matched_name():
     n = SCAN_EXCERPT_ENTITY_CAP + 6
     rows = [{"chunk_id": i, "document_id": i, "block_index": 0,

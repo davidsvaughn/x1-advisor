@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections import Counter
 from typing import Any
 
 from haystack.tools import Tool
@@ -199,8 +200,16 @@ def build_tools(conn, *, acl: Any, registry: EvidenceRegistry,
         matched_out: list[dict] = []
         capped = 0
         for e in (e for e in result["entities"] if e["status"] == "matched"):
+            # per-phrase matching-chunk counts across ALL of this entity's
+            # matched chunks — exact like the counts, never capped. Excerpts
+            # are a sample; without this rollup a phrase that fired outside
+            # the sample is invisible, and "the exact phrase is absent" gets
+            # asserted about an entity whose text contains it verbatim.
+            fired = Counter(t for c in e["chunks"] for t in c["terms"])
             item: dict[str, Any] = {"entity": e["key"],
-                                    "matched_chunks": len(e["chunks"])}
+                                    "matched_chunks": len(e["chunks"]),
+                                    "terms_fired": {p: fired[p] for p in phrases
+                                                    if fired[p]}}
             if e.get("gated_unscanned"):
                 item["gated_unscanned"] = True
             chunks = sorted(e["chunks"], key=lambda c: (c["document_id"],
@@ -378,9 +387,15 @@ def build_tools(conn, *, acl: Any, registry: EvidenceRegistry,
                  "searches, and cite the result's own `ref` for coverage "
                  "counts. A no_match is lexical — the phrases did not appear "
                  "in that entity's indexed text — never proof the topic is "
-                 "absent semantically. Each match reports which phrase fired "
-                 "(`terms`) — attribute matches to the fired phrase, not to "
-                 "your search intent. Probe each concept's base token as its "
+                 "absent semantically. Each matched entity reports "
+                 "`terms_fired` — per-phrase matching-chunk counts across ALL "
+                 "its matched text, exact even where excerpt bodies are "
+                 "sampled — and each excerpt reports which phrase fired "
+                 "(`terms`). Attribute matches to the fired phrase, not to "
+                 "your search intent, and check `terms_fired` before stating "
+                 "a phrase is absent: an excerpt sample showing only broad-"
+                 "term hits does not mean the exact phrase fired nowhere. "
+                 "Probe each concept's base token as its "
                  "own phrase alongside any compound phrase or spelling "
                  "variant — text that expresses a concept rarely reproduces "
                  "the exact multi-word form, and a base-token hit is reported "
