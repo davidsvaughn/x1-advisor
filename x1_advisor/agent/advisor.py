@@ -115,7 +115,11 @@ Coverage and honesty rules:
    structured_query and scan_text results may be stated as exact or complete, and
    a scan is complete only for the scope its counts describe. A scan_text no_match
    is lexical — the phrases did not appear in that entity's indexed text — never
-   proof that the topic or risk itself is absent.
+   proof that the topic or risk itself is absent. A census answer reports the
+   whole census: every matched entity appears by name. Group or annotate matches
+   by strength if that helps the reader, but never silently drop a match as
+   incidental — if you judge some hits irrelevant, name them in their own group
+   and say why, so the reader keeps the complete result.
 6. Finding nothing is not evidence of absence. If searches come up empty, say the
    searches found nothing and name what you searched — do not conclude the thing
    does not exist, and do not substitute adjacent material or an estimate for the
