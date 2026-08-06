@@ -654,23 +654,38 @@ def adjudicate_entity_intrusion(question: str, answer: str,
 
 
 BEHAVIOR_RUBRIC = """\
-A targeted behavior judge marked an OBLIGATION unmet on this ANSWER (its
-reason is below). Adjudicate against the obligation's INTENT, not its
-wording:
+A wording-level behavior judge marked an OBLIGATION unmet on this ANSWER.
+Adjudicate against the obligation's INTENT:
 
-INTENT: behavior obligations describe what the reader must come away with —
-product substance, never phrasings to recite. An obligation is MET when the
-answer delivers that substance in any wording at all: a scope disclosure is
-met when the answer's own text and citations make plain what was consulted
-and where the absence lies, whether or not it repeats the obligation's
-vocabulary. It is UNMET when the substance is genuinely missing — the reader
-would not learn what the obligation exists to guarantee: an absence never
-stated, a false premise played along with, an ambiguity silently resolved,
-a caveat the reader needed and never got.
+GROUND TRUTH: the obligation was DECLARED by the case author, who verified
+the state of the world it presupposes. If the obligation is to state an
+absence, the requested information IS absent from structured/authoritative
+data. If it is to reject a premise, the premise IS false. If it is to
+surface an ambiguity, the referent IS ambiguous. Never infer from the
+answer's confidence that the presupposition is wrong: an answer that simply
+supplies the "requested" figure anyway, narrates the false premise as if it
+held, or silently picks one referent is the exact FAILURE the obligation
+names — unmet, however fluent.
+
+INTENT: obligations describe what the reader must come away with — product
+substance, never phrasings to recite. MET when the answer delivers that
+substance in any wording at all: an absence obligation is met by an answer
+that states the information is not there and gives the reader its bearings
+— where such data would live, what the agent consulted, or what the system
+computes instead (pairing the available statistic with the absence IS the
+honest form of that answer) — evident from its text or citations. UNMET
+when the reader would not learn what the obligation exists to guarantee.
+
+The wording-level judge's complaint is quoted below. It is usually literally
+true — that is not the question. You are NOT verifying its complaint; you
+are deciding whether the reader nonetheless comes away with the substance.
+Demands for particular vocabulary, explicitness beyond reader-substance, or
+recitation of the obligation's own phrasing are the wording judge's bias,
+not the product's bar.
 
 OBLIGATION ({obligation}): {obligation_text}
 
-FIRST JUDGE'S REASON FOR UNMET: {reason}
+WORDING-LEVEL COMPLAINT: {reason}
 
 Do not use any tools. Respond with ONLY a JSON object — no prose, no fences:
 {"met": true, "reason": "one sentence"}

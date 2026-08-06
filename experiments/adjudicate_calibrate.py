@@ -318,10 +318,18 @@ def replay(labels: list[dict], items: list[dict], *, tracker=None,
 
 
 def main() -> None:
-    argparse.ArgumentParser(description=__doc__).parse_args()
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--gate", default=None,
+                    help="replay one gate's labels only (cheap rubric "
+                         "iteration); the FULL set must still be green "
+                         "before any baseline accept")
+    args = ap.parse_args()
     labels = _load_jsonl(LABELS_PATH)
+    if args.gate:
+        labels = [lab for lab in labels if lab["gate"] == args.gate]
     if not labels:
-        sys.exit(f"no labels in {LABELS_PATH}")
+        sys.exit(f"no labels in {LABELS_PATH}"
+                 + (f" for gate {args.gate}" if args.gate else ""))
     tracker = Tracker(run_id="adjudication-calibration")
     results, missing = replay(labels, _load_jsonl(ITEMS_PATH), tracker=tracker)
     if missing:
