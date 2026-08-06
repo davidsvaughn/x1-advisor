@@ -4,6 +4,64 @@
 > engineering choices land here, newest first. Each entry names its evidence (spike
 > output, manifest path, or doc reference) and the revisit trigger if one exists.
 
+## 2026-08-07 — s5: the gates reach everything (scripts 0/4 → 3/4); baseline re-accepted
+
+The scripts diagnosis (David: "proceed with the scripts failures") found every
+failing unit in the d3afbc7 0/4 traced to a formula misreading good behavior —
+no fabrication, no coverage lies, no invented entities. The concrete shapes:
+quotes failed for marked elision ("…"), bracketed splices ("[its]"),
+nested-quote-mark conversion, added **emphasis**, a U+2011 hyphen and a
+dropped inline link — all traced to evidence at 0.82–1.00 similarity;
+v2s003's model answer ("No—not all 20 … 25 had searchable text, 39 were not
+indexed") was failed for containing honest numbers because every numeral was
+compared against a searched-denominator of 1; v2s002's "remaining 12 listed
+startups had no indexed evaluation text" matched 0 coverage regexes (one
+adjective defeats `\d+ startups`); the scan-discovered no-space record
+`acceliumpartnersag` was flagged as an invented entity; and script turns had
+NO gates at all — v2s004's three cited-elaboration headlines failed
+unadjudicated sub-shape A. David approved the four-part plan ("sounds
+great!"); contract severs s4 → s5 (`410a95c`):
+
+1. **Script parity** — the citation/faithfulness gates now run on script
+   turns exactly as on cases.
+2. **Detector hygiene** — quote matching canonicalized (`_canon_quote`):
+   typographic hyphens/quote-mark folding, markdown emphasis, inline links,
+   NBSP. Deterministic, both sides; 12 → 8 misses on the stored run.
+3. **Four new gates** (`experiments/adjudicate.py`): quotes (editorial
+   conventions faithful, paraphrase/meaning-altering elision not),
+   coverage_statement (scope disclosure in substance, any phrasing),
+   coverage_claims (searched denominator stays deterministic — and now
+   counts scan_text's own `counts.scanned` — while the reading of which
+   numbers CLAIM coverage escalates; telemetry rides in the prompt),
+   entity_intrusion (evidence-surfaced records are not inventions). Gated
+   deterministic assertions and cross-turn checks carry
+   `formula_passed` + a body-free adjudication summary in the manifest;
+   per-item detail stays owner-only (NAMED_DETAIL).
+4. **Calibration 26 → 41 labels** (6 new must-fail synthetics: paraphrase-
+   as-quote, negation-dropping elision, invented quote, missing scope
+   statement, searched-all-N overclaim, invented entity); replay harness
+   extended to all seven gates. Live replay: **0.98 agreement (40/41), 0
+   leniency breaches**, $8.98. The one miss — cc03, "the scan covered 64
+   startup entities" where 64 is the eligible count and 25 were scanned —
+   split 2/1 toward overclaim: the judge errs STRICT on that phrasing; the
+   label stands as the intent anchor and the tension is recorded here, not
+   relabeled away.
+
+**Verification trio at `410a95c`** (judged, seed `v2-baseline`, no drift),
+accepted as baseline: smoke **7/7**; core **41/49** (s4 bar 37/49 — v2c015,
+v2c032 and the state_absence stragglers flip; 14 judged-dim gate escalations,
+all unanimous); scripts **0/4 → 3/4**, the remaining failure a genuine
+defect: v2s004 stated "£0.1m net income" from a table whose 2025 row reads
+£1.0m — graded unsupported, and the faithfulness gate structurally refuses
+to adjudicate when unsupported exists (never absolve B). Remaining core
+failures are all examined signal: 4 census truth_set fails with judge-upheld
+overclaims, state_absence (v2c026), premise correction (v2c045), ambiguity
+surfacing (v2c051), and v2c033 citing nothing. Noted for the tool backlog:
+one agent turn called `structured_query` with a `parameters` kwarg and
+recovered on retry. Revisit triggers: any rubric edit re-runs
+`experiments.adjudicate_calibrate` before the next accept; rejudge_v2
+escalates judged dims only (fresh runs are the canonical s5 path).
+
 ## 2026-08-06 — Escalation gates (s3): the formula flags, the judge disposes — David's methodology call
 
 Prompted by the citation_coverage post-mortem: the bracket-counting formula
