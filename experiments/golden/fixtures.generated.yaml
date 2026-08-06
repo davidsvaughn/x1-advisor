@@ -47,9 +47,6 @@ pools:
     - {name: "X1 Pipeline", entity_type: startup_company, note: test}
   # companies whose entire evaluation history is one bundle — so any question premised on a score change or a second evaluation is false
   single_evaluation_startup:
-    - {name: "2ndCourtcom", entity_type: startup_company, note: prod}
-    - {name: "2ndCourt.com", entity_type: startup_company, note: prod}
-    - {name: "AcceliumPartnersAG", entity_type: startup_company, note: prod}
     - {name: "Accelium Partners GmbH", entity_type: startup_company, note: prod}
     - {name: "Animaedapp", entity_type: startup_company, note: prod}
     - {name: "Athlete's Edge", entity_type: startup_company, note: prod}

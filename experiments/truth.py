@@ -308,6 +308,14 @@ POOL_QUERIES: dict[str, tuple[str, str]] = {
     "single_evaluation_startup": (
         "companies whose entire evaluation history is one bundle — so any "
         "question premised on a score change or a second evaluation is false",
+        # The collision guard (2026-08-07): a company whose NORMALIZED name
+        # (case/punctuation folded) collides with another corpus record —
+        # 2ndCourt.com vs 2ndCourtcom, Accelium Partners AG vs
+        # AcceliumPartnersAG — cannot anchor a "no second evaluation"
+        # premise. Each record holds one bundle, but the corpus under the
+        # name the USER typed holds two evaluation histories, so the premise
+        # is registry-true and corpus-false; v2c045 (410a95c) answered about
+        # the duplicate's evaluation as "the second evaluation".
         """SELECT DISTINCT ch.metadata->>'company_name' AS name, 'prod' AS env
            FROM advisor.doc_chunks ch
            JOIN advisor.documents d ON d.id = ch.document_id
@@ -317,6 +325,15 @@ POOL_QUERIES: dict[str, tuple[str, str]] = {
              AND ch.metadata->>'company_name' IS NOT NULL
              AND NOT EXISTS (SELECT 1 FROM startup_companies s
                              WHERE s.name = ch.metadata->>'company_name')
+             AND NOT EXISTS (
+                 SELECT 1 FROM advisor.doc_chunks c3
+                 WHERE c3.metadata->>'company_name' IS NOT NULL
+                   AND c3.metadata->>'company_name'
+                       <> ch.metadata->>'company_name'
+                   AND regexp_replace(lower(c3.metadata->>'company_name'),
+                                      '[^a-z0-9]', '', 'g')
+                     = regexp_replace(lower(ch.metadata->>'company_name'),
+                                      '[^a-z0-9]', '', 'g'))
            ORDER BY 1"""),
 }
 
