@@ -451,6 +451,37 @@ def test_scope_list_names_earn_neither_credit_nor_liability():
     assert grade["scope_listed"] == ["ada mazurek", "hall martin"]
 
 
+def test_bulleted_exclusion_group_inherits_the_framing_line():
+    # v2c049's measured failure: "returned five incidental/non-synthetic-
+    # biology mentions:" followed by one name per bullet — the newline split
+    # severed the bullets from the framing, grading 5 disclosed non-matches
+    # as 5 overclaims. Items inherit the introducing line's census bucket,
+    # across the blank line markdown puts there.
+    text = ("A broader search returned five incidental mentions:\n\n"
+            "- Calmr — synthetic data\n"
+            "- Beespenser — synthetic fragrances\n\n"
+            "So none can be identified as mentioning synthetic biology.")
+    buckets = checkers.asserted_names(text, ["Calmr", "Beespenser"])
+    assert buckets.excluded == {"calmr", "beespenser"}
+    assert buckets.positive == set()
+
+
+def test_plain_list_intro_does_not_launder_liability():
+    # only census framing is inherited: "The 9 are:" asserts its items
+    text = "The matches are:\n- Calmr\n- Beespenser"
+    buckets = checkers.asserted_names(text, ["Calmr", "Beespenser"])
+    assert buckets.positive == {"calmr", "beespenser"}
+
+
+def test_resumed_prose_ends_a_census_group():
+    text = ("These hits are unrelated to the question:\n"
+            "- Calmr\n"
+            "Beespenser directly discusses the topic.")
+    buckets = checkers.asserted_names(text, ["Calmr", "Beespenser"])
+    assert buckets.excluded == {"calmr"}
+    assert buckets.positive == {"beespenser"}
+
+
 def test_positive_assertion_elsewhere_beats_census_framing():
     # precedence: a name asserted positively in ANY sentence stays positive —
     # a scope list or exclusion group cannot launder a real claim

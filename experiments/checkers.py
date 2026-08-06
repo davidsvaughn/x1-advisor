@@ -171,6 +171,21 @@ _SCOPE_RE = re.compile(
     r"\b(?:scan|scans|search|searches|query|queries)\b[^.!?]{0,40}?"
     r"\b(?:covered|include[ds]?|spanned|examined)\b"
     r"|\bcovered\s+by\s+(?:the|this)\s+(?:scan|search)\b", re.I)
+# A census group is usually FORMATTED as a list: a framing sentence ending in
+# a colon, then one name per bullet. Sentence-splitting on newlines severs
+# the bullets from their framing, so items inherit the census bucket of the
+# introducing line ("…five incidental mentions:") until prose resumes. Only
+# census framing is inherited — a plain intro ("The 9 are:") leaves its items
+# positive, and an item's own negation always beats the inherited bucket.
+_LIST_ITEM_RE = re.compile(r"^\s*(?:[-*•+]|\d{1,3}[.)])\s")
+
+
+def _census_framing(sentence: str) -> str | None:
+    if _SCOPE_RE.search(sentence):
+        return "scope"
+    if _EXCLUSION_RE.search(sentence):
+        return "excluded"
+    return None
 # The period after a single-capital initial is not a sentence end: splitting
 # "Randolph W. Hubbell" mid-name means the full name can never be found in
 # any one sentence, structurally capping recall below 1.0 for every answer
@@ -232,18 +247,34 @@ def asserted_names(text: str, names: Iterable[str]) -> NameBuckets:
     negated: set[str] = set()
     excluded: set[str] = set()
     scope: set[str] = set()
-    for sentence in _SENTENCE_SPLIT_RE.split(text or ""):
-        hits = names_in_text(sentence, names)
-        if not hits:
-            continue
-        if _SCOPE_RE.search(sentence):
-            scope |= hits
-        elif _EXCLUSION_RE.search(sentence):
-            excluded |= hits
-        elif _NEGATION_RE.search(_HEDGE_RE.sub(" ", sentence)):
-            negated |= hits
-        else:
-            positive |= hits
+    group: str | None = None
+    for line in (text or "").splitlines():
+        if not line.strip():
+            continue  # a blank line between a framing sentence and its list
+            # is normal markdown; only resumed prose ends the group
+        is_item = bool(_LIST_ITEM_RE.match(line))
+        if not is_item:
+            group = None
+        for sentence in _SENTENCE_SPLIT_RE.split(line):
+            hits = names_in_text(sentence, names)
+            if not hits:
+                continue
+            bucket = _census_framing(sentence)
+            if bucket is None and _NEGATION_RE.search(
+                    _HEDGE_RE.sub(" ", sentence)):
+                bucket = "negated"
+            if bucket is None and is_item:
+                bucket = group
+            if bucket == "scope":
+                scope |= hits
+            elif bucket == "excluded":
+                excluded |= hits
+            elif bucket == "negated":
+                negated |= hits
+            else:
+                positive |= hits
+        if not is_item and line.rstrip().rstrip("*_ ").endswith(":"):
+            group = _census_framing(line)
     excluded -= positive
     negated -= positive | excluded
     scope -= positive | excluded | negated

@@ -48,6 +48,35 @@ next judged trio on this commit. Revisit trigger unchanged from the v3 entry:
 any truth case passing `judged:faithfulness` while failing `truth_set` in ≥2
 runs gets a grader/oracle audit before any agent-side change.
 
+**Same-day follow-up (judged trio on `23a782b`).** The rerun validated the
+buckets live (v2c012 recall 0.00→1.00, v2c041 clean pass, v2c009 at 1.00
+again) and exposed two more layers:
+
+1. *List formatting severs framing.* The agent formats census groups as
+   markdown lists — "returned five incidental mentions:" then one name per
+   bullet — and newline sentence-splitting cut the bullets loose from the
+   framing line, so v2c049 graded 5 disclosed non-matches as 5 overclaims.
+   Fixed structurally, not with more markers: list items inherit the census
+   bucket of their introducing line until prose resumes; a plain intro ("The
+   9 are:") inherits nothing, and an item's own negation beats inheritance.
+   Offline re-grade: v2c049 5→0 oc; both judged runs otherwise
+   byte-identical, run-1 grades reproduced exactly.
+
+2. *Variant attribution is the dominant residual, and it is a policy, not a
+   marker gap.* Of the 32 core overclaims left under the final grader, the
+   verified bulk (v2c012's 15, v2c047's 8, v2c038's adjacent 4) are the agent
+   doing exactly what the base-token rule orders — scan broad terms, report
+   hits attributed to the fired term ("fired on the broad words *payer*,
+   *procurement*, or *hospital*") — while the truth set only recognizes the
+   narrow oracle terms. Every run invents fresh phrasing for this
+   disclosure, so lexical exclusion markers structurally cannot keep up.
+   This is the parked variant-attribution overclaim policy, now measured as
+   the main cost. Candidate durable design, David's call: truth builder v4
+   adds an *adjacent tier* per case (base tokens of each oracle term), so
+   the oracle itself knows which entities are variant-explainable and the
+   grader classifies them entity-by-entity — no prose parsing — as
+   disclosed-variant (visible count, no liability) instead of overclaim.
+
 ## 2026-08-06 — Truth tier v3: word-start phrase matching + hedge-aware negation
 
 Triggered by the v2c039/v2c009 bimodality diagnosis (David: "start with the
