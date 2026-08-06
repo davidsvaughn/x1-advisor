@@ -31,6 +31,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from experiments import checkers
+from experiments.adjudicate import adjudicate_citation_coverage
 from experiments.manifest import git_sha, open_new_manifest
 from x1_advisor.agent.bundle import QA_ARTIFACTS_DIR, judge_manifest_projection
 from x1_advisor.agent.judge import calibration_state, judge_bundle
@@ -42,13 +43,21 @@ _NAME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}_(?P<exp>.+)_[0-9a-f]{7}"
 
 
 def _recompute_judged(units: dict, prefix: str, verdict: dict | None) -> dict:
-    """Overwrite the `<prefix>judged:*` keys in-place from a fresh verdict."""
+    """Overwrite the `<prefix>judged:*` keys in-place from a fresh verdict.
+
+    Escalation gates (s3): same rule as checkers.unit_verdicts — a dimension
+    the judge adjudicated gates on the adjudicated verdict, formula labels
+    stay as telemetry."""
     labels = set((verdict or {}).get("labels") or [])
     for key in units:
         if key.startswith(f"{prefix}judged:"):
             dim = key.rsplit("judged:", 1)[1]
-            units[key] = (not (labels & checkers.DIMENSION_FAIL_LABELS[dim])
-                          if verdict else None)
+            adj = ((verdict or {}).get("adjudications") or {}).get(dim)
+            if adj is not None and adj.get("passed") is not None:
+                units[key] = adj["passed"]
+            else:
+                units[key] = (not (labels & checkers.DIMENSION_FAIL_LABELS[dim])
+                              if verdict else None)
     return units
 
 
@@ -93,6 +102,14 @@ def main() -> None:
         try:
             verdict = judge_bundle(None, bundle, tracker=tracker,
                                    calibration=calibration)
+            # escalation gate (s3): formula-flagged citation failures go to
+            # the judge, exactly as in run_v2.run_case
+            if verdict and verdict.get("uncited_claims"):
+                adj = adjudicate_citation_coverage(bundle, verdict,
+                                                   tracker=tracker)
+                if adj:
+                    verdict.setdefault("adjudications", {})[
+                        "citation_coverage"] = adj
         except Exception as exc:                       # noqa: BLE001
             # one dead judge call must not kill a 47-bundle pass; the case
             # comes back UNGRADED (None) and is counted loudly below
