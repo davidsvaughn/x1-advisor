@@ -125,6 +125,70 @@ def test_wrong_ref_claims_are_out_of_reach_of_this_gate():
     assert units["judged:citation_coverage"] is True
 
 
+# --- faithfulness gate (s4) ------------------------------------------------
+
+
+def _faith_verdict(partials=1, unsupported=0, unverifiable=0):
+    verdicts = ([{"claim": f"Hedged synthesis {i}.", "citations": [1],
+                  "verdict": "partial", "reason": "inference"}
+                 for i in range(partials)]
+                + [{"claim": "Fabricated.", "citations": [1],
+                    "verdict": "unsupported", "reason": "contradicted"}
+                   for _ in range(unsupported)])
+    return {"labels": ["synthesis_error"],
+            "counts": {"supported": 5, "partial": partials,
+                       "unsupported": unsupported,
+                       "unverifiable": unverifiable},
+            "scores": {"faithfulness": 5 / (5 + partials + unsupported),
+                       "citation_coverage": 1.0},
+            "verdicts": verdicts, "uncited_claims": [],
+            "judge_model": "cc:claude-opus-5"}
+
+
+def test_faithful_partials_flip_the_gate():
+    from experiments.adjudicate import adjudicate_faithfulness
+    ok = {"verdicts": [{"id": 1, "faithful": True, "reason": "hedged, inputs cited"}]}
+    verdict = _faith_verdict(partials=1)
+    adj = adjudicate_faithfulness(BUNDLE, verdict,
+                                  _transport=_transport_returning(ok))
+    assert adj["passed"] is True
+    verdict["adjudications"] = {"faithfulness": adj}
+    units = checkers.unit_verdicts([], ["faithfulness"], [], verdict, [])
+    assert units["judged:faithfulness"] is True
+    # formula score untouched — telemetry
+    assert verdict["scores"]["faithfulness"] < 1.0
+
+
+def test_unsupported_claims_block_escalation_entirely():
+    """Fabrication is never adjudicated: with any unsupported (or
+    unverifiable) verdict present the gate cannot flip, so no judge tokens
+    are spent and the formula failure stands."""
+    from experiments.adjudicate import adjudicate_faithfulness
+    verdict = _faith_verdict(partials=2, unsupported=1)
+    assert adjudicate_faithfulness(
+        BUNDLE, verdict,
+        _transport=_transport_returning({})) is None
+    units = checkers.unit_verdicts([], ["faithfulness"], [], verdict, [])
+    assert units["judged:faithfulness"] is False
+    verdict = _faith_verdict(partials=1, unverifiable=1)
+    assert adjudicate_faithfulness(
+        BUNDLE, verdict, _transport=_transport_returning({})) is None
+
+
+def test_misleading_partial_keeps_the_failure_fail_safe():
+    from experiments.adjudicate import adjudicate_faithfulness
+    no = {"verdicts": [{"id": 1, "faithful": False, "reason": "stated as fact"}]}
+    verdict = _faith_verdict(partials=1)
+    adj = adjudicate_faithfulness(BUNDLE, verdict,
+                                  _transport=_transport_returning(no))
+    assert adj["passed"] is False
+    # unusable judge → formula failure stands
+    adj = adjudicate_faithfulness(
+        BUNDLE, _faith_verdict(partials=1),
+        _transport=lambda prompt, tracker=None, stage="": {"result": "?"})
+    assert adj["passed"] is False and adj["samples_used"] == 0
+
+
 # --- asserted_names gate ---------------------------------------------------
 
 GRADE = {"truth_matched": 3, "hit_count": 2, "missed": ["calmr"],

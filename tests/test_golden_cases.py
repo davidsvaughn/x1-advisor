@@ -138,8 +138,9 @@ def test_shipped_v2_suite_compiles():
     # contract carries the grading-schema version: pass-semantics changes
     # (like the second review's finding 2 fix) sever comparability.
     # s3 (2026-08-06): escalation gates — formula-flagged failures gate on
-    # judge adjudication (experiments/adjudicate.py, David's methodology call)
-    assert identity["scoring_contract"].startswith("golden-v2.0/s3/modes-")
+    # judge adjudication (experiments/adjudicate.py, David's methodology call).
+    # s4 (same day): faithfulness partials join the escalation.
+    assert identity["scoring_contract"].startswith("golden-v2.0/s4/modes-")
     assert len(identity["suite_digest"]) == 64
     assert len(suite.cases) >= 50 and len(suite.scripts) >= 4
 

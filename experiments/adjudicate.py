@@ -229,6 +229,115 @@ def adjudicate_citation_coverage(bundle: dict, verdict: dict, *,
     }
 
 
+FAITHFULNESS_RUBRIC = """\
+The entailment grader marked assertions in this ANSWER "partial" — part
+supported by their cited evidence, part not. Adjudicate each flag against the
+product's faithfulness INTENT (David's standing direction: lean less
+nitpicky, never absolve fabrication):
+
+INTENT: the agent is a research advisor — drawing reasoned, clearly-signaled
+inferences from evidence is its job, not a violation. A partial flag is a
+REAL failure when the reader would be misled about what the evidence shows:
+a factual element stated as established that no evidence in the turn
+establishes, a quantity/scope stronger than the evidence, or an inference
+dressed as a sourced fact. It is NOT a failure when the assertion is an
+explicitly hedged or evidently-inferential synthesis ("may", "could",
+"raises the risk that", a labeled conclusion) whose factual inputs are
+established by the evidence shown — judge those inputs against the WHOLE
+evidence set below, not only the refs the sentence cited: support living in
+a ref the sentence did not cite is an attribution nit, not unfaithfulness.
+
+For each flagged assertion: verdict "faithful" (the flag was grader
+strictness) or "unfaithful" (the reader would be misled).
+
+Do not use any tools. Respond with ONLY a JSON object — no prose, no fences:
+{"verdicts": [{"id": 1, "faithful": true, "reason": "one sentence"}, ...]}
+One entry per flagged assertion id.
+
+QUESTION:
+{question}
+
+ANSWER:
+---
+{answer}
+---
+
+FLAGGED ASSERTIONS (with the grader's partial reasons):
+{flagged}
+
+EVIDENCE (everything the agent was shown):
+{evidence}
+"""
+
+
+class _FaithVerdict(BaseModel):
+    id: int
+    faithful: bool
+    reason: str
+
+
+class _FaithVerdicts(BaseModel):
+    verdicts: list[_FaithVerdict]
+
+
+def adjudicate_faithfulness(bundle: dict, verdict: dict, *,
+                            tracker: Any = None,
+                            _transport: Callable | None = None,
+                            ) -> dict[str, Any] | None:
+    """Escalate "partial" entailment flags — and ONLY those.
+
+    "unsupported" (contradiction/fabrication) and "unverifiable" (dead refs)
+    are never adjudicated: they must keep failing, so when any exist the
+    gate cannot flip and we do not spend judge tokens (returns None; formula
+    verdict stands). The adjudicator sees the grader's own partial reasons —
+    it is answering a DIFFERENT question (would the reader be misled?), not
+    re-running entailment."""
+    counts = verdict.get("counts") or {}
+    if counts.get("unsupported") or counts.get("unverifiable"):
+        return None
+    partials = [v for v in verdict.get("verdicts") or []
+                if v.get("verdict") == "partial"]
+    if not partials:
+        return None
+    from x1_advisor.agent.judge_cc import _evidence_block
+
+    evidence, _ = _evidence_block(bundle)
+    answer = bundle.get("validation", {}).get("answer", "")
+    question = ((bundle.get("request") or {}).get("question")
+                or (bundle.get("request") or {}).get("prompt") or "")
+    listed = "\n".join(
+        f"{i + 1}. \"{v['claim']}\" (cited {v.get('citations')}; grader: "
+        f"{v.get('reason', '')})" for i, v in enumerate(partials))
+    prompt = (FAITHFULNESS_RUBRIC
+              .replace("{question}", question)
+              .replace("{answer}", answer)
+              .replace("{flagged}", listed)
+              .replace("{evidence}", evidence))
+    samples, model = _samples(prompt, _FaithVerdicts,
+                              tracker=tracker, stage="adjudicate.faithfulness",
+                              transport=_transport)
+
+    per_claim: list[dict[str, Any]] = []
+    for i, v in enumerate(partials):
+        votes = [x.faithful for s in samples for x in s.verdicts if x.id == i + 1]
+        reasons = [x.reason for s in samples for x in s.verdicts if x.id == i + 1]
+        faithful = _majority(votes)
+        per_claim.append({"claim": v["claim"],
+                          "faithful": bool(faithful),  # None → False, fail-safe
+                          "votes": votes, "reasons": reasons})
+    return {
+        "gate": "faithfulness",
+        "flagged": len(partials),
+        "inadequate": sum(1 for c in per_claim if not c["faithful"]),
+        "passed": (all(c["faithful"] for c in per_claim)
+                   if samples else False),
+        "samples": ADJ_SAMPLES, "samples_used": len(samples),
+        "judge_model": model,
+        # bundle-only detail (quotes the answer)
+        "per_claim": per_claim,
+    }
+
+
 def adjudicate_asserted_names(question: str, answer: str, grade: dict, *,
                               tracker: Any = None,
                               _transport: Callable | None = None,

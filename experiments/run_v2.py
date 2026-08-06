@@ -47,7 +47,8 @@ from experiments.cases import (
     resolve_bindings,
 )
 from experiments.adjudicate import (adjudicate_asserted_names,
-                                    adjudicate_citation_coverage)
+                                    adjudicate_citation_coverage,
+                                    adjudicate_faithfulness)
 from experiments.behavior import judge_behaviors
 from experiments.funnel import classify
 from experiments.manifest import code_fingerprint, git_sha, open_new_manifest
@@ -245,12 +246,16 @@ def run_case(conn, case: Case, *, suite: Suite, seed: str, vocabulary: set[str],
             behavior_verdicts = judge_behaviors(prepared["question"], answer,
                                                 case.grade.behavior,
                                                 tracker=tracker)
-        # escalation gates (s3): formula-flagged failures go to the judge;
+        # escalation gates (s3/s4): formula-flagged failures go to the judge;
         # clean passes never escalate, and formula output stays as telemetry
         if verdict and "citation_coverage" in case.grade.judged:
             adj = adjudicate_citation_coverage(bundle, verdict, tracker=tracker)
             if adj:
                 verdict.setdefault("adjudications", {})["citation_coverage"] = adj
+        if verdict and "faithfulness" in case.grade.judged:
+            adj = adjudicate_faithfulness(bundle, verdict, tracker=tracker)
+            if adj:
+                verdict.setdefault("adjudications", {})["faithfulness"] = adj
         if truth_grade and (truth_grade["overclaim_count"] > 0
                             or (case.grading_mode == "capability"
                                 and truth_grade["missed"])):

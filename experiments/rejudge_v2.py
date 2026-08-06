@@ -31,7 +31,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from experiments import checkers
-from experiments.adjudicate import adjudicate_citation_coverage
+from experiments.adjudicate import (adjudicate_citation_coverage,
+                                    adjudicate_faithfulness)
 from experiments.manifest import git_sha, open_new_manifest
 from x1_advisor.agent.bundle import QA_ARTIFACTS_DIR, judge_manifest_projection
 from x1_advisor.agent.judge import calibration_state, judge_bundle
@@ -102,14 +103,18 @@ def main() -> None:
         try:
             verdict = judge_bundle(None, bundle, tracker=tracker,
                                    calibration=calibration)
-            # escalation gate (s3): formula-flagged citation failures go to
-            # the judge, exactly as in run_v2.run_case
+            # escalation gates (s3/s4): formula-flagged failures go to the
+            # judge, exactly as in run_v2.run_case
             if verdict and verdict.get("uncited_claims"):
                 adj = adjudicate_citation_coverage(bundle, verdict,
                                                    tracker=tracker)
                 if adj:
                     verdict.setdefault("adjudications", {})[
                         "citation_coverage"] = adj
+            if verdict:
+                adj = adjudicate_faithfulness(bundle, verdict, tracker=tracker)
+                if adj:
+                    verdict.setdefault("adjudications", {})["faithfulness"] = adj
         except Exception as exc:                       # noqa: BLE001
             # one dead judge call must not kill a 47-bundle pass; the case
             # comes back UNGRADED (None) and is counted loudly below
