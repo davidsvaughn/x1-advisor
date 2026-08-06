@@ -31,7 +31,11 @@ SYSTEM_PROMPT_SHA256 = "58cf4511fe6e413de8fd5aae3cff00b53346cf518511bca00386d531
 # the unit the census enumerates; person-evidence also lives in company
 # docs (team/founder sections outweigh the cv corpus ~4x), so people
 # questions pair a cv census with a company-doc search.
-TOOL_SCHEMA_SHA256 = "1c16a568fc7dcb6047509f6642485a9eb295a0d55d0948eab440daac73fce254"
+# 2026-08-06: base-token probe guidance (David-approved) — scan_text now
+# tells the agent to probe each concept's base token alongside compound
+# phrases; a compound-only scan reliably missed a base-token-only entity
+# in all three post-fix measurement runs.
+TOOL_SCHEMA_SHA256 = "3942e9327b46e3c5bab79ae9fde19d6b6094c55edc632795351610ae190b793d"
 
 
 def test_prompt_prefix_stability():
