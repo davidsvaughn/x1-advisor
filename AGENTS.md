@@ -55,6 +55,8 @@ did, same-day, as review criteria were folded in).
 | `docs/QA-LOOP-DESIGN-2026-07-30.md` | **adopted design — largely implemented** (Gate 1); kept as rationale |
 | `docs/ARCHITECTURE.md` | **historical design draft** (2026-06-12) — several `[DECIDED]` items since superseded; see its banner |
 | `docs/ARCHITECTURE-REVIEW.md` | **historical review** (2026-07-07) — PLAN follows it where it disagrees with ARCHITECTURE |
+| `docs/QA-DESIGN-AND-DEEPEVAL-INDEPENDENT-REVIEW-2026-08-06.md` | **point-in-time review** (2026-08-06, at `87ac00e`) — QA design, s6 baseline, DeepEval; findings F1–F10 |
+| `docs/QA-REVIEW-CONSOLIDATED-2026-08-07.md` | **point-in-time review** (2026-08-07) — verification pass over both prior QA reviews; consolidated priorities |
 | `docs/refs/` | reference-mining notes (pipeshub, chroma) cited by ARCHITECTURE |
 | `docs/archive/` | **absorbed point-in-time docs** — the 2026-07-30 reviews, the stale HANDOFF snapshot, kickoff transcripts. Evidence trail only; see its README |
 
