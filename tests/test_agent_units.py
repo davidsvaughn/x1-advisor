@@ -32,7 +32,7 @@ from x1_advisor.ingest.chunker import chunk_markdown
 # retrieved passages is a sample artifact, not a statistic (an agent declined
 # an aggregate it could partially serve, without running the registry, and
 # characterized corpus-wide content off two searches).
-SYSTEM_PROMPT_SHA256 = "9ac49b2f3aa9c079cfd86435294944ba958fe66632372ba9d62e1cc5d83e429e"
+SYSTEM_PROMPT_SHA256 = "01ffce9b81be013ec94740e69e1992639e4978ff019a3aeca276ed857f48e1c5"
 # 2026-08-05 (2): entity-class semantics (David-approved) — entity_type is
 # the unit the census enumerates; person-evidence also lives in company
 # docs (team/founder sections outweigh the cv corpus ~4x), so people

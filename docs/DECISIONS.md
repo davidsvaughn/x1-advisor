@@ -49,6 +49,20 @@ as record.
 Evidence: `tests/test_transport_and_promoter.py` (containment, tripwire
 boundaries, promoter refusals); full suite 226/226.
 
+**Addendum 3, same day — enumeration-structure prompt rule (David: "go").**
+The flagged semicolon-wall (thread 18: 49 startup names packed into one
+sentence) traced to a prompt collision: rule 5 demands the complete census
+while Style demands ~400 words, and with no structural-formatting guidance
+the model resolves the squeeze by compression. Approved wording added to
+Style: enumerations >~6 items render as a markdown list or table (table when
+items share comparable attributes), never a semicolon-run sentence; the word
+budget yields to enumerations. Durable rationale: resolves the
+tight-vs-complete tension for every census/list answer, no query or entity
+named. SYSTEM_PROMPT_SHA256 updated in-commit; judged core run + baseline
+comparison follows this commit. Sample-and-ask was considered and rejected
+(collides with census honesty + full-recall grading); collapsing long lists
+is handled render-side in the dev console instead.
+
 **Addendum 2, same day — first live REPL session: three bugs, live-loop
 tooling, browser dev console.** David's first interactive session crashed on
 its first turn and exposed: (1) the REPL's citation printer knew only
