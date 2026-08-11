@@ -49,6 +49,29 @@ as record.
 Evidence: `tests/test_transport_and_promoter.py` (containment, tripwire
 boundaries, promoter refusals); full suite 226/226.
 
+**Addendum 2, same day — first live REPL session: three bugs, live-loop
+tooling, browser dev console.** David's first interactive session crashed on
+its first turn and exposed: (1) the REPL's citation printer knew only
+internal/web kinds — a `platform_data` citation (structured-query evidence)
+KeyError'd the session (`chat.py::_locator` now renders all three kinds);
+(2) the REPL never appended to `history` — run_turn only READS it, so every
+"multi-turn" session was stateless (now appended per §9); (3) the model's
+first tool call wrote `parameters` (the JSON-Schema word) for
+`structured_query`'s `params` and burned an agent step on the TypeError
+round-trip — the closure now accepts the synonym, `params` stays canonical
+(durable tool-contract tolerance, not trace-patching). Visibility answer to
+David's ask: every live turn already persisted twice (advisor.threads/turns
++ complete bundle export) — the REPL now SAYS so (thread/turn ids + bundle
+filename per turn). Regression capture: `/flag [note]` (REPL) and a flag
+button (console) append pointers to `.qa-artifacts/repl/flagged.jsonl`
+(`agent/flags.py`) — candidates for QUESTION-BANK/golden-v2 curation, never
+auto-added. New: the service serves a self-contained browser dev console at
+`GET /` (markdown-lite, per-kind citations, clickable web links, per-turn
+cost/ids, flag button; `ADVISOR_DEV_CONSOLE=0` disables — deploy checklist).
+Verified in a real browser (playwright): renderer output correct, full
+ask→render→flag flow live, zero console errors. Port note: run on 8123
+(8100 occupied on the dev box).
+
 **Addendum, same day — dev proxy self-healing** (`db.py::connect`,
 David: "wire the proxy restart into the command itself"). The recurring dev
 blocker (ADC lapses ~weekly; a long-running cloud-sql-proxy keeps cached

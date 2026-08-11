@@ -285,7 +285,14 @@ def build_tools(conn, *, acl: Any, registry: EvidenceRegistry,
             out["_truncated"] = True
         return json.dumps(out)
 
-    def structured_query(name: str, params: dict | None = None) -> str:
+    def structured_query(name: str, params: dict | None = None,
+                         parameters: dict | None = None) -> str:
+        # `parameters` is the JSON-Schema word for this dict, and models reach
+        # for it despite the declared name (first live REPL turn did). Accept
+        # the synonym instead of burning an agent step on a TypeError
+        # round-trip; `params` stays canonical everywhere downstream.
+        if params is None:
+            params = parameters
         try:
             # same ACL the retriever enforces — the two evidence paths must not
             # disagree about what this requester may see (queries.py header)
