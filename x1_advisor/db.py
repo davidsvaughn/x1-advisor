@@ -27,6 +27,10 @@ a network sidecar; this is a library pool inside the worker.
 from __future__ import annotations
 
 import os
+import shutil
+import subprocess
+import sys
+import time
 from pathlib import Path
 
 import psycopg
@@ -54,9 +58,91 @@ def conn_kwargs(autocommit: bool = False) -> dict:
     }
 
 
+# --- dev proxy self-healing ------------------------------------------------
+# The recurring dev failure (2026-07-30 / 08-06 / 08-11): ADC lapses ~weekly,
+# and a long-running cloud-sql-proxy keeps its cached credentials — every
+# connect then dies with "server closed the connection unexpectedly" until the
+# proxy is RESTARTED (re-authing alone never heals it). connect() now does the
+# restart itself: one revival attempt, then one retry. Deploy paths are
+# untouched — no proxy binary on the box means no revival, original error
+# re-raised. Disable with ADVISOR_PROXY_AUTOSTART=0.
+
+_PROXY_ERROR_SIGNS = ("server closed the connection unexpectedly",
+                      "Connection refused", "No such file or directory")
+
+
+def _proxy_binary() -> str | None:
+    return (os.environ.get("ADVISOR_SQL_PROXY_BIN")
+            or shutil.which("cloud-sql-proxy")
+            or (lambda p: p if os.path.exists(p) else None)(
+                os.path.expanduser("~/Downloads/BeeKeeper/cloud-sql-proxy")))
+
+
+def _proxy_recoverable(host: str, exc: Exception) -> bool:
+    """Only a proxy-socket host, only proxy-death signatures, only in dev."""
+    if os.environ.get("ADVISOR_PROXY_AUTOSTART", "1") == "0":
+        return False
+    # instance-connection-name socket dirs look like project:region:instance
+    if ":" not in os.path.basename(host):
+        return False
+    return (any(sign in str(exc) for sign in _PROXY_ERROR_SIGNS)
+            and _proxy_binary() is not None)
+
+
+def _check_adc() -> None:
+    """A proxy restart is useless on lapsed ADC — fail with the actual fix."""
+    try:
+        probe = subprocess.run(
+            ["gcloud", "auth", "application-default", "print-access-token"],
+            capture_output=True, text=True, timeout=20)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return  # can't verify here; let the restarted proxy be the judge
+    if probe.returncode != 0:
+        raise RuntimeError(
+            "Application Default Credentials are expired (this recurs about "
+            "weekly). Run:\n\n    gcloud auth application-default login\n\n"
+            "then retry — the proxy restart is automatic from there. "
+            f"[{(probe.stderr or '').strip()[:200]}]")
+
+
+def _revive_proxy(host: str) -> None:
+    binary = _proxy_binary()
+    instance = os.path.basename(host)          # project:region:instance
+    socket_root = os.path.dirname(host)        # e.g. ~/cloudsql
+    _check_adc()
+    print(f"[db] connection through {instance} failed — restarting "
+          "cloud-sql-proxy with fresh credentials", file=sys.stderr)
+    subprocess.run(["pkill", "-f", f"cloud-sql-proxy.*{instance}"],
+                   capture_output=True)
+    time.sleep(1.0)
+    log = open(os.path.join(socket_root, "proxy.log"), "a")
+    subprocess.Popen([binary, "--unix-socket", socket_root, instance],
+                     stdout=log, stderr=subprocess.STDOUT,
+                     start_new_session=True)   # outlives this process
+    socket_file = os.path.join(host, ".s.PGSQL.5432")
+    for _ in range(20):                        # up to ~10 s for socket ready
+        if os.path.exists(socket_file):
+            print("[db] proxy is up", file=sys.stderr)
+            return
+        time.sleep(0.5)
+    print("[db] proxy did not come up in 10 s — see "
+          f"{socket_root}/proxy.log", file=sys.stderr)
+
+
 def connect(autocommit: bool = False) -> psycopg.Connection:
-    """One dedicated connection (CLI, ingest, eval harness)."""
-    return psycopg.connect(**conn_kwargs(autocommit))
+    """One dedicated connection (CLI, ingest, eval harness).
+
+    Self-heals the dev cloud-sql-proxy: a proxy-shaped connection failure
+    triggers one ADC check + proxy restart + retry. Anything else — and any
+    failure that survives the retry — raises as before."""
+    kwargs = conn_kwargs(autocommit)
+    try:
+        return psycopg.connect(**kwargs)
+    except psycopg.OperationalError as exc:
+        if not _proxy_recoverable(kwargs["host"], exc):
+            raise
+        _revive_proxy(kwargs["host"])
+        return psycopg.connect(**kwargs)
 
 
 # --- service connection pool ---------------------------------------------

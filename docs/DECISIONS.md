@@ -49,6 +49,21 @@ as record.
 Evidence: `tests/test_transport_and_promoter.py` (containment, tripwire
 boundaries, promoter refusals); full suite 226/226.
 
+**Addendum, same day — dev proxy self-healing** (`db.py::connect`,
+David: "wire the proxy restart into the command itself"). The recurring dev
+blocker (ADC lapses ~weekly; a long-running cloud-sql-proxy keeps cached
+credentials and drops every connection until RESTARTED — refreshing auth
+alone never heals it; three occurrences: 07-30, 08-06, 08-11) is now
+handled inside `connect()`: a proxy-shaped failure on a proxy-socket host
+triggers one ADC check + proxy restart + retry. Lapsed ADC fails with the
+actual fix (`gcloud auth application-default login`) instead of the cryptic
+psycopg error. Narrow by construction: only instance-shaped socket hosts,
+only proxy-death signatures, only when a proxy binary exists on the box —
+deploy paths and real auth errors raise exactly as before; kill switch
+`ADVISOR_PROXY_AUTOSTART=0`. Live-verified by killing the proxy and
+watching `connect()` revive it. Tests: `tests/test_db_proxy_revival.py`;
+suite 234/234.
+
 ## 2026-08-07 — s6 accepted from a replicate median; parallel harness; variance measured
 
 Three threads landed together:
