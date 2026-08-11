@@ -322,6 +322,7 @@ const esc = s => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;")
 function inline(s, ex) {
   s = s.replace(/`([^`]+)`/g, "<code>$1</code>")
        .replace(/\\*\\*([^*]+)\\*\\*/g, "<b>$1</b>")
+       .replace(/(^|\\s)\\*([^*]+)\\*(?!\\*)/g, "$1<i>$2</i>")
        .replace(/(https?:\\/\\/[^\\s<)]+)/g,
                 '<a href="$1" target="_blank" rel="noreferrer">$1</a>');
   return s.replace(/\\[(\\d+(?:\\s*,\\s*\\d+)*)\\]/g, (m, nums) =>
