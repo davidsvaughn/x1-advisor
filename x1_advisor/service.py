@@ -1,6 +1,11 @@
 """X1 Advisor service (Phase-5 skeleton).
 
-Run locally:  uv run uvicorn x1_advisor.service:app --port 8123 --workers 1
+Run locally (dev default, --reload picks up code/prompt changes on save —
+without it a running service answers with the OLD system prompt after a
+prompt edit, which cost a confused half hour on 2026-08-11):
+
+    uv run uvicorn x1_advisor.service:app --port 8123 --workers 1 --reload
+
 (8100 is taken by another app on the dev box.) Then open
 http://localhost:8123/ — the built-in DEV CONSOLE: a self-contained browser
 chat page (markdown rendering, clickable citations, per-turn cost/ids, and a

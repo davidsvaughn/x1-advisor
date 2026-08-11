@@ -62,6 +62,21 @@ named. SYSTEM_PROMPT_SHA256 updated in-commit; judged core run + baseline
 comparison follows this commit. Sample-and-ask was considered and rejected
 (collides with census honesty + full-recall grading); collapsing long lists
 is handled render-side in the dev console instead.
+*Outcome (same day, run `2026-08-11_v2_core_832458c_r1`):* 40/49 (baseline
+39/49, band 35–39), faithfulness +0.01, overclaims down, latency −4s — but
+compare FAILs on net label worsening: structure redistributes citation
+brackets, the judge inventories each bullet as its own claim, and
+`citation_coverage_error` labels rise (~0.956→0.909 mechanical coverage)
+on answers the calibrated citation-intent GATE blesses (that is why passes
+rose while labels worsened — adjudication never rewrites telemetry, by
+design). Verified in bundles (v2c034: 12-bullet inventory, lead-in carries
+the citation, 15 "uncited" claims). David: prompt change stays; **queued
+for the s7 sever: list-inheritance in the cc judge claim inventory** (a
+list item inherits its lead-in's citation), batched with the previously
+deferred s7 items. Interim: smoke+scripts rerun under the new prompt for a
+clean trio; acceptance remains David's call. Also: `--reload` is now the
+documented dev default for the service (a running process otherwise keeps
+the old prompt in memory after an edit).
 
 **Addendum 2, same day — first live REPL session: three bugs, live-loop
 tooling, browser dev console.** David's first interactive session crashed on
