@@ -161,8 +161,8 @@ def _samples(prompt: str, schema: type[BaseModel], *, tracker: Any,
     test transports stay sequential: the stubs are ordered and not
     thread-safe, and determinism is what they are for. Global judge-process
     pressure is bounded by judge_cc's concurrency gate, not here."""
-    from x1_advisor.agent.judge_cc import (_judged_model, _parse_json_result,
-                                           _run_claude)
+    from x1_advisor.agent.judge_cc import (JudgeTransportDown, _judged_model,
+                                           _parse_json_result, _run_claude)
     run = transport or _run_claude
     if transport is not None:
         outs = [run(prompt, tracker=tracker, stage=stage)
@@ -173,6 +173,15 @@ def _samples(prompt: str, schema: type[BaseModel], *, tracker: Any,
             outs = list(pool.map(
                 lambda _: run(prompt, tracker=tracker, stage=stage),
                 range(ADJ_SAMPLES)))
+    # None = the transport itself died (contained in _run_claude). One or two
+    # dead votes are discarded like unparseable ones — the fail-safe below
+    # keeps the formula verdict. ALL of them dead in the same window is not a
+    # flake, it is an outage: crash loudly rather than grade the rest of the
+    # run judge-blind (David, 2026-08-11).
+    if outs and all(o is None for o in outs):
+        raise JudgeTransportDown(
+            f"all {len(outs)} judge samples for one item died at transport "
+            f"(stage {stage}) — judge outage, not a flake")
     parsed: list[BaseModel] = []
     model = ""
     for out in outs:

@@ -7,7 +7,7 @@ measured change instead of a vibed one: every labeled item is replayed through
 the same gate function, same rubric, same k-sample majority that production
 runs use, and disagreement is reported per item. The recorded follow-up in
 DECISIONS (2026-08-06): this replay is the trust condition before the
-adjudicated gates run at nightly scale.
+adjudicated gates run at full-suite scale.
 
 Two directions of disagreement, deliberately asymmetric:
 

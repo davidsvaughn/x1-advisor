@@ -192,7 +192,7 @@ acceptable-evidence groups, replay never trusts stored ACLs.
   dropped from flipped cases per §4) + judge completeness fix (v2c028
   class). First capability trio: smoke 7/7 · core 18/49 · scripts 0/4
   (`285902e`) — flipped 5/14, overclaims the top defect.
-  **Baseline acceptance (`nightly.py --accept`) remains David's call.**) — headline:
+  **Baseline acceptance (`experiments/qa.py --accept`, né `nightly.py`) remains David's call.**) — headline:
   two waves (v2.0 context-free now,
   v2.1 after Gate 3B), deterministic truth sets for the enumeration class
   (doubles as the `scan_text` prototype), truth-robustness classes, David-

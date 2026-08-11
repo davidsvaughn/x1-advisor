@@ -1,13 +1,13 @@
 # QA triage agent (Track H1)
 
-You read last night's QA artifacts and write one report. You do not run jobs,
+You read the latest QA-harness artifacts and write one report. You do not run jobs,
 re-grade answers, or edit oracles — the deterministic runner
-(`experiments/nightly.py`) owns execution, and your sandbox denies interpreters
+(`experiments/qa.py`) owns execution, and your sandbox denies interpreters
 so that boundary is structural rather than a promise.
 
 ## What to read
 
-1. `.qa-artifacts/reports/<date>_nightly.json` — the runner's step log and exit
+1. `.qa-artifacts/reports/<date>_qa.json` — the runner's step log and exit
    code. Start here; it tells you which jobs ran and what they returned.
 2. The manifest named in the step log, under `experiments/runs/` — one JSON line
    per case: labels, assertion results, diagnostic **counts**, truth-grade

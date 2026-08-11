@@ -411,7 +411,7 @@ def main() -> None:
     ap.add_argument("--golden", default="v2")
     ap.add_argument("--case", default=None, help="build/check one case only")
     ap.add_argument("--check", action="store_true",
-                    help="report staleness and exit 1 if any (H1 nightly)")
+                    help="report staleness and exit 1 if any (H1 QA harness)")
     ap.add_argument("--pools", action="store_true",
                     help="regenerate the computed entity-slot pools (§7.1)")
     args = ap.parse_args()

@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from experiments import checkers, compare, nightly
+from experiments import checkers, compare, qa
 from experiments.run_v2 import grade_against_truth, truth_unit_passed
 from x1_advisor.agent.bundle import judge_manifest_projection
 
@@ -121,15 +121,15 @@ def test_ungraded_rows_count_as_incomplete(monkeypatch, tmp_path):
     assert _run_compare(monkeypatch, before, after) == 1
 
 
-# --- finding 1 (nightly half): every slice gates, scripts roll up ----------
+# --- finding 1 (harness half): every slice gates, scripts roll up ----------
 
 
 def test_slice_markers_identify_each_manifest_kind():
-    assert nightly.slice_of("2026-08-01_v2_smoke_abc_r1.jsonl") == "smoke"
-    assert nightly.slice_of("2026-08-01_v2_core_abc_r1.jsonl") == "core"
-    assert nightly.slice_of("2026-08-01_scripts_v2.0_abc_r1.jsonl") == "scripts"
+    assert qa.slice_of("2026-08-01_v2_smoke_abc_r1.jsonl") == "smoke"
+    assert qa.slice_of("2026-08-01_v2_core_abc_r1.jsonl") == "core"
+    assert qa.slice_of("2026-08-01_scripts_v2.0_abc_r1.jsonl") == "scripts"
     with pytest.raises(SystemExit):
-        nightly.slice_of("2026-08-01_v2_all_abc_r1.jsonl")
+        qa.slice_of("2026-08-01_v2_all_abc_r1.jsonl")
 
 
 def test_accept_baseline_refuses_identity_drift(monkeypatch, tmp_path):
@@ -139,12 +139,12 @@ def test_accept_baseline_refuses_identity_drift(monkeypatch, tmp_path):
     (runs / name).write_text(
         json.dumps({"case_id": "v2c001", "pass": True}) + "\n"
         + json.dumps({"record": "summary", "identity_drift": True}) + "\n")
-    monkeypatch.setattr(nightly, "RUNS_DIR", runs)
+    monkeypatch.setattr(qa, "RUNS_DIR", runs)
     with pytest.raises(SystemExit, match="tainted"):
-        nightly.accept_baseline([name])
+        qa.accept_baseline([name])
 
 
-def test_scripts_exit_code_reaches_the_nightly_verdict(monkeypatch):
+def test_scripts_exit_code_reaches_the_harness_verdict(monkeypatch):
     calls = []
 
     def fake_run(argv):
@@ -153,9 +153,9 @@ def test_scripts_exit_code_reaches_the_nightly_verdict(monkeypatch):
             return 1, "0/4 passed"
         return 0, "ok"
 
-    monkeypatch.setattr(nightly, "_run", fake_run)
+    monkeypatch.setattr(qa, "_run", fake_run)
     steps: list[dict] = []
-    worst = nightly.job_golden(steps, full=True, judge=False, seed="s")
+    worst = qa.job_golden(steps, full=True, judge=False, seed="s")
     assert worst == 1                      # was dropped on the floor before
     assert any(argv[0] == "experiments.script_runner" for argv in calls)
 

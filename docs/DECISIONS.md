@@ -4,6 +4,51 @@
 > engineering choices land here, newest first. Each entry names its evidence (spike
 > output, manifest path, or doc reference) and the revisit trigger if one exists.
 
+## 2026-08-11 — harness seatbelts: judge-transport containment, promoter completeness, `nightly.py` → `qa.py`
+
+Three small fixes, David-approved, drawn from the consolidated review's P0/P1
+(the rest of that list is deferred to the next contract sever). No grading
+semantics change — the scoring contract does not sever. David also
+explicitly closed two review threads: DeepEval adoption is dropped entirely,
+and the assisted-vs-unassisted calibration-provenance concern is dropped
+("too nitpicky").
+
+**Judge-transport containment + tripwire** (`judge_cc.py`, `adjudicate.py`).
+A dead `claude -p` subprocess (timeout, nonzero exit, garbage stdout) used to
+raise past the escalation gates' fail-safe — which only caught parse errors —
+and kill a ~15-minute graded run at whatever case it was on. Now: an isolated
+dead call is a discarded judge SAMPLE (counted, printed, recorded on the
+summary row as `judge_transport`), and the fail-safe keeps the formula
+verdict standing, which can only preserve a failure, never absolve one.
+Systemic failure crashes loudly by design (David: "I might rather fail
+loud"): ≥3 failures above a 10% failure rate, or all k samples for one item
+dead in the same window, raise `JudgeTransportDown` — a run whose judge is
+down must not complete as a plausible-looking formula-only run. Knobs:
+`ADVISOR_JUDGE_MAX_TRANSPORT_FAILURES` / `ADVISOR_JUDGE_MAX_TRANSPORT_RATE`.
+A missing CLI binary stays a hard, immediate error (config, not flake).
+
+**Promoter completeness** (`qa.py::accept_baseline`). `--accept` verified
+filenames, drift and slice-uniqueness but never that a manifest was
+complete — and a runner death mid-run leaves a partial whose filename is
+indistinguishable from a complete run's (it happened 2026-08-04). Accepting
+one would silently blind every future comparison to the missing cases. Now
+each manifest must carry exactly the suite's row count for its slice
+(currently smoke 7 / core 49 / scripts 4 — read from the compiled suite, not
+hard-coded), a summary row (proof the runner finished), and the current
+scoring contract on every row. Verified read-only against the accepted s6
+trio: all three pass (49/49, 7/7, 4/4), so nothing is retroactively
+invalidated.
+
+**Rename `experiments/nightly.py` → `experiments/qa.py`.** The name predated
+the 2026-08-05 decision that scheduled runs are a production concept; it kept
+implying a scheduler that does not exist and confused its own operator. Same
+CLI, same jobs, same exit codes; reports now write `<date>_qa.json`. Living
+docs and the triage prompt updated; dated/historical docs keep the old name
+as record.
+
+Evidence: `tests/test_transport_and_promoter.py` (containment, tripwire
+boundaries, promoter refusals); full suite 226/226.
+
 ## 2026-08-07 — s6 accepted from a replicate median; parallel harness; variance measured
 
 Three threads landed together:

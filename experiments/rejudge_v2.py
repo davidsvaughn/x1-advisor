@@ -81,7 +81,7 @@ def main() -> None:
     rows = [json.loads(line) for line in
             src_manifest.read_text().splitlines() if line.strip()]
     calibration = calibration_state()
-    # `_cc` keeps the slice substring (e.g. `_v2_core`) intact for nightly's
+    # `_cc` keeps the slice substring (e.g. `_v2_core`) intact for the QA harness's
     # per-slice comparator while naming what changed
     run_id, manifest_path, manifest_file = open_new_manifest(
         f"{dt.date.today()}_{m.group('exp')}_cc")

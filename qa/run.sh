@@ -1,21 +1,24 @@
 #!/usr/bin/env bash
-# H1 nightly launcher (Track H; CC-AGENTS-DESIGN §4).
+# H1 QA launcher (Track H; CC-AGENTS-DESIGN §4). Hand-invoked in dev —
+# scheduled runs are a production concept (DECISIONS 2026-08-05); this file
+# was born as `nightly.sh` for that imagined cron and renamed 2026-08-11.
 #
-# Runs the deterministic QA runner, then the sandboxed CC triage agent, with
-# the operational guarantees the design promises and the runner itself cannot
+# Runs the deterministic QA harness, then the sandboxed CC triage agent, with
+# the operational guarantees the design promises and the harness itself cannot
 # provide: a hard timeout, a minimal environment for the agent, an owner-only
 # persisted transcript, and a clean, logged no-op when the environment is down
-# (the DB proxy needs ADC, which expires — a 3am cron must degrade to a
+# (the DB proxy needs ADC, which expires — an unattended run must degrade to a
 # visible skip, not a crash loop).
 #
-# Cron line (NOT installed by default — the crontab records "stop all live
-# crons", 2026-07-08, so enabling a nightly spend is David's call):
+# Cron line for the eventual PRODUCTION transition only (NOT installed — the
+# crontab records "stop all live crons", 2026-07-08; enabling unattended spend
+# is David's call, at that transition):
 #
-#   17 3 * * * /home/david/code/x1/dev/x1-advisor/qa/nightly.sh
+#   17 3 * * * /home/david/code/x1/dev/x1-advisor/qa/run.sh
 #
-# Cost when it runs: roughly $3/night (full tier + judge, OpenAI company key).
-# Exit code is the runner's verdict (0 clean / 1 regression / 2 not-comparable
-# / 3 stale); 75 means the preflight skipped the night.
+# Cost per invocation: roughly $3 (full tier + judge, OpenAI company key).
+# Exit code is the harness verdict (0 clean / 1 regression / 2 not-comparable
+# / 3 stale); 75 means the preflight skipped the run.
 
 set -euo pipefail
 
@@ -25,15 +28,15 @@ TODAY="$(date +%F)"
 LOG="$REPORTS/${TODAY}_launcher.log"
 TRANSCRIPT="$REPORTS/${TODAY}_triage_transcript.jsonl"
 # the 2026-07-31 full+judge run took ~90 minutes wall clock; 2h is headroom,
-# not slack — a runner that hangs past it is dead, not slow
-RUNNER_TIMEOUT="${ADVISOR_NIGHTLY_TIMEOUT:-7200}"   # the whole night's jobs
+# not slack — a harness that hangs past it is dead, not slow
+RUNNER_TIMEOUT="${ADVISOR_QA_TIMEOUT:-7200}"   # the full job list
 TRIAGE_TIMEOUT="${ADVISOR_TRIAGE_TIMEOUT:-900}"
 
 mkdir -p "$REPORTS"
 chmod 700 "$REPO/.qa-artifacts" "$REPORTS"
 touch "$LOG" && chmod 600 "$LOG"
 exec >>"$LOG" 2>&1
-echo "== nightly launcher $(date -Is) =="
+echo "== qa launcher $(date -Is) =="
 
 cd "$REPO"
 
@@ -45,17 +48,17 @@ if ! timeout 45 uv run python -c \
 with connect() as c: c.execute('SELECT 1').fetchone()" ; then
     echo "SKIPPED: database unreachable (proxy down or ADC expired) — no QA ran"
     printf '{"date":"%s","skipped":"db-unreachable"}\n' "$TODAY" \
-        > "$REPORTS/${TODAY}_nightly_skipped.json"
-    chmod 600 "$REPORTS/${TODAY}_nightly_skipped.json"
-    exit 75   # EX_TEMPFAIL: distinct from every runner verdict
+        > "$REPORTS/${TODAY}_qa_skipped.json"
+    chmod 600 "$REPORTS/${TODAY}_qa_skipped.json"
+    exit 75   # EX_TEMPFAIL: distinct from every harness verdict
 fi
 
 # --- the deterministic half ------------------------------------------------
 set +e
-timeout "$RUNNER_TIMEOUT" uv run python -m experiments.nightly --full --judge
-NIGHTLY_EXIT=$?
+timeout "$RUNNER_TIMEOUT" uv run python -m experiments.qa --full --judge
+RUNNER_EXIT=$?
 set -e
-echo "runner exit: $NIGHTLY_EXIT"
+echo "harness exit: $RUNNER_EXIT"
 
 # --- the triage half -------------------------------------------------------
 # The agent reads artifacts and writes prose; its sandbox (triage-settings)
@@ -70,12 +73,12 @@ timeout "$TRIAGE_TIMEOUT" env -i \
     claude -p --settings "$REPO/qa/triage-settings.json" \
         --append-system-prompt "$(cat "$REPO/qa/triage-prompt.md")" \
         --output-format stream-json --verbose --max-turns 40 \
-        "Triage last night's QA run (today is ${TODAY})." \
+        "Triage the latest QA run (today is ${TODAY})." \
     >>"$TRANSCRIPT"
 TRIAGE_EXIT=$?
 set -e
 echo "triage exit: $TRIAGE_EXIT (transcript: $TRANSCRIPT)"
 
-# the night's verdict is the RUNNER's — triage is commentary on it, and a
-# triage failure must not mask a clean run or upgrade a dirty one
-exit "$NIGHTLY_EXIT"
+# the verdict is the HARNESS's — triage is commentary on it, and a triage
+# failure must not mask a clean run or upgrade a dirty one
+exit "$RUNNER_EXIT"

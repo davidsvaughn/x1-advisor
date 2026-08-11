@@ -1,12 +1,17 @@
-"""H1 deterministic QA runner (Track H; CC-AGENTS-DESIGN §4).
+"""H1 deterministic QA harness (Track H; CC-AGENTS-DESIGN §4).
 
-**Execution and triage are split** (review acceptance criterion 1). This file is
-the execution half: plain Python, exit-coded, no agent in the loop, identical
-whether cron, a human, or an agent triggers it. The Claude Code triage agent
-reads the artifacts this produces and writes prose; it runs nothing and it
-never authors an oracle (criterion 5).
+Hand-invoked, always — scheduled/unattended runs are a production-mode
+concept and are deliberately not a dev thing (David, DECISIONS 2026-08-05;
+this file was born as `nightly.py` for that imagined cron and renamed
+2026-08-11 because the name kept implying a scheduler that does not exist).
 
-Jobs, in the order a night runs them:
+**Execution and triage are split** (review acceptance criterion 1). This file
+is the execution half: plain Python, exit-coded, no agent in the loop,
+identical whoever triggers it. The Claude Code triage agent reads the
+artifacts this produces and writes prose; it runs nothing and it never
+authors an oracle (criterion 5).
+
+Jobs, in the order a full invocation runs them:
 
 1. **Truth-set staleness → rebuild.** Corpus text moved ⇒ every oracle keyed to
    it is stale. Rebuilding is deterministic and versioned; the digest diff is
@@ -22,7 +27,8 @@ Jobs, in the order a night runs them:
 5. **Calibration pressure** — reports when human labels have fallen below the
    ≥30 the runbook requires before a faithfulness number may be quoted.
 
-Exit codes carry the verdict, because cron and CI read exit codes, not prose:
+Exit codes carry the verdict, because scripts and CI read exit codes, not
+prose:
 
     0  everything ran and nothing regressed
     1  a regression, a failing gate, or a failed job
@@ -30,9 +36,9 @@ Exit codes carry the verdict, because cron and CI read exit codes, not prose:
     3  stale artifacts that could not be rebuilt
 
 Run:
-    uv run python -m experiments.nightly                  # smoke
-    uv run python -m experiments.nightly --full --judge   # the nightly job
-    uv run python -m experiments.nightly --accept <run>   # promote a baseline
+    uv run python -m experiments.qa                  # smoke
+    uv run python -m experiments.qa --full --judge   # every slice + compare
+    uv run python -m experiments.qa --accept <run>   # promote a baseline
 """
 
 from __future__ import annotations
@@ -58,7 +64,7 @@ REPORTS_DIR = QA_ARTIFACTS_DIR.parent / "reports"
 # regression becomes the new normal
 BASELINE_POINTER = GOLDEN_DIR / "baseline.json"
 
-# A full night produces THREE manifests — smoke, core, scripts — and each is
+# A full run produces THREE manifests — smoke, core, scripts — and each is
 # its own comparison. The first version compared only the single newest
 # manifest, so two of the three slices (including every script failure) were
 # never gated at all (second review, finding 1).
@@ -97,26 +103,53 @@ def accept_baseline(manifest_names: list[str]) -> None:
     explicit and deliberately committed: accepting a baseline is a judgment
     about whether the numbers are good, which is a human's call (QA-RUNBOOK).
 
-    Each manifest must exist, contain no identity drift, and name a distinct
-    slice; the pointer records all of them so job_compare gates every slice,
-    not whichever file is newest.
+    Each manifest must exist, be COMPLETE, contain no identity drift, carry
+    the current scoring contract, and name a distinct slice; the pointer
+    records all of them so job_compare gates every slice, not whichever file
+    is newest.
+
+    Completeness is checked against the suite itself (2026-08-11): a runner
+    that died mid-run leaves a partial manifest whose filename is
+    indistinguishable from a complete one (it happened, 2026-08-04), and a
+    partial accepted as the bar makes every future comparison silently blind
+    to the missing cases. A pointer must be proof of a complete run.
     """
+    suite = load_suite("v2")
+    expected = {"smoke": sum(1 for c in suite.cases if c.tier == "smoke"),
+                "core": sum(1 for c in suite.cases if c.tier == "core"),
+                "scripts": len(suite.scripts)}
     manifests: dict[str, str] = {}
     for name in manifest_names:
         path = RUNS_DIR / name
         if not path.exists():
             raise SystemExit(f"no such manifest: {path}")
-        for line in path.read_text().splitlines():
-            rec = json.loads(line) if line.strip() else {}
-            if rec.get("record") == "summary" and rec.get("identity_drift"):
-                raise SystemExit(
-                    f"{name}: identity drift recorded (HEAD moved during the "
-                    "run) — a tainted run cannot become the bar")
+        rows = [json.loads(line) for line in path.read_text().splitlines()
+                if line.strip()]
+        summaries = [r for r in rows if r.get("record") == "summary"]
+        result_rows = [r for r in rows if r.get("record") != "summary"]
+        if any(rec.get("identity_drift") for rec in summaries):
+            raise SystemExit(
+                f"{name}: identity drift recorded (HEAD moved during the "
+                "run) — a tainted run cannot become the bar")
+        if not summaries:
+            raise SystemExit(
+                f"{name}: no summary row — the runner never finished this "
+                "manifest; a partial run cannot become the bar (delete the "
+                "partial and re-run)")
         s = slice_of(name)
         if s in manifests:
             raise SystemExit(f"two manifests name the {s!r} slice")
+        if len(result_rows) != expected[s]:
+            raise SystemExit(
+                f"{name}: {len(result_rows)}/{expected[s]} {s} rows — an "
+                "incomplete run cannot become the bar")
+        contracts = {r.get("scoring_contract") for r in rows}
+        if contracts != {suite.contract}:
+            raise SystemExit(
+                f"{name}: graded under {sorted(map(str, contracts))}, but the "
+                f"current suite contract is {suite.contract!r} — re-run (or "
+                "rejudge) on the current contract before accepting")
         manifests[s] = name
-    suite = load_suite("v2")
     BASELINE_POINTER.write_text(json.dumps({
         "manifests": dict(sorted(manifests.items())),
         "suite": suite.version,
@@ -164,7 +197,7 @@ def job_golden(steps: list[dict], *, full: bool, judge: bool, seed: str) -> int:
             argv.append("--judge")
         code, out = _run(argv)
         # exit 1 here means a script failed as a sequence — a RESULT, and it
-        # rolls into the night's exit code like any other failing tier. The
+        # rolls into the harness exit code like any other failing tier. The
         # first version dropped it on the floor, so 0/4 scripts passing still
         # exited 0 (second review, finding 1).
         steps.append({"job": "scripts", "status": "ok" if code == 0 else "failing",
@@ -192,7 +225,7 @@ def job_compare(steps: list[dict]) -> int:
         newest = latest_manifest(SLICES[slice_name])
         if newest is None or newest.name == baseline_name:
             # nothing newer than the bar itself: either the golden job was
-            # skipped tonight or it failed to write — say so, don't self-compare
+            # skipped this invocation or it failed to write — say so, don't self-compare
             steps.append({"job": f"compare:{slice_name}", "status": "no-new-run",
                           "detail": ""})
             continue
@@ -242,7 +275,7 @@ def job_calibration(steps: list[dict]) -> int:
     """Report the judge's calibration from its CANONICAL set — the same
     `calibration_state()` every judged score carries. The first version
     counted a different file (`.qa-artifacts/calibration/pending.jsonl`), so
-    the nightly said 0/30 while judged rows correctly said human-calibrated
+    the harness said 0/30 while judged rows correctly said human-calibrated
     (second review, H1 section): one source of truth, or two answers.
     """
     from x1_advisor.agent.judge import calibration_state
@@ -302,12 +335,12 @@ def main() -> None:
         worst = 2 if 2 in (worst, code) else max(worst, code)
 
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    report = REPORTS_DIR / f"{dt.date.today()}_nightly.json"
+    report = REPORTS_DIR / f"{dt.date.today()}_qa.json"
     report.write_text(json.dumps({
         "started": started, "exit_code": worst, "full": args.full,
         "judge": args.judge, "seed": args.seed, "steps": steps}, indent=2))
 
-    print(f"== nightly {started} ==")
+    print(f"== qa {started} ==")
     for step in steps:
         print(f"  {step['status']:<15} {step['job']}")
         if step.get("oracles_moved"):

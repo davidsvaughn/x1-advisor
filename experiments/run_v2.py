@@ -434,15 +434,23 @@ def main() -> None:
 
         ended_sha = git_sha()
         drift = ended_sha != started_sha
+        from x1_advisor.agent.judge_cc import transport_stats
+        judge_transport = transport_stats()
         manifest.write(json.dumps({
             "record": "summary", "run_id": run_id,
             "git_sha": started_sha, "git_sha_at_end": ended_sha,
             "identity_drift": drift, **suite.identity(), "seed": args.seed,
+            "judge_transport": judge_transport,
         }) + "\n")
 
     passed = sum(1 for r in rows if r["pass"] is True)
     ungraded_rows = sum(1 for r in rows if r["pass"] is None)
     print(f"\n== {run_id} ==")
+    if judge_transport["failures"]:
+        print(f"!! judge transport: {judge_transport['failures']}/"
+              f"{judge_transport['calls']} headless calls died and were "
+              "contained — those samples were discarded and formula verdicts "
+              "stood (see summary row)")
     if drift:
         print(f"!! IDENTITY DRIFT: HEAD moved {started_sha} -> {ended_sha} "
               "during the run — do not commit while a run is live; this "

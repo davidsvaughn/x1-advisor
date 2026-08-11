@@ -30,7 +30,7 @@ The golden **v2** suite (Gate 4) has its own runners; same artifact contract:
 uv run python -m experiments.run_v2 --tier smoke --judge     # 7 cases
 uv run python -m experiments.run_v2 --tier core --judge      # 49 cases, ~15min
 uv run python -m experiments.script_runner --golden v2 --judge   # 4 multi-turn scripts
-uv run python -m experiments.nightly --full --judge          # all slices + truth + compare
+uv run python -m experiments.qa --full --judge               # all slices + truth + compare
 uv run python -m experiments.rejudge_v2 <v2-manifest-name>   # fresh judge, same answers
 ```
 

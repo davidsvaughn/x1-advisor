@@ -35,6 +35,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 from pathlib import Path
@@ -176,9 +177,64 @@ _JUDGE_GATE = threading.Semaphore(
     int(os.environ.get("ADVISOR_JUDGE_CONCURRENCY", "6")))
 
 
+class JudgeTransportDown(RuntimeError):
+    """Systemic judge-transport failure: too many dead `claude -p` calls.
+
+    Raised by the tripwire below, on purpose, to kill the run LOUDLY — a run
+    whose judge is down must not complete as a plausible-looking formula-only
+    run (David, 2026-08-11: isolated flakes are contained, outages crash)."""
+
+
+# Transport containment (2026-08-11). An isolated dead subprocess — timeout,
+# nonzero exit, garbage stdout — must not kill a 15-minute graded run: the
+# call is treated as an unusable judge sample (returns None) and the caller's
+# fail-safe keeps the FORMULA verdict standing, which can only ever keep a
+# failure, never absolve one. Every containment is counted and printed; the
+# tripwire turns systemic failure into a loud crash. A missing CLI binary is
+# NOT contained — that is a configuration error and fails fast.
+_TRANSPORT_LOCK = threading.Lock()
+_TRANSPORT_STATS = {"calls": 0, "failures": 0}
+# tripwire: crash once failures >= MAX_FAILURES AND failures/calls > MAX_RATE
+CC_MAX_TRANSPORT_FAILURES = int(
+    os.environ.get("ADVISOR_JUDGE_MAX_TRANSPORT_FAILURES", "3"))
+CC_MAX_TRANSPORT_RATE = float(
+    os.environ.get("ADVISOR_JUDGE_MAX_TRANSPORT_RATE", "0.10"))
+
+
+def transport_stats() -> dict[str, int]:
+    """Snapshot of this process's headless-call transport counters — recorded
+    on run summary rows so a contained flake is visible, never silent."""
+    with _TRANSPORT_LOCK:
+        return dict(_TRANSPORT_STATS)
+
+
+def _transport_failure(stage: str, detail: str) -> None:
+    """Count one dead transport call; crash the run if it looks systemic."""
+    with _TRANSPORT_LOCK:
+        _TRANSPORT_STATS["failures"] += 1
+        calls = _TRANSPORT_STATS["calls"]
+        failures = _TRANSPORT_STATS["failures"]
+    print(f"[judge-cc] transport failure {failures}/{calls} at {stage}: "
+          f"{detail} — sample discarded, formula verdict stands",
+          file=sys.stderr)
+    if (failures >= CC_MAX_TRANSPORT_FAILURES
+            and failures / calls > CC_MAX_TRANSPORT_RATE):
+        raise JudgeTransportDown(
+            f"{failures} of {calls} headless judge calls failed at transport "
+            f"(tripwire: >{CC_MAX_TRANSPORT_RATE:.0%} after "
+            f"{CC_MAX_TRANSPORT_FAILURES}) — the judge is down, refusing to "
+            f"finish a silently formula-only run. Last failure at {stage}: "
+            f"{detail}")
+    return None
+
+
 def _run_claude(prompt: str, *, tracker: Tracker | None,
                 stage: str) -> dict[str, Any] | None:
     """One headless call → parsed CLI JSON result, cost logged per model.
+
+    Returns None when THIS call's transport died (contained + counted above);
+    raises JudgeTransportDown when the process-wide failure rate says the
+    judge is down.
 
     Runs from an empty temp cwd OUTSIDE the repo so the judge never inherits
     project CLAUDE.md/settings context — the judge grades text, it is not a
@@ -190,6 +246,8 @@ def _run_claude(prompt: str, *, tracker: Tracker | None,
     if not binary:
         raise RuntimeError("claude CLI not on PATH — the cc judge backend "
                            "needs it (or set ADVISOR_JUDGE_BACKEND=openai)")
+    with _TRANSPORT_LOCK:
+        _TRANSPORT_STATS["calls"] += 1
     cwd = tempfile.mkdtemp(prefix="cc-judge-")
     try:
         # --max-turns 3, not 1: if the model reaches for a (denied) tool
@@ -203,12 +261,20 @@ def _run_claude(prompt: str, *, tracker: Tracker | None,
                 input=prompt, capture_output=True, text=True,
                 timeout=CC_TIMEOUT, cwd=cwd, env=_claude_env(),
             )
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        return _transport_failure(stage, f"{exc.__class__.__name__}: "
+                                         f"{str(exc)[:200]}")
     finally:
         shutil.rmtree(cwd, ignore_errors=True)
     if proc.returncode != 0:
-        raise RuntimeError(f"claude -p failed ({proc.returncode}): "
-                           f"{(proc.stderr or proc.stdout)[:400]}")
-    out = json.loads(proc.stdout)
+        return _transport_failure(
+            stage, f"claude -p exit {proc.returncode}: "
+                   f"{(proc.stderr or proc.stdout)[:400]}")
+    try:
+        out = json.loads(proc.stdout)
+    except ValueError:
+        return _transport_failure(
+            stage, f"CLI stdout not JSON: {proc.stdout[:200]!r}")
     if tracker:
         for model_id, mu in (out.get("modelUsage") or {}).items():
             tracker.log(provider="anthropic",
