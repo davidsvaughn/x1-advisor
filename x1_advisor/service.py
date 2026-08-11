@@ -137,9 +137,12 @@ async def ask(req: AskRequest, x_user_id: str | None = Header(default=None)) -> 
 # --- dev console page ------------------------------------------------------
 # Vanilla HTML/JS, deliberately dependency-free: the point is a five-second
 # feedback loop on the product's own API, not a second frontend. Rendering is
-# markdown-lite (headings, bold, code, lists, [n] citation chips); citations
-# render per kind — internal doc#block, platform query provenance, live web
-# links. All model/corpus text is HTML-escaped before any markup pass.
+# markdown-lite (headings, bold, code, lists, TABLES, [n] citation chips);
+# citations render per kind — internal doc#block, platform query provenance,
+# live web links. Long enumerations auto-collapse: first 8 items visible,
+# the rest behind a native <details> expander — the ANSWER stays complete
+# (census honesty is the model's contract), collapsing is presentation only.
+# All model/corpus text is HTML-escaped before any markup pass.
 _CONSOLE_HTML = """<!doctype html>
 <html><head><meta charset="utf-8"><title>x1-advisor dev console</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -154,6 +157,12 @@ _CONSOLE_HTML = """<!doctype html>
  .a { margin-top: .4rem; }
  .a h4 { margin: .7rem 0 .2rem; } .a ul, .a ol { margin: .2rem 0 .2rem 1.4rem; }
  .a code { background: #8882; padding: 0 .25em; border-radius: 3px; }
+ .a table { border-collapse: collapse; margin: .3rem 0; font-size: .92em; }
+ .a th, .a td { border: 1px solid #8884; padding: .15rem .55rem;
+                text-align: left; }
+ .a details { margin: .1rem 0 .4rem; }
+ .a summary { cursor: pointer; color: #79c; font-size: .85em;
+              user-select: none; }
  .cites { margin-top: .5rem; font-size: .85rem; color: #777; }
  .cites div { margin: .1rem 0; }
  .meta { margin-top: .3rem; font-size: .78rem; color: #999; }
@@ -178,6 +187,7 @@ ACL <select id="acl"><option value="admin">admin</option>
 <script>
 "use strict";
 let history = [], threadId = null, exN = 0;
+const COLLAPSE_OVER = 12, COLLAPSE_HEAD = 8;
 const $ = id => document.getElementById(id);
 const esc = s => s.replace(/&/g,"&amp;").replace(/</g,"&lt;")
                   .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
@@ -193,26 +203,60 @@ function inline(s, ex) {
 }
 
 function md(text, ex) {
-  const out = []; let list = null, para = [];
+  const out = []; let list = null, para = [], table = null;
   const flushP = () => { if (para.length)
     { out.push("<p>" + inline(para.join(" "), ex) + "</p>"); para = []; } };
-  const flushL = () => { if (list)
-    { out.push(`<${list[0]}>` + list[1].join("") + `</${list[0]}>`); list = null; } };
+  const flushL = () => { if (!list) return;
+    const [tag, items] = list; list = null;
+    if (items.length > COLLAPSE_OVER) {
+      const rest = tag === "ol" ? `<ol start="${COLLAPSE_HEAD + 1}">`
+                                : `<${tag}>`;
+      out.push(`<${tag}>` + items.slice(0, COLLAPSE_HEAD).join("") +
+        `</${tag}><details><summary>show ${items.length - COLLAPSE_HEAD} ` +
+        `more…</summary>` + rest + items.slice(COLLAPSE_HEAD).join("") +
+        `</${tag}></details>`);
+    } else out.push(`<${tag}>` + items.join("") + `</${tag}>`); };
+  const flushT = () => { if (!table) return;
+    const { header, rows } = table; table = null;
+    const tr = (cells, t) => "<tr>" + cells.map(c =>
+      `<${t}>` + inline(c, ex) + `</${t}>`).join("") + "</tr>";
+    const head = header ? "<thead>" + tr(header, "th") + "</thead>" : "";
+    const body = rows.map(r => tr(r, "td"));
+    if (rows.length > COLLAPSE_OVER) {
+      out.push("<table>" + head + "<tbody>" +
+        body.slice(0, COLLAPSE_HEAD).join("") + "</tbody></table>" +
+        `<details><summary>show ${rows.length - COLLAPSE_HEAD} more ` +
+        `rows…</summary><table>` + head + "<tbody>" +
+        body.slice(COLLAPSE_HEAD).join("") + "</tbody></table></details>");
+    } else out.push("<table>" + head + "<tbody>" + body.join("") +
+                    "</tbody></table>"); };
   for (const raw of esc(text).split("\\n")) {
     const line = raw.trimEnd();
     let m;
-    if (!line.trim()) { flushP(); flushL(); continue; }
+    if (!line.trim()) { flushP(); flushL(); flushT(); continue; }
+    if (/^\\|.*\\|\\s*$/.test(line)) {
+      flushP(); flushL();
+      const cells = line.replace(/^\\s*\\||\\|\\s*$/g, "")
+                        .split("|").map(s => s.trim());
+      if (table && !table.header && table.rows.length === 1 &&
+          cells.every(c => /^:?-+:?$/.test(c)))
+        table.header = table.rows.pop();
+      else if (!table) table = { header: null, rows: [cells] };
+      else table.rows.push(cells);
+      continue;
+    }
     if ((m = line.match(/^#{1,4}\\s+(.*)/)))
-      { flushP(); flushL(); out.push("<h4>" + inline(m[1], ex) + "</h4>"); }
+      { flushP(); flushL(); flushT();
+        out.push("<h4>" + inline(m[1], ex) + "</h4>"); }
     else if ((m = line.match(/^\\s*[-*]\\s+(.*)/))) {
-      flushP(); if (list && list[0] !== "ul") flushL();
+      flushP(); flushT(); if (list && list[0] !== "ul") flushL();
       list = list || ["ul", []]; list[1].push("<li>" + inline(m[1], ex) + "</li>");
     } else if ((m = line.match(/^\\s*\\d+[.)]\\s+(.*)/))) {
-      flushP(); if (list && list[0] !== "ol") flushL();
+      flushP(); flushT(); if (list && list[0] !== "ol") flushL();
       list = list || ["ol", []]; list[1].push("<li>" + inline(m[1], ex) + "</li>");
-    } else para.push(line);
+    } else { flushT(); para.push(line); }
   }
-  flushP(); flushL();
+  flushP(); flushL(); flushT();
   return out.join("");
 }
 
