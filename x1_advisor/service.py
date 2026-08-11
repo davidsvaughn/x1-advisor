@@ -139,14 +139,115 @@ async def ask(req: AskRequest, x_user_id: str | None = Header(default=None)) -> 
             headers={"Retry-After": "10"}) from None
 
 
+# --- dev-console support endpoints -----------------------------------------
+# Thread history and the source viewer are DEV-GRADE: no authz beyond the
+# console gate (they serve the admin view). Production equivalents are Gate 2
+# work — thread ownership and the authorized citation/source endpoint. The
+# flag queue is append-only; an edit re-appends and readers take latest.
+
+
+def _console_gate() -> None:
+    if os.environ.get("ADVISOR_DEV_CONSOLE", "1") == "0":
+        raise HTTPException(404, "dev console disabled")
+
+
+@app.get("/flags")
+def flags_list() -> dict:
+    from x1_advisor.agent.flags import latest_flags
+    _console_gate()
+    return {"flags": latest_flags()}
+
+
+@app.get("/threads")
+def threads_list() -> dict:
+    _console_gate()
+    with app.state.pool.connection() as conn:
+        rows = conn.execute(
+            """SELECT t.id, t.title, t.created_at::date AS day,
+                      count(*) FILTER (WHERE u.role = 'assistant') AS turns,
+                      coalesce(sum(u.cost_usd), 0) AS cost_usd
+               FROM advisor.threads t
+               JOIN advisor.turns u ON u.thread_id = t.id
+               GROUP BY t.id ORDER BY t.id DESC LIMIT 50""").fetchall()
+    return {"threads": [{**r, "day": str(r["day"]),
+                         "cost_usd": float(r["cost_usd"])} for r in rows]}
+
+
+@app.get("/threads/{thread_id}")
+def thread_detail(thread_id: int) -> dict:
+    _console_gate()
+    with app.state.pool.connection() as conn:
+        rows = conn.execute(
+            "SELECT id, role, content, research_record, cost_usd "
+            "FROM advisor.turns WHERE thread_id = %s ORDER BY id",
+            (thread_id,)).fetchall()
+    if not rows:
+        raise HTTPException(404, "no such thread")
+    turns = []
+    for r in rows:
+        rec = r["research_record"] or {}
+        citations = ((rec.get("validation") or {}).get("citations")
+                     or rec.get("citations") or [])
+        turns.append({"turn_id": r["id"], "role": r["role"],
+                      "content": r["content"], "citations": citations,
+                      "cost_usd": (float(r["cost_usd"])
+                                   if r["cost_usd"] is not None else None)})
+    return {"thread_id": thread_id, "turns": turns}
+
+
+@app.get("/source/{document_id}", response_class=HTMLResponse)
+def source_view(document_id: int) -> str:
+    """Render a document as its citable blocks, each anchored #b<n>, so a
+    console citation like [2] doc 610#1 deep-links to the exact block the
+    model cited (highlighted via CSS :target)."""
+    import html as _html
+    _console_gate()
+    with app.state.pool.connection() as conn:
+        doc = conn.execute(
+            "SELECT id, title, source_type, version FROM advisor.documents "
+            "WHERE id = %s", (document_id,)).fetchone()
+        if not doc:
+            raise HTTPException(404, "no such document")
+        blocks = conn.execute(
+            "SELECT block_index, page_number, text FROM advisor.doc_chunks "
+            "WHERE document_id = %s AND granularity = 'block' "
+            "ORDER BY block_index", (document_id,)).fetchall()
+    title = _html.escape(doc["title"] or f"document {doc['id']}")
+    parts = [f"""<!doctype html><html><head><meta charset="utf-8">
+<title>{title} — x1-advisor source</title>
+<style>
+ :root {{ color-scheme: light dark; }}
+ body {{ font: 15px/1.5 system-ui, sans-serif; max-width: 860px;
+        margin: 0 auto; padding: 1rem; }}
+ .blk {{ border-left: 3px solid #8883; padding: .1rem 0 .1rem .8rem;
+        margin: .8rem 0; }}
+ .blk:target {{ border-left-color: #e6b800; background: #e6b8001a; }}
+ .bh {{ font-size: .78rem; color: #999; }}
+ pre {{ white-space: pre-wrap; font: inherit; margin: .2rem 0; }}
+ h1 {{ font-size: 1.1rem; }} h1 small {{ color: #888; font-weight: normal; }}
+</style></head><body>
+<h1>{title} <small>— doc {doc['id']} · {_html.escape(doc['source_type'])}
+ · v{doc['version']} · {len(blocks)} blocks (dev source viewer)</small></h1>"""]
+    for b in blocks:
+        page = (f" · p{b['page_number']}"
+                if b["page_number"] is not None else "")
+        parts.append(
+            f'<div class="blk" id="b{b["block_index"]}">'
+            f'<div class="bh">block {b["block_index"]}{page}</div>'
+            f'<pre>{_html.escape(b["text"])}</pre></div>')
+    parts.append("</body></html>")
+    return "".join(parts)
+
+
 # --- dev console page ------------------------------------------------------
 # Vanilla HTML/JS, deliberately dependency-free: the point is a five-second
 # feedback loop on the product's own API, not a second frontend. Rendering is
 # markdown-lite (headings, bold, code, lists, TABLES, [n] citation chips);
-# citations render per kind — internal doc#block, platform query provenance,
-# live web links. Long enumerations auto-collapse: first 8 items visible,
-# the rest behind a native <details> expander — the ANSWER stays complete
-# (census honesty is the model's contract), collapsing is presentation only.
+# citations render per kind — internal doc#block links into the /source
+# viewer, platform query provenance, live web links. Long enumerations
+# auto-collapse (first 8 + <details>): the ANSWER stays complete, collapsing
+# is presentation only. Flags: multiline modal, editable (append-only queue,
+# latest wins). Thread history: reopen any past thread and continue it.
 # All model/corpus text is HTML-escaped before any markup pass.
 _CONSOLE_HTML = """<!doctype html>
 <html><head><meta charset="utf-8"><title>x1-advisor dev console</title>
@@ -156,6 +257,7 @@ _CONSOLE_HTML = """<!doctype html>
  body { font: 15px/1.5 system-ui, sans-serif; max-width: 860px;
         margin: 0 auto; padding: 1rem 1rem 8rem; }
  h1 { font-size: 1.1rem; } h1 small { color: #888; font-weight: normal; }
+ h1 button { font-size: .8rem; }
  .ex { border-left: 3px solid #8884; padding: .2rem 0 .2rem .8rem;
        margin: 1rem 0; }
  .q { font-weight: 600; white-space: pre-wrap; }
@@ -173,6 +275,16 @@ _CONSOLE_HTML = """<!doctype html>
  .meta { margin-top: .3rem; font-size: .78rem; color: #999; }
  .meta button { font-size: .78rem; margin-left: .6rem; }
  sup a { text-decoration: none; }
+ #hist { border: 1px solid #8884; border-radius: 6px; padding: .3rem .6rem;
+         margin: .4rem 0; max-height: 40vh; overflow-y: auto; display: none; }
+ .hrow { cursor: pointer; padding: .15rem 0; }
+ .hrow:hover { color: #79c; }
+ #fmodal { display: none; position: fixed; inset: 0; background: #0006;
+           align-items: center; justify-content: center; z-index: 10; }
+ .fbox { background: canvas; border: 1px solid #8886; border-radius: 8px;
+         padding: 1rem; width: min(560px, 90vw); }
+ .fbox textarea { width: 100%; font: inherit; margin: .5rem 0;
+                  box-sizing: border-box; }
  #bar { position: fixed; bottom: 0; left: 0; right: 0; background: canvas;
         border-top: 1px solid #8884; padding: .7rem 1rem; }
  #bar .inner { max-width: 860px; margin: 0 auto; display: flex; gap: .5rem; }
@@ -183,8 +295,16 @@ _CONSOLE_HTML = """<!doctype html>
 </style></head><body>
 <h1>x1-advisor <small>dev console — thread <span id="tid">new</span> ·
 ACL <select id="acl"><option value="admin">admin</option>
-<option value="anon">anonymous</option></select></small></h1>
+<option value="anon">anonymous</option></select> ·
+<button id="newchat">new chat</button>
+<button id="histbtn">history</button></small></h1>
+<div id="hist"></div>
 <div id="log"></div>
+<div id="fmodal"><div class="fbox"><b id="fhead"></b>
+ <textarea id="fnote" rows="6"
+  placeholder="Why are you flagging this? What should a regression case assert?"></textarea>
+ <div><button id="fsave">save flag</button>
+ <button id="fcancel">cancel</button></div></div></div>
 <div id="bar"><div class="inner">
  <textarea id="q" placeholder="Ask the advisor…  (Enter sends, Shift+Enter = newline)"></textarea>
  <button id="send">Send</button></div>
@@ -192,9 +312,11 @@ ACL <select id="acl"><option value="admin">admin</option>
 <script>
 "use strict";
 let history = [], threadId = null, exN = 0;
+let _flagNotes = {}, _flagCtx = null;
+window._turns = {};
 const COLLAPSE_OVER = 12, COLLAPSE_HEAD = 8;
 const $ = id => document.getElementById(id);
-const esc = s => s.replace(/&/g,"&amp;").replace(/</g,"&lt;")
+const esc = s => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;")
                   .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 
 function inline(s, ex) {
@@ -268,16 +390,36 @@ function md(text, ex) {
 function citeLine(c, ex) {
   const t = c.title ? esc(c.title) + " — " : "";
   let loc;
-  if (c.type === "internal")
-    loc = `doc ${c.document_id}#${c.block_index}` +
-          (c.page_number != null ? ` p${c.page_number}` : "");
-  else if (c.type === "platform_data")
+  if (c.type === "internal") {
+    const label = `doc ${c.document_id}#${c.block_index}` +
+                  (c.page_number != null ? ` p${c.page_number}` : "");
+    loc = `<a href="/source/${c.document_id}#b${c.block_index}"` +
+          ` target="_blank">${label}</a>`;
+  } else if (c.type === "platform_data")
     loc = `platform query <code>${esc(c.query || "")}</code>` +
           ` (${c.row_count} rows, as of ${esc(String(c.as_of || "?"))})`;
   else
     loc = c.url ? `<a href="${esc(c.url)}" target="_blank" rel="noreferrer">` +
                   `${esc(c.url)}</a>` : "(no locator)";
   return `<div id="c${ex}_${c.n}">[${c.n}] ${t}${loc}</div>`;
+}
+
+function metaLine(turnId, cost, extra) {
+  const flagged = _flagNotes[turnId] != null;
+  return `<div class="meta">turn ${turnId}` +
+    (cost != null ? ` · $${cost.toFixed(4)}` : "") + (extra || "") +
+    ` <button onclick="flagTurn(${turnId}, this)">` +
+    `${flagged ? "flagged ✓ (edit)" : "flag for QA"}</button></div>`;
+}
+
+function renderAnswer(box, ex, answer, citations, turnId, cost, extra) {
+  const a = box.querySelector(".a") || box.appendChild(
+    Object.assign(document.createElement("div"), { className: "a" }));
+  a.innerHTML = md(answer, ex);
+  if (citations && citations.length)
+    box.insertAdjacentHTML("beforeend", '<div class="cites">' +
+      citations.map(c => citeLine(c, ex)).join("") + "</div>");
+  box.insertAdjacentHTML("beforeend", metaLine(turnId, cost, extra));
 }
 
 async function send() {
@@ -303,16 +445,9 @@ async function send() {
     threadId = r.thread_id; $("tid").textContent = threadId;
     history.push({ role: "user", content: q },
                  { role: "assistant", content: r.answer });
-    box.querySelector(".a").innerHTML = md(r.answer, ex);
-    if (r.citations && r.citations.length)
-      box.insertAdjacentHTML("beforeend", '<div class="cites">' +
-        r.citations.map(c => citeLine(c, ex)).join("") + "</div>");
-    box.insertAdjacentHTML("beforeend",
-      `<div class="meta">turn ${r.turn_id} · $${(r.cost_usd || 0).toFixed(4)}` +
-      ` · ${((Date.now() - t0) / 1000).toFixed(1)}s` +
-      ` <button onclick="flagTurn(${r.turn_id}, this)">flag for QA</button></div>`);
-    window._turns = window._turns || {};
     window._turns[r.turn_id] = { question: q, cost_usd: r.cost_usd };
+    renderAnswer(box, ex, r.answer, r.citations, r.turn_id, r.cost_usd,
+                 ` · ${((Date.now() - t0) / 1000).toFixed(1)}s`);
     box.scrollIntoView(false);
   } catch (e) {
     box.querySelector(".a").innerHTML = `<div class="err">${esc(String(e))}` +
@@ -324,18 +459,73 @@ async function send() {
   }
 }
 
-async function flagTurn(turnId, btn) {
-  const note = prompt("Optional note for the QA queue:", "") ;
-  if (note === null) return;
-  const info = (window._turns || {})[turnId] || {};
+function flagTurn(turnId, btn) {
+  _flagCtx = { turnId, btn };
+  $("fhead").textContent = (_flagNotes[turnId] != null ? "Edit flag — turn "
+                            : "Flag turn ") + turnId;
+  $("fnote").value = _flagNotes[turnId] || "";
+  $("fmodal").style.display = "flex";
+  $("fnote").focus();
+}
+
+$("fcancel").onclick = () => { $("fmodal").style.display = "none"; };
+$("fsave").onclick = async () => {
+  const { turnId, btn } = _flagCtx;
+  const note = $("fnote").value.trim();
+  const info = window._turns[turnId] || {};
   const rsp = await fetch("/flag", { method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ thread_id: threadId, turn_id: turnId,
                            question: info.question, note: note || null,
                            cost_usd: info.cost_usd }) });
-  btn.textContent = rsp.ok ? "flagged ✓" : "flag failed";
-  btn.disabled = rsp.ok;
+  if (rsp.ok) { _flagNotes[turnId] = note; btn.textContent = "flagged ✓ (edit)"; }
+  else btn.textContent = "flag failed — retry";
+  $("fmodal").style.display = "none";
+};
+
+$("newchat").onclick = () => location.reload();
+$("histbtn").onclick = async () => {
+  const el = $("hist");
+  if (el.style.display === "block") { el.style.display = "none"; return; }
+  const r = await (await fetch("/threads")).json();
+  el.innerHTML = r.threads.map(t =>
+    `<div class="hrow" onclick="loadThread(${t.id})">#${t.id} · ` +
+    `${esc(t.title || "(untitled)")} · ${t.turns} turn(s) · ${t.day}</div>`
+  ).join("") || "no threads yet";
+  el.style.display = "block";
+};
+
+async function loadThread(id) {
+  const r = await (await fetch("/threads/" + id)).json();
+  $("hist").style.display = "none";
+  $("log").innerHTML = ""; history = []; exN = 0;
+  threadId = id; $("tid").textContent = id;
+  let box = null, lastQ = null;
+  for (const t of r.turns) {
+    if (t.role === "user") {
+      box = document.createElement("div"); box.className = "ex";
+      box.innerHTML = `<div class="q">${esc(t.content)}</div>`;
+      $("log").appendChild(box); lastQ = t.content;
+      history.push({ role: "user", content: t.content });
+    } else {
+      const ex = ++exN;
+      if (!box) { box = document.createElement("div"); box.className = "ex";
+                  $("log").appendChild(box); }
+      window._turns[t.turn_id] = { question: lastQ, cost_usd: t.cost_usd };
+      renderAnswer(box, ex, t.content, t.citations, t.turn_id, t.cost_usd, "");
+      history.push({ role: "assistant", content: t.content });
+      box = null;
+    }
+  }
+  window.scrollTo(0, document.body.scrollHeight);
+  $("q").focus();
 }
+
+(async () => { try {
+  const r = await (await fetch("/flags")).json();
+  for (const [tid, rec] of Object.entries(r.flags))
+    _flagNotes[tid] = rec.note || "";
+} catch (e) {} })();
 
 $("send").onclick = send;
 $("q").addEventListener("keydown", e => {

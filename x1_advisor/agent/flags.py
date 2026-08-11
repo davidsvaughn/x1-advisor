@@ -2,9 +2,11 @@
 
 A flag is a POINTER — thread, turn, question, bundle path, optional note —
 appended to `.qa-artifacts/repl/flagged.jsonl` (owner-only, never in git:
-questions and notes are corpus-adjacent content). Flags feed the curation
-step: a human promotes worthwhile ones into QUESTION-BANK / golden v2.
-Nothing is ever auto-added to the suite from here.
+questions and notes are corpus-adjacent content). The file is APPEND-ONLY:
+editing a note re-appends, and readers take the LATEST record per turn_id
+(`latest_flags()`); the full history stays as audit trail. Flags feed the
+curation step: a human promotes worthwhile ones into QUESTION-BANK /
+golden v2. Nothing is ever auto-added to the suite from here.
 """
 
 from __future__ import annotations
@@ -44,3 +46,15 @@ def flag_exchange(*, thread_id: int | None, turn_id: int | None,
     if not existed:
         os.chmod(FLAG_FILE, 0o600)
     return FLAG_FILE
+
+
+def latest_flags() -> dict[str, dict]:
+    """Latest record per turn_id — the current note for every flagged turn."""
+    latest: dict[str, dict] = {}
+    if FLAG_FILE.exists():
+        for line in FLAG_FILE.read_text().splitlines():
+            if line.strip():
+                rec = json.loads(line)
+                if rec.get("turn_id") is not None:
+                    latest[str(rec["turn_id"])] = rec
+    return latest
