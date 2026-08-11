@@ -315,7 +315,10 @@ async function send() {
     window._turns[r.turn_id] = { question: q, cost_usd: r.cost_usd };
     box.scrollIntoView(false);
   } catch (e) {
-    box.querySelector(".a").innerHTML = `<div class="err">${esc(String(e))}</div>`;
+    box.querySelector(".a").innerHTML = `<div class="err">${esc(String(e))}` +
+      "<br>(your question is back in the box — Enter retries; if the dev " +
+      "service was mid-reload, a second try usually lands)</div>";
+    if (!$("q").value) $("q").value = q;
   } finally {
     $("send").disabled = false; $("status").textContent = ""; $("q").focus();
   }
