@@ -4,6 +4,46 @@
 > engineering choices land here, newest first. Each entry names its evidence (spike
 > output, manifest path, or doc reference) and the revisit trigger if one exists.
 
+## 2026-08-13 — test-env re-convergence: mastra-v3 experiment archived, prod evaluations restored to test
+
+David's call ("good ideas, wrong time"): the May-2026 mastra-eval v3 bundle
+experiment is SET ASIDE and the test env re-converged with prod. Executed
+today (prod strictly read-only throughout — every prod connection opened
+with `default_transaction_read_only=on`):
+
+1. **Archived**, self-describing, at
+   `gs://x1-app-www-test/archive/mastra-eval-v3-2026-05/` (104 objects:
+   all 99 v3 bundle objects, the three design docs incl.
+   `2026-05-01-EVAL-BUNDLE-SCHEMA.md`, a README with the revival
+   checklist, and a full JSONL dump of the 75 deleted rows; local mirror
+   in `.qa-artifacts/archive/mastra-eval-v3/`). Code stays on branch
+   `harness` (x1-backend; x1-app `9ccdf5c0`).
+2. **Schema restored**: the 7 columns the phantom (never-merged) May-1
+   migration dropped are back on `startup_company_evaluations` (nullable —
+   prod has the scores NOT NULL, but existing test-local rows have no
+   values; do not fabricate); the phantom row is deleted from `migrations`,
+   which now honestly ends at 2026-04-18.
+3. **Data restored**: 75 mastra rows deleted (dump exists); the 4
+   test-local original-shape rows re-idd to 100205–100208 (nothing
+   references eval ids); **107 prod evaluation rows copied verbatim**
+   (bare-path pointers are bucket-agnostic) for the 45 id+name-matched
+   companies, ids preserved for cross-env debugging; sequence bumped.
+   Final: **111 rows, 0 experimental pointers, 45 companies**, eval
+   history now spans 2025-08 → 2026-07.
+4. **Blobs**: 232/233 referenced objects copied server-side prod→test.
+   The 233rd (`reports/X1 Pipeline_6dfa9121….json`, eval id 8) is missing
+   ON PROD — test now mirrors that dangling pointer faithfully; the
+   advisor backfill must skip-loudly on missing blobs (check before
+   re-ingest). Companies test-only (`Ask Norby`, `FT Pro`) keep their
+   local state.
+5. Test-company id+name identity vs prod verified 48/50 before any copy;
+   3 ai_versions FK targets pre-verified present.
+
+Still open: x1-app migration catch-up (repo pulled to origin/dev; test DB
+pending everything after 2026-04-18 — apply only in step with the test app
+deployment, David to confirm its version); advisor re-ingest + truth
+rebuild + fresh baseline (separate step; prod_fixtures docs retire then).
+
 ## 2026-08-11 — harness seatbelts: judge-transport containment, promoter completeness, `nightly.py` → `qa.py`
 
 Three small fixes, David-approved, drawn from the consolidated review's P0/P1
