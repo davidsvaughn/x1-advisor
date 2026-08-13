@@ -78,28 +78,56 @@ def embed_texts(client: OpenAI, cfg: IndexConfig, texts: list[str],
 
 
 def embed_missing(conn, cfg: IndexConfig, tracker: Tracker) -> int:
+    """Embed every chunk missing from the config's vector table.
+
+    Batches run CONCURRENTLY (2026-08-13, David: the serial loop was the one
+    bulk API job left un-parallelized — a corpus-scale rebuild took ~25 min
+    that a pooled loop does in ~5). Each worker owns its own DB connection
+    (psycopg connections are not shared across threads); the INSERT is
+    ON CONFLICT DO NOTHING so a racing writer — another worker or another
+    process — degrades to wasted work, never a crash or a corrupt row.
+    ADVISOR_EMBED_WORKERS tunes the pool (default 4)."""
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    from x1_advisor.db import connect
+
     client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
-    total = 0
-    while True:
-        rows = conn.execute(
-            f"""SELECT c.id, c.text FROM advisor.doc_chunks c
-                LEFT JOIN advisor.emb_{cfg.id} e ON e.chunk_id = c.id
-                WHERE e.chunk_id IS NULL ORDER BY c.id LIMIT %s""",
-            (EMBED_BATCH,),
-        ).fetchall()
-        if not rows:
-            break
-        # embeddings API rejects empty strings; chunker never emits them, but guard
-        vectors = embed_texts(client, cfg, [r["text"][:32000] for r in rows], tracker)
-        with conn.cursor() as cur:
-            cur.executemany(
-                f"INSERT INTO advisor.emb_{cfg.id} (chunk_id, embedding) VALUES (%s, %s::vector)",
-                [(r["id"], str(v)) for r, v in zip(rows, vectors)],
-            )
-        conn.commit()
-        total += len(rows)
-        print(f"  embedded {total} chunks (${tracker.run_total:.4f})")
-    return total
+    ids = [r["id"] for r in conn.execute(
+        f"""SELECT c.id FROM advisor.doc_chunks c
+            LEFT JOIN advisor.emb_{cfg.id} e ON e.chunk_id = c.id
+            WHERE e.chunk_id IS NULL ORDER BY c.id""").fetchall()]
+    if not ids:
+        return 0
+    batches = [ids[i:i + EMBED_BATCH] for i in range(0, len(ids), EMBED_BATCH)]
+    workers = max(1, int(os.environ.get("ADVISOR_EMBED_WORKERS", "4")))
+    done = 0
+    lock = threading.Lock()
+
+    def one(batch_ids: list[int]) -> int:
+        nonlocal done
+        with connect() as wconn:
+            rows = wconn.execute(
+                "SELECT id, text FROM advisor.doc_chunks WHERE id = ANY(%s) "
+                "ORDER BY id", (batch_ids,)).fetchall()
+            # embeddings API rejects empty strings; chunker never emits them
+            vectors = embed_texts(client, cfg,
+                                  [r["text"][:32000] for r in rows], tracker)
+            with wconn.cursor() as cur:
+                cur.executemany(
+                    f"INSERT INTO advisor.emb_{cfg.id} (chunk_id, embedding) "
+                    "VALUES (%s, %s::vector) ON CONFLICT (chunk_id) DO NOTHING",
+                    [(r["id"], str(v)) for r, v in zip(rows, vectors)],
+                )
+            wconn.commit()
+        with lock:
+            done += len(rows)
+            print(f"  embedded {done}/{len(ids)} chunks (${tracker.run_total:.4f})",
+                  flush=True)
+        return len(rows)
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        return sum(pool.map(one, batches))
 
 
 def main() -> None:
