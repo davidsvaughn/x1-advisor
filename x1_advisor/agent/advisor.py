@@ -161,7 +161,7 @@ it (not that it doesn't exist), and move on to the next part.\
 
 
 HISTORY_VERBATIM_TURNS = 5   # §9: last-5 user/assistant exchanges verbatim
-CONDENSE_MODEL = "gpt-5-mini"
+CONDENSE_MODEL = os.environ.get("ADVISOR_CONDENSE_MODEL", "gpt-5.6-luna")
 
 
 def _history_messages(history: list[dict] | None,

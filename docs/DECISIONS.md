@@ -4,6 +4,42 @@
 > engineering choices land here, newest first. Each entry names its evidence (spike
 > output, manifest path, or doc reference) and the revisit trigger if one exists.
 
+## 2026-08-13 — E4b (summary + condense roles): gpt-5.6-luna adopted; embeddings pinned
+
+The provisional gpt-5-mini record-summary pick (2026-07-09) finally got its
+designed bake-off, two rounds, David pre-committing to "let recall decide":
+
+**Round 1 — blind judge** (`experiments/summary_bakeoff.py`, 20 stratified
+docs × 3 models through the exact production prompts, terra judging
+anonymized A/B/C order): mini 3/20 best picks, nano 8/20, luna 9/20; luna
+led groundedness (4.65 vs mini 4.00), nano led entity-naming (14/20) and
+handle. Cost identical (~$0.0014/doc). Manifest:
+`2026-08-13_e4b_summaries_3403aa1_r1`.
+
+**Round 2 — retrieval arms** (nano vs luna, per David; full corpus-state
+A/B: all 1,214 live-doc summaries regenerated per arm through the
+production path, embedded, then golden-v1 retrieval on identical blocks):
+
+| arm | recall@10 | MRR | full | zero |
+|---|---|---|---|---|
+| gpt-5.4-nano | 0.714 | 0.541 | 22/36 | 8/36 |
+| **gpt-5.6-luna** | **0.757** | **0.581** | **23/36** | **6/36** |
+
+Luna sweeps all four metrics (~1.5 questions of recall; directionally
+consistent with its judge round). **Adopted: `gpt-5.6-luna` for record
+summaries** (`ADVISOR_SUMMARY_MODEL` overrides) **and — David's transfer
+call — for history condense** (`ADVISOR_CONDENSE_MODEL`, previously a
+hard-coded blind constant). Corpus already in luna state (luna arm ran
+last). Arm cost: ~$2.45/arm generation; retrieval graded free.
+
+Notes: absolute numbers are NOT comparable to the pre-restore 0.833 — the
+corpus doubled (28,885 vectors) and distractor pressure rose; the arms
+compare against each other on identical ground. nano's cost.py pricing row
+still carries a "verify" flag. **Embeddings: David pins
+text-embedding-3-small; E1 deferred** ("revisit later"). Quirk filed:
+`experiments/run.py` retrieval mode wrote twin manifests per invocation
+(r1/r2 and r3/r4 pairs) — harmless, needs a look.
+
 ## 2026-08-13 — test-env re-convergence: mastra-v3 experiment archived, prod evaluations restored to test
 
 David's call ("good ideas, wrong time"): the May-2026 mastra-eval v3 bundle

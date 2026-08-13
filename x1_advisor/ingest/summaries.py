@@ -2,8 +2,10 @@
 granularity='record_summary', block_index=10000 (sentinel above any real block;
 chunker ck1 tops out well below). Summaries carry the same ACL metadata as the
 document's block chunks and get embedded by index.embed_missing like any chunk —
-they give dense retrieval a whole-document handle (E4b: this is where the
-cheap-model experiment lives; gpt-5-mini first).
+they give dense retrieval a whole-document handle. Model: E4b bake-off ran
+2026-08-13 (gpt-5-mini vs 5.4-nano vs 5.6-luna — blind judge round + full
+corpus-state retrieval arms); gpt-5.6-luna won on recall and is the default
+(ADVISOR_SUMMARY_MODEL overrides; changes go through DECISIONS).
 
 **Whole-document coverage (Gate 1B).** The first version summarized
 `markdown[:6000]` while the prompt asked for a summary of "this document" —
@@ -37,7 +39,7 @@ from openai import OpenAI
 from x1_advisor.cost import Tracker, Usage
 from x1_advisor.db import connect
 
-MODEL = "gpt-5-mini"
+MODEL = os.environ.get("ADVISOR_SUMMARY_MODEL", "gpt-5.6-luna")
 SUMMARY_BLOCK_INDEX = 10_000
 MAP_WINDOW_CHARS = 12_000      # per map-step window; a 60k document → 5 windows
 
