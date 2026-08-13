@@ -96,11 +96,16 @@ def split_windows(markdown: str, limit: int = MAP_WINDOW_CHARS) -> list[str]:
 
 
 def main() -> None:
+    global MODEL
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--refresh", action="store_true",
                     help="regenerate summaries that already exist")
+    ap.add_argument("--model", default=MODEL,
+                    help="summary model override (E4b bake-off arm; the "
+                         "default only changes via DECISIONS)")
     args = ap.parse_args()
+    MODEL = args.model
 
     client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
     tracker = Tracker(run_id="record-summaries")
@@ -126,12 +131,25 @@ def main() -> None:
 
         from concurrent.futures import ThreadPoolExecutor
 
+        # summaries need no deliberation — run at the model's lowest effort
+        # tier. gpt-5-mini's generation calls it "minimal"; 5.4/5.6 renamed
+        # it "none". Resolved on first 400 and cached.
+        effort = {"value": "minimal"}
+
         def ask(prompt: str) -> str:
-            resp = client.chat.completions.create(
-                model=MODEL,
-                reasoning_effort="minimal",   # summaries need no deliberation
-                messages=[{"role": "user", "content": prompt}],
-            )
+            from openai import BadRequestError
+            for tier in (effort["value"], "none"):
+                try:
+                    resp = client.chat.completions.create(
+                        model=MODEL,
+                        reasoning_effort=tier,
+                        messages=[{"role": "user", "content": prompt}],
+                    )
+                    effort["value"] = tier
+                    break
+                except BadRequestError as exc:
+                    if "reasoning_effort" not in str(exc):
+                        raise
             tracker.log(provider="openai", model=MODEL,
                         stage="ingest.record_summary",
                         usage=Usage.from_haystack_meta(
