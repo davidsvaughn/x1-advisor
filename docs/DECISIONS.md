@@ -39,10 +39,15 @@ with `default_transaction_read_only=on`):
 5. Test-company id+name identity vs prod verified 48/50 before any copy;
    3 ai_versions FK targets pre-verified present.
 
-Still open: x1-app migration catch-up (repo pulled to origin/dev; test DB
-pending everything after 2026-04-18 — apply only in step with the test app
-deployment, David to confirm its version); advisor re-ingest + truth
-rebuild + fresh baseline (separate step; prod_fixtures docs retire then).
+**Migration catch-up: DONE same day.** No test deployment of x1-app exists
+(Cloud Run listing confirmed; David concurred), so nothing gated it. All
+**55 pending migrations** applied to the test DB via the dev branch's
+files (`php artisan migrate --realpath --path=<dev checkout>` using the
+link-checkout framework; --pretend previewed first): test schema now
+current through `2026_08_08`. migrate:status pending count: 0.
+
+Still open: advisor re-ingest + truth rebuild + fresh baseline (separate
+step; prod_fixtures docs retire then).
 
 ## 2026-08-11 — harness seatbelts: judge-transport containment, promoter completeness, `nightly.py` → `qa.py`
 
