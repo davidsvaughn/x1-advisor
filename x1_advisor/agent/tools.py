@@ -157,7 +157,8 @@ def build_tools(conn, *, acl: Any, registry: EvidenceRegistry,
         return json.dumps(out)
 
     def scan_text(phrases: Any, entity_type: str = "startup_company",
-                  source_types: Any = None, match: str = "phrase") -> str:
+                  source_types: Any = None, match: str = "phrase",
+                  eval_recency: str | None = None) -> str:
         # every validation failure is an error the model can act on — echoing
         # the valid vocabulary, F7-style, never an empty result it might read
         # as "the corpus holds nothing"
@@ -186,6 +187,10 @@ def build_tools(conn, *, acl: Any, registry: EvidenceRegistry,
                                         f"valid: {sorted(sf.values)}"})
         if match not in ("phrase", "keywords"):
             return json.dumps({"error": "match must be 'phrase' or 'keywords'"})
+        rf = FIELDS["eval_recency"]
+        if eval_recency is not None and eval_recency not in rf.values:
+            return json.dumps({"error": f"unknown eval_recency {eval_recency!r}; "
+                                        f"valid: {sorted(rf.values)}"})
 
         scope = ScanScope(entity_type=entity_type, entity_key="name",
                           source_types=tuple(source_types),
@@ -194,7 +199,8 @@ def build_tools(conn, *, acl: Any, registry: EvidenceRegistry,
                           # match must be a match in a source document
                           granularity=("block",),
                           method="phrase" if match == "phrase" else "fts",
-                          any_terms=tuple(phrases), all_terms=())
+                          any_terms=tuple(phrases), all_terms=(),
+                          eval_recency=eval_recency)
         result = run_scan(conn, scope, acl=acl, include_text=True)
 
         # the scan itself is citable evidence, query-kind: deterministic and
@@ -202,6 +208,8 @@ def build_tools(conn, *, acl: Any, registry: EvidenceRegistry,
         # claim ("3 of 52 mention X") needs behind it
         scope_dict = {"entity_type": entity_type, "source_types": source_types,
                       "match": match, "phrases": phrases}
+        if eval_recency:
+            scope_dict["eval_recency"] = eval_recency
         scan_ref = registry.register_query(
             query_name="scan_text", params=scope_dict,
             rows=[{"entity": e["key"], "status": e["status"]}
@@ -457,6 +465,17 @@ def build_tools(conn, *, acl: Any, registry: EvidenceRegistry,
                                  "description": "phrase = exact substring "
                                                 "(default); keywords = stemmed "
                                                 "full-text word matching"},
+                             "eval_recency": {
+                                 "type": "string",
+                                 "enum": list(FIELDS["eval_recency"].values),
+                                 "description": (
+                                     "narrow to one evaluation vintage "
+                                     "(evaluation source_types only): "
+                                     "'current' = each company's latest "
+                                     "evaluation of its newest evaluated "
+                                     "deck. Default: all vintages. When "
+                                     "you narrow, SAY SO in the answer "
+                                     "and note what was excluded.")},
                          },
                          "required": ["phrases"]},
              function=scan_text),

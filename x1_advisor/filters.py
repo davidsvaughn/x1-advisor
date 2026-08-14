@@ -93,6 +93,17 @@ FIELDS: dict[str, FilterField] = {
                     "technology", "team", "founder"),
         ),
         FilterField(
+            key="eval_recency", kind="enum",
+            description="evaluation vintage (evaluation documents only — "
+                        "combine with eval source_types): 'current' = the "
+                        "latest evaluation of the newest evaluated deck, one "
+                        "per company; 'repeat_current_deck' = earlier "
+                        "evaluation of that same deck; 'prior_deck' = older "
+                        "deck; 'undetermined' = deck unresolvable",
+            values=("current", "repeat_current_deck", "prior_deck",
+                    "undetermined"),
+        ),
+        FilterField(
             key="company_name", kind="text",
             description="company the document is about, as stored in the corpus "
                         "(near-misses are resolved to the stored form)",

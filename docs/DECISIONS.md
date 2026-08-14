@@ -52,6 +52,29 @@ jsonb_typeof-guarded. Tool-schema digest moved (catalog is embedded in
 structured_query's description); TOOL_SCHEMA_SHA256 updated. Verified live:
 sector "biotech" → Angiex, BMI OrganBank, Orphagen Pharmaceuticals.
 
+## 2026-08-14 (7) — eval_recency: evaluation-vintage semantics (thread-029)
+
+David's design question ("would the advisor only look at each startup's most
+recent evaluation?") answered and built same-day. Before: all evaluations of
+all vintages counted equally, indistinguishable in metadata. Now every
+evaluation's chunks carry `eval_recency` (David-approved taxonomy):
+`current` (latest eval of the newest EVALUATED deck — exactly one per
+company), `repeat_current_deck`, `prior_deck`, `undetermined` (deck
+unresolvable — never guessed). Rules: deck recency dominates eval recency;
+unlinked-newest is current; a newer-but-unevaluated deck is disclosure
+material, not a class.
+
+Shipped: `ingest.stamp_recency` sweep (pure classify() + metadata-only
+stamps, re-derived from the full eval set on every backfill — a new eval
+demotes its siblings); `eval_recency` search filter (contract v2) +
+scan_text param (opt-in, never a silent default); prompt rule 12
+(current-state questions narrow to current AND disclose; history questions
+use all vintages and say so; never mix vintages unlabeled). Corpus stamped:
+45 current / 11 repeat / 5 prior-deck / 50 undetermined (legacy no-linkage
+tail), exactly one current per company (45/45). 8 unit tests pin the
+taxonomy. NOTE: several prompt/tool changes now stack in the pending
+comparison cycle — QA trio required before the next baseline acceptance.
+
 ## 2026-08-14 (6) — console streaming (thread-029)
 
 Long complete answers are generation-bound (1,392 tokens ≈ 14s of terra

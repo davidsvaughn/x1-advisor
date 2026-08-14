@@ -54,6 +54,10 @@ class ScanScope:
     method: str                         # 'phrase' (word-start match) | 'fts'
     any_terms: tuple[str, ...]
     all_terms: tuple[str, ...]
+    # optional evaluation-vintage narrowing (stamp_recency values). Default
+    # None scans every vintage — existing truth-set scopes deserialize
+    # unchanged and their digests do not move.
+    eval_recency: str | None = None
 
 
 def _match_columns(scope: ScanScope) -> tuple[str, list[str], list[str]]:
@@ -116,6 +120,17 @@ _SCOPE_WHERE = """WHERE d.superseded_by IS NULL
               AND c.metadata->>'entity_type' = %s"""
 
 
+def _scope_where(scope: ScanScope) -> tuple[str, list]:
+    """_SCOPE_WHERE plus the optional eval_recency narrowing, with its params."""
+    sql = _SCOPE_WHERE
+    params: list = [list(scope.source_types), list(scope.granularity),
+                    scope.entity_type]
+    if scope.eval_recency:
+        sql += "\n              AND c.metadata->>'eval_recency' = %s"
+        params.append(scope.eval_recency)
+    return sql, params
+
+
 def scan(conn, scope: ScanScope, *, acl: Any = "admin",
          include_text: bool = False) -> dict[str, Any]:
     """Run the bounded scan. Pure function of (corpus, scope, acl) — no model.
@@ -128,6 +143,7 @@ def scan(conn, scope: ScanScope, *, acl: Any = "admin",
     """
     cols, params, terms = _match_columns(scope)
     acl_sql, acl_params = _acl_sql(acl)
+    where_sql, scope_params = _scope_where(scope)
     text_cols = ("c.text, c.page_number, d.title AS doc_title, "
                  if include_text else "")
     rows = conn.execute(
@@ -136,9 +152,8 @@ def scan(conn, scope: ScanScope, *, acl: Any = "admin",
                    {cols}
             FROM advisor.doc_chunks c
             JOIN advisor.documents d ON d.id = c.document_id
-            {_SCOPE_WHERE}{acl_sql}""",
-        (*params, list(scope.source_types), list(scope.granularity),
-         scope.entity_type, *acl_params),
+            {where_sql}{acl_sql}""",
+        (*params, *scope_params, *acl_params),
     ).fetchall()
 
     entities: dict[str, dict[str, Any]] = {}
@@ -229,8 +244,7 @@ def _apply_restricted(conn, scope: ScanScope, acl: Any,
     """
     purchased = (acl.get("purchased_evaluation_ids") or []) if isinstance(acl, dict) else []
     not_purchased = ""
-    params: list[Any] = [list(scope.source_types), list(scope.granularity),
-                         scope.entity_type]
+    where_sql, params = _scope_where(scope)
     if purchased:
         not_purchased = (" AND NOT COALESCE((c.metadata->>'evaluation_id')::bigint"
                          " = ANY(%s), false)")
@@ -239,7 +253,7 @@ def _apply_restricted(conn, scope: ScanScope, acl: Any,
         f"""SELECT DISTINCT {_ENTITY_COLS}
             FROM advisor.doc_chunks c
             JOIN advisor.documents d ON d.id = c.document_id
-            {_SCOPE_WHERE}
+            {where_sql}
               AND d.visibility <> 'private'
               AND d.is_published
               AND COALESCE((c.metadata->>'acl_eval_is_visible')::boolean, true)

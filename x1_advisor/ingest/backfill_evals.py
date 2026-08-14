@@ -188,6 +188,11 @@ def main() -> None:
             run_fixtures_mode(conn, client, args.limit, stats)
         else:
             run_db_mode(conn, client, args.limit, stats)
+            # recency stamps derive from the company's FULL eval set, so any
+            # ingest can demote siblings — re-derive after every sweep
+            from x1_advisor.ingest.stamp_recency import sweep as stamp_sweep
+            for k, n in stamp_sweep(conn).items():
+                stats[f"recency:{k}"] += n
 
     print("\nbackfill summary:")
     for key, n in sorted(stats.items()):

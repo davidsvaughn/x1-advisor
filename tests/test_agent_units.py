@@ -44,7 +44,10 @@ from x1_advisor.ingest.chunker import chunk_markdown
 # combo) — max ~6 items per delimiter run; long tails become grouped
 # bullet lists (console auto-collapses them), never packed table cells;
 # tables fit only the head of a frequency distribution.
-SYSTEM_PROMPT_SHA256 = "a3dd3d58aa75758302b3efec42e1867c6931324e7aefe6827d1d4c676e4c63cd"
+# 2026-08-14 (4): rule 12 — eval_recency discipline (thread-029 design,
+# David-approved): current-state questions filter to 'current' and
+# disclose the narrowing; history questions use all vintages and say so.
+SYSTEM_PROMPT_SHA256 = "618a71a3e6f358d37bc3783d95c8573435824c57f94649d1ef7025ca61846615"
 # 2026-08-05 (2): entity-class semantics (David-approved) — entity_type is
 # the unit the census enumerates; person-evidence also lives in company
 # docs (team/founder sections outweigh the cv corpus ~4x), so people
@@ -77,7 +80,9 @@ SYSTEM_PROMPT_SHA256 = "a3dd3d58aa75758302b3efec42e1867c6931324e7aefe6827d1d4c67
 # to the taxonomy (500) via per-query max_rows.
 # 2026-08-14 (5): list_labels 'group' column (thread-027) — the taxonomy's
 # own top-level segment, so long vocabularies group by real structure.
-TOOL_SCHEMA_SHA256 = "02eff215d88ece231018a1703c17b8d06c87e2f0fe657fd498f73b0d747d3fc3"
+# 2026-08-14 (6): eval_recency — new search filter field (contract v2) +
+# scan_text eval_recency param; stamps via ingest.stamp_recency.
+TOOL_SCHEMA_SHA256 = "38ec3e09ad64093063e69be545c24ceb0ca529568e6305ed1d3b77caee06aa3e"
 
 
 def test_prompt_prefix_stability():
