@@ -340,7 +340,7 @@ def build_tools(conn, *, acl: Any, registry: EvidenceRegistry,
     def analyze_scope(question: str, entity_type: str = "startup_company",
                       source_types: Any = None, company_name: str | None = None,
                       eval_recency: str | None = None) -> str:
-        from x1_advisor.agent.analyze import MAX_DOCS, analyze
+        from x1_advisor.agent.analyze import analyze
 
         ef = FIELDS["entity_type"]
         entity_type = ef.aliases.get(entity_type, entity_type)

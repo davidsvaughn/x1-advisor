@@ -44,8 +44,10 @@ class StubConn:
 def test_map_reduce_with_injected_model():
     rows = [
         {"document_id": 1, "entity_id": 10, "title": "A — Eval",
+         "source_type": "eval_basic", "evaluation_id": "1",
          "block_index": 0, "text": "brand is weak"},
         {"document_id": 2, "entity_id": 11, "title": "B — Eval",
+         "source_type": "eval_basic", "evaluation_id": "2",
          "block_index": 3, "text": "all good"},
     ]
 
@@ -80,6 +82,7 @@ def test_frontier_mode_reads_in_rank_order_and_stops_when_dry():
     rows = []
     for i in range(130):
         rows.append({"document_id": i, "entity_id": i, "title": f"D{i}",
+                     "source_type": "eval_basic", "evaluation_id": str(i),
                      "block_index": 0, "text": "text"})
 
     def fake_ranker(conn, doc_ids, question, tracker):
@@ -103,3 +106,30 @@ def test_frontier_mode_reads_in_rank_order_and_stops_when_dry():
     assert cov["docs_read"] < 40               # stopped early, not 130
     assert cov["docs_unread"] == 130 - cov["docs_read"]
     assert "consecutive irrelevant" in cov["stopping_rule"]
+
+
+def test_tool_wrapper_body_imports_and_runs(monkeypatch):
+    # regression: the wrapper's imports live in the function BODY, so a
+    # stale name passes every build-time test and kills every live call
+    # (2026-08-14: MAX_DOCS rename broke turn 80). Invoke the real wrapper.
+    import x1_advisor.agent.analyze as analyze_mod
+    from x1_advisor.agent.evidence import EvidenceRegistry
+    from x1_advisor.agent.tools import build_tools
+
+    monkeypatch.setattr(analyze_mod, "analyze", lambda *a, **k: {
+        "coverage": {"docs_read": 1, "docs_in_scope": 1, "entities_read": 1,
+                     "evaluations_read": 1, "relevant_evaluations": 1,
+                     "basic_reports_skipped_as_premium_excerpts": 0,
+                     "relevant_documents": 1, "eval_recency": "current",
+                     "mode": "full_read"},
+        "findings": [{"document_id": 1, "entity_id": 1, "evaluation_id": "5",
+                      "title": "T", "findings": "f", "supports": [0]}],
+        "reduction": "r", "model": "m"})
+    reg = EvidenceRegistry()
+    tools = build_tools(None, acl="admin", registry=reg, tracker=None)
+    fn = next(t for t in tools if t.name == "analyze_scope").function
+    import json as _json
+    out = _json.loads(fn(question="q", source_types=["eval_premium"]))
+    assert out["coverage"]["eval_recency_defaulted"] is True
+    assert out["findings"][0]["refs"]          # support became a citable ref
+    assert len(reg) == 2                       # coverage ref + 1 chunk ref

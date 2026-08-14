@@ -75,6 +75,7 @@ def resolve_scope(conn, *, entity_type: str, source_types: list[str],
     """
     acl_sql, acl_params = _acl_sql(acl)
     sql = f"""SELECT d.id AS document_id, d.entity_id, d.title,
+                     d.source_type, d.acl_source->>'evaluation_id' AS evaluation_id,
                      c.block_index, c.text
               FROM advisor.doc_chunks c
               JOIN advisor.documents d ON d.id = c.document_id
@@ -95,9 +96,26 @@ def resolve_scope(conn, *, entity_type: str, source_types: list[str],
         d = docs.setdefault(r["document_id"],
                             {"document_id": r["document_id"],
                              "entity_id": r["entity_id"],
-                             "title": r["title"], "blocks": []})
+                             "title": r["title"],
+                             "source_type": r["source_type"],
+                             "evaluation_id": r["evaluation_id"],
+                             "blocks": []})
         d["blocks"].append((r["block_index"], r["text"]))
-    return list(docs.values())
+    out = list(docs.values())
+    # basic reports are EXCERPTS of the same run's premium report (David
+    # 2026-08-14): when an evaluation's premium doc is readable for this
+    # requester, its basic twin is duplicate text — skip it. When premium is
+    # gated (non-purchaser), basic is what they may read: it stays. The skip
+    # count rides the coverage disclosure via the caller.
+    premium_evals = {d["evaluation_id"] for d in out
+                     if d["source_type"] == "eval_premium" and d["evaluation_id"]}
+    kept = [d for d in out
+            if not (d["source_type"] == "eval_basic"
+                    and d["evaluation_id"] in premium_evals)]
+    skipped = len(out) - len(kept)
+    for d in kept:
+        d["basic_twins_skipped"] = skipped     # same value on all; read once
+    return kept
 
 
 def rank_by_embedding(conn, doc_ids: list[int], question: str,
@@ -232,6 +250,12 @@ def analyze(conn, *, question: str, entity_type: str,
     return {
         "coverage": {"docs_read": len(mapped), "docs_in_scope": len(docs),
                      "entities_read": len({m["entity_id"] for m in mapped}),
+                     "evaluations_read": len({m["evaluation_id"] for m in mapped
+                                              if m.get("evaluation_id")}),
+                     "relevant_evaluations": len({m["evaluation_id"] for m in relevant
+                                                  if m.get("evaluation_id")}),
+                     "basic_reports_skipped_as_premium_excerpts":
+                         docs[0].get("basic_twins_skipped", 0) if docs else 0,
                      "relevant_documents": len(relevant),
                      "eval_recency": eval_recency,
                      "mode": mode,
@@ -243,7 +267,9 @@ def analyze(conn, *, question: str, entity_type: str,
                          "docs_unread": len(docs) - len(mapped)}
                         if mode != "full_read" else {})},
         "findings": [{"document_id": m["document_id"],
-                      "entity_id": m["entity_id"], "title": m["title"],
+                      "entity_id": m["entity_id"],
+                      "evaluation_id": m.get("evaluation_id"),
+                      "title": m["title"],
                       "findings": m["findings"], "supports": m["supports"]}
                      for m in relevant],
         "reduction": reduction,
