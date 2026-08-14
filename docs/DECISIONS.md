@@ -87,8 +87,12 @@ per pair on the company's own pitch/description/sectors: 72 B (re-map) /
 companies, test 16; corpus re-heal: 16 profiles, 16 summaries, 68
 vectors); 3 split-vote pairs held for David (ArtCentrica "Museums",
 ScoreOrNot, Tricomela — at least one is a judge error). Artifacts +
-backups in `.qa-artifacts/repairs/`. Both envs now carry a sane industry
-vocabulary end to end.
+backups in `.qa-artifacts/repairs/`. Second-pass review of all 168
+verdicts (by the Claude session, David-requested): 167 upheld, 1
+overturned-and-reverted (xAgent's evidence-free unanimous B). David closed
+the held pairs 2026-08-14: keep current labels. Final state verified on
+both envs: absurd-set labels 0/0. Both envs now carry a sane industry
+vocabulary end to end. CLOSED.
 
 ## 2026-08-14 (2) — thread-021 gated items decided (David)
 
