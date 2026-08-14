@@ -47,7 +47,9 @@ from x1_advisor.ingest.chunker import chunk_markdown
 # 2026-08-14 (4): rule 12 — eval_recency discipline (thread-029 design,
 # David-approved): current-state questions filter to 'current' and
 # disclose the narrowing; history questions use all vintages and say so.
-SYSTEM_PROMPT_SHA256 = "618a71a3e6f358d37bc3783d95c8573435824c57f94649d1ef7025ca61846615"
+# 2026-08-14 (5): analyze_scope guidance (design doc trigger fired,
+# thread-032): tool-intro line + rule-5 words-vs-meaning sentence.
+SYSTEM_PROMPT_SHA256 = "37d92b9960637d155d819560c8e012b4c728424f4c76327dd25dd71527c372cd"
 # 2026-08-05 (2): entity-class semantics (David-approved) — entity_type is
 # the unit the census enumerates; person-evidence also lives in company
 # docs (team/founder sections outweigh the cv corpus ~4x), so people
@@ -82,7 +84,11 @@ SYSTEM_PROMPT_SHA256 = "618a71a3e6f358d37bc3783d95c8573435824c57f94649d1ef7025ca
 # own top-level segment, so long vocabularies group by real structure.
 # 2026-08-14 (6): eval_recency — new search filter field (contract v2) +
 # scan_text eval_recency param; stamps via ingest.stamp_recency.
-TOOL_SCHEMA_SHA256 = "38ec3e09ad64093063e69be545c24ceb0ca529568e6305ed1d3b77caee06aa3e"
+# 2026-08-14 (7): analyze_scope tool — semantic map/reduce per the
+# 2026-08-13 design doc; demand trigger = thread-032.
+# 2026-08-14 (8): analyze_scope embedding prefilter + structural
+# eval_recency='current' default for evaluation scopes ('all' overrides).
+TOOL_SCHEMA_SHA256 = "67ad35b5a7bc13fab3d9f746f8ae36ed4f27a6f46bb00873e890f6d947c370a9"
 
 
 def test_prompt_prefix_stability():

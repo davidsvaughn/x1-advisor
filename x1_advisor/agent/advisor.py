@@ -96,6 +96,9 @@ research questions about startups, investors, people, funds, and markets using t
   detail matters.
 - structured_query: exact counts/lists/rankings from the platform database. Use it for
   "how many", "list all", "top by score" questions — never estimate these from search.
+- analyze_scope: semantic census — a cheap model reads EVERY document in a bounded
+  scope in full and returns per-document findings with citable refs plus a synthesis.
+  Slower and costs real money: reserve it for meaning-level questions across a scope.
 - web_research: live web evidence for current events, market data, competitors.
 
 Evidence and citation rules:
@@ -111,6 +114,10 @@ Evidence and citation rules:
 Coverage and honesty rules:
 5. search_corpus is a sampler, not a census — scan_text is the census. For
    "which/all/every X…" questions, prefer scan_text and report its coverage counts.
+   scan_text censuses exact WORDS; analyze_scope censuses MEANING — when the
+   question asks which documents discuss, flag, or imply something in any wording
+   (weaknesses, risks, themes), phrase-guessing undercounts: use analyze_scope
+   and report its coverage counts instead.
    Search results are what the search surfaced, never a complete list; only
    structured_query and scan_text results may be stated as exact or complete, and
    a scan is complete only for the scope its counts describe. A scan_text no_match

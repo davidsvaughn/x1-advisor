@@ -337,6 +337,93 @@ def build_tools(conn, *, acl: Any, registry: EvidenceRegistry,
         registry.upgrade_snapshot(ref, payload)   # verbatim what the model saw
         return payload
 
+    def analyze_scope(question: str, entity_type: str = "startup_company",
+                      source_types: Any = None, company_name: str | None = None,
+                      eval_recency: str | None = None) -> str:
+        from x1_advisor.agent.analyze import MAX_DOCS, analyze
+
+        ef = FIELDS["entity_type"]
+        entity_type = ef.aliases.get(entity_type, entity_type)
+        if entity_type not in ef.values:
+            return json.dumps({"error": f"unknown entity_type {entity_type!r}; "
+                                        f"valid: {sorted(ef.values)}"})
+        sf = FIELDS["source_type"]
+        if isinstance(source_types, str):
+            source_types = [source_types]
+        source_types = list(source_types or sf.values)
+        unknown = sorted(set(source_types) - set(sf.values))
+        if unknown:
+            return json.dumps({"error": f"unknown source_types {unknown}; "
+                                        f"valid: {sorted(sf.values)}"})
+        rf = FIELDS["eval_recency"]
+        recency_defaulted = False
+        eval_types = {"eval_section", "eval_premium", "eval_basic"}
+        if eval_recency == "all":
+            eval_recency = None      # explicit all-vintages override
+        elif eval_recency is None and eval_types & set(source_types):
+            # structural default (David 2026-08-14): evaluation scopes read
+            # each company's standing assessment — the latest evaluation of
+            # its newest evaluated deck — unless 'all' is asked for. Stated
+            # in the contract + echoed in coverage: a default, not a silence.
+            eval_recency = "current"
+            recency_defaulted = True
+        elif eval_recency is not None and eval_recency not in rf.values:
+            return json.dumps({"error": f"unknown eval_recency {eval_recency!r}; "
+                                        f"valid: {sorted(rf.values)} or 'all'"})
+        entity_ids = None
+        if company_name:
+            # resolve once against the canonical registry, ride ids (never titles)
+            rows = conn.execute(
+                "SELECT id FROM startup_companies WHERE name ILIKE %s",
+                (f"%{company_name}%",)).fetchall()
+            if not rows:
+                return json.dumps({"error": f"no company matches {company_name!r}"})
+            entity_ids = [r["id"] for r in rows]
+
+        result = analyze(conn, question=question, entity_type=entity_type,
+                         source_types=source_types, acl=acl, tracker=tracker,
+                         entity_ids=entity_ids, eval_recency=eval_recency)
+        if "error" in result:
+            return json.dumps(result)
+
+        # the operation itself is citable, query-kind: coverage claims ("read
+        # 45 of 45") cite THIS ref, exactly like a scan
+        scope_dict = {"question": question, "entity_type": entity_type,
+                      "source_types": source_types}
+        if company_name:
+            scope_dict["company_name"] = company_name
+        if eval_recency:
+            scope_dict["eval_recency"] = eval_recency
+        cov_ref = registry.register_query(
+            query_name="analyze_scope", params=scope_dict,
+            rows=[{"document_id": f["document_id"], "title": f["title"]}
+                  for f in result["findings"]],
+            acl_policy_version=ACL_POLICY_VERSION)
+
+        out_findings = []
+        for f in result["findings"]:
+            # each support block becomes a citable chunk ref — findings are
+            # cited via their SOURCE blocks, like search results
+            refs = [registry.register_chunk(document_id=f["document_id"],
+                                            block_index=b, page_number=None,
+                                            title=f["title"])
+                    for b in f["supports"]]
+            out_findings.append({"title": f["title"],
+                                 "findings": f["findings"], "refs": refs})
+        coverage = dict(result["coverage"])
+        if recency_defaulted:
+            coverage["eval_recency_defaulted"] = True
+        return json.dumps({
+            "ref": cov_ref,
+            "coverage": coverage,
+            "findings": out_findings,
+            "reduction_not_citable": result["reduction"],
+            "note": ("cite findings via their refs (source blocks); the "
+                     "reduction is generated synthesis — restate it against "
+                     "finding refs, never cite it directly. Disclose the "
+                     "coverage counts and any eval_recency narrowing."),
+        })
+
     def web_research(question: str) -> str:
         from openai import OpenAI
 
@@ -510,6 +597,55 @@ def build_tools(conn, *, acl: Any, registry: EvidenceRegistry,
                  "document."),
              parameters={"type": "object", "properties": {}},
              function=lambda: _PLATFORM_REFERENCE),
+        Tool(name="analyze_scope",
+             description=(
+                 "Semantic census: a cheap model reads EVERY document in a "
+                 "bounded scope IN FULL and returns per-document findings "
+                 "with citable source-block refs, plus a cross-document "
+                 "synthesis. scan_text censuses exact WORDS; this censuses "
+                 "MEANING — use it when the question asks which documents "
+                 "discuss/flag/imply something (weaknesses, risks, themes) "
+                 "in any wording, or for recurring-pattern analysis over a "
+                 "whole scope. Slower (~20-60s) and costs real money: "
+                 f"reserve it for questions phrase-scanning cannot answer; "
+                 f"scopes over {100} documents must be narrowed. Cite each "
+                 "finding via its refs; the reduction is synthesis, not "
+                 "evidence. Always disclose coverage counts."),
+             parameters={"type": "object",
+                         "properties": {
+                             "question": {
+                                 "type": "string",
+                                 "description": "the analytical question, verbatim"},
+                             "entity_type": {
+                                 "type": "string",
+                                 "enum": list(FIELDS["entity_type"].values)},
+                             "source_types": {
+                                 "description": "document classes to read "
+                                                "(default: all)",
+                                 "anyOf": [
+                                     {"type": "string",
+                                      "enum": list(FIELDS["source_type"].values)},
+                                     {"type": "array",
+                                      "items": {"type": "string",
+                                                "enum": list(FIELDS["source_type"].values)}}]},
+                             "company_name": {
+                                 "type": "string",
+                                 "description": "narrow to one company "
+                                                "(substring of its name)"},
+                             "eval_recency": {
+                                 "type": "string",
+                                 "enum": [*FIELDS["eval_recency"].values, "all"],
+                                 "description": (
+                                     "evaluation vintage. DEFAULT for "
+                                     "evaluation scopes: 'current' (each "
+                                     "company's latest evaluation of its "
+                                     "newest evaluated deck). Pass 'all' "
+                                     "for history/trend questions. Either "
+                                     "way, disclose the vintage scope in "
+                                     "the answer.")},
+                         },
+                         "required": ["question"]},
+             function=analyze_scope),
         Tool(name="web_research",
              description="Research a question on the live web. Call this whenever the "
                          "answer depends on the CURRENT state of the world — market "
