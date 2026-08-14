@@ -80,6 +80,16 @@ audit or David's eyeball pass; recorded in triage thread-022. The
 advisor itself behaved correctly throughout (list_labels reported the
 DB faithfully) — this flag was the triage loop catching an APP-DATA bug.
 
+Addendum (same day): David ordered the LLM plausibility audit for the
+review-candidates. Run once against PROD's superset (168 pairs), luna k=3
+per pair on the company's own pitch/description/sectors: 72 B (re-map) /
+94 A (keep) / 2 U. Applied unanimous-B only — 69 re-maps (prod 41
+companies, test 16; corpus re-heal: 16 profiles, 16 summaries, 68
+vectors); 3 split-vote pairs held for David (ArtCentrica "Museums",
+ScoreOrNot, Tricomela — at least one is a judge error). Artifacts +
+backups in `.qa-artifacts/repairs/`. Both envs now carry a sane industry
+vocabulary end to end.
+
 ## 2026-08-14 (2) — thread-021 gated items decided (David)
 
 The three David-gated triage items were put to David and decided:
