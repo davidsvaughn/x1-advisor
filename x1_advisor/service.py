@@ -29,6 +29,7 @@ JSON (answer, citations, per-step usage, cost, trace_id).
 
 from __future__ import annotations
 
+import json
 import os
 from contextlib import asynccontextmanager
 from typing import Any
@@ -239,6 +240,59 @@ def source_view(document_id: int) -> str:
     return "".join(parts)
 
 
+@app.get("/prompt", response_class=HTMLResponse)
+def prompt_view() -> str:
+    """The advisor's complete effective prompt surface, generated live from
+    the real objects (SYSTEM_PROMPT + every tool description and parameter
+    schema) so it can never drift from what the model receives. Shows both
+    pinned digests so the page ties back to the stability tests."""
+    import hashlib
+    import html as _html
+
+    _console_gate()
+    from x1_advisor.agent.advisor import AGENT_MODEL, SYSTEM_PROMPT
+    from x1_advisor.agent.evidence import EvidenceRegistry
+    from x1_advisor.agent.tools import build_tools
+    from x1_advisor.fingerprint import tool_schema_digest
+
+    tools = build_tools(None, acl="admin", registry=EvidenceRegistry(),
+                        tracker=None)
+    p_sha = hashlib.sha256(SYSTEM_PROMPT.encode()).hexdigest()
+    t_sha = tool_schema_digest(tools)
+    parts = [f"""<!doctype html><html><head><meta charset="utf-8">
+<title>x1-advisor prompt surface</title>
+<style>
+ :root {{ color-scheme: light dark; }}
+ body {{ font: 15px/1.5 system-ui, sans-serif; max-width: 860px;
+        margin: 0 auto; padding: 1rem; }}
+ h1 {{ font-size: 1.1rem; }} h1 small, .sub {{ color: #888;
+        font-weight: normal; font-size: .8rem; }}
+ h2 {{ font-size: .95rem; margin: 1.4rem 0 .2rem; }}
+ h2 small {{ color: #888; font-weight: normal; }}
+ pre {{ white-space: pre-wrap; background: #88888812; border: 1px solid #8883;
+        border-radius: 6px; padding: .7rem; font-size: .85rem;
+        line-height: 1.45; }}
+ details {{ margin: .3rem 0 .8rem; }}
+ summary {{ cursor: pointer; color: #79c; font-size: .85rem; }}
+</style></head><body>
+<h1>x1-advisor prompt surface <small>— generated live; what the model
+ receives every turn (dev viewer)</small></h1>
+<div class="sub">agent model {_html.escape(AGENT_MODEL)}
+ · prompt sha {p_sha[:12]}… · tool-schema digest {t_sha[:12]}…
+ (both pinned in tests/test_agent_units.py)</div>
+<h2>System prompt</h2>
+<pre>{_html.escape(SYSTEM_PROMPT)}</pre>"""]
+    for t in tools:
+        schema = _html.escape(json.dumps(t.parameters, indent=2))
+        parts.append(
+            f"<h2>tool: {_html.escape(t.name)}</h2>"
+            f"<pre>{_html.escape(t.description or '')}</pre>"
+            f"<details><summary>parameter schema</summary>"
+            f"<pre>{schema}</pre></details>")
+    parts.append("</body></html>")
+    return "".join(parts)
+
+
 # --- dev console page ------------------------------------------------------
 # Vanilla HTML/JS, deliberately dependency-free: the point is a five-second
 # feedback loop on the product's own API, not a second frontend. Rendering is
@@ -297,7 +351,8 @@ _CONSOLE_HTML = """<!doctype html>
 ACL <select id="acl"><option value="admin">admin</option>
 <option value="anon">anonymous</option></select> ·
 <button id="newchat">new chat</button>
-<button id="histbtn">history</button></small></h1>
+<button id="histbtn">history</button> ·
+<a href="/prompt" target="_blank">prompt</a></small></h1>
 <div id="hist"></div>
 <div id="log"></div>
 <div id="fmodal"><div class="fbox"><b id="fhead"></b>
