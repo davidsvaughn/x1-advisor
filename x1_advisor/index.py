@@ -22,6 +22,13 @@ from x1_advisor.db import connect
 from x1_advisor.ingest.chunker import CHUNKER_VERSION
 
 EMBED_BATCH = 256
+# Bulk-load threshold: above this many missing chunks, embed_missing drops the
+# HNSW index, loads, and rebuilds it in one pass. Inserting THROUGH a live
+# hnsw index was the 2026-08-14 stall: each vector insert does graph
+# maintenance, 8 workers exhausted the Cloud SQL burst IO, and killed clients
+# left zombie backends grinding for minutes. 12,566 rows took ~1h stuck
+# through the index and 29s without it.
+BULK_REBUILD_THRESHOLD = 2000
 
 
 @dataclass(frozen=True)
@@ -93,13 +100,22 @@ def embed_missing(conn, cfg: IndexConfig, tracker: Tracker) -> int:
 
     from x1_advisor.db import connect
 
-    client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+    # 60s per-request timeout: the SDK default is 600s, so one hung HTTPS
+    # connection stalls a worker silently for 10 minutes (2026-08-14 stall);
+    # fail fast and let the SDK's retries reconnect
+    client = OpenAI(api_key=os.environ["OPENAI_API_KEY"], timeout=60)
     ids = [r["id"] for r in conn.execute(
         f"""SELECT c.id FROM advisor.doc_chunks c
             LEFT JOIN advisor.emb_{cfg.id} e ON e.chunk_id = c.id
             WHERE e.chunk_id IS NULL ORDER BY c.id""").fetchall()]
     if not ids:
         return 0
+    bulk = len(ids) > BULK_REBUILD_THRESHOLD
+    if bulk:
+        print(f"  bulk mode: {len(ids)} missing > {BULK_REBUILD_THRESHOLD} — "
+              "dropping hnsw index for the load, rebuilding after", flush=True)
+        conn.execute(f"DROP INDEX IF EXISTS advisor.emb_{cfg.id}_hnsw")
+        conn.commit()
     batches = [ids[i:i + EMBED_BATCH] for i in range(0, len(ids), EMBED_BATCH)]
     workers = max(1, int(os.environ.get("ADVISOR_EMBED_WORKERS", "8")))
     done = 0
@@ -128,7 +144,16 @@ def embed_missing(conn, cfg: IndexConfig, tracker: Tracker) -> int:
         return len(rows)
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        return sum(pool.map(one, batches))
+        total = sum(pool.map(one, batches))
+    if bulk:
+        import time as _time
+        t0 = _time.monotonic()
+        conn.execute(
+            f"""CREATE INDEX IF NOT EXISTS emb_{cfg.id}_hnsw
+                ON advisor.emb_{cfg.id} USING hnsw (embedding vector_cosine_ops)""")
+        conn.commit()
+        print(f"  hnsw index rebuilt in {_time.monotonic()-t0:.0f}s", flush=True)
+    return total
 
 
 def main() -> None:
