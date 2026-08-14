@@ -193,9 +193,15 @@ def analyze(conn, *, question: str, entity_type: str,
             from openai import BadRequestError
             for tier in (effort["value"], "none"):
                 try:
+                    # explicit cache mode + no breakpoints = caching OFF. Map
+                    # prompts are unique per document, so implicit caching
+                    # bills every input token at the 1.25x write premium and
+                    # never reads any of it back (thread-36: 527k cache-write
+                    # tokens, 0 read — ~13% of the turn for nothing).
                     resp = client.chat.completions.create(
                         model=ANALYZE_MODEL, reasoning_effort=tier,
-                        messages=[{"role": "user", "content": prompt}])
+                        messages=[{"role": "user", "content": prompt}],
+                        extra_body={"prompt_cache_options": {"mode": "explicit"}})
                     effort["value"] = tier
                     break
                 except BadRequestError as exc:
