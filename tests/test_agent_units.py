@@ -37,7 +37,10 @@ from x1_advisor.ingest.chunker import chunk_markdown
 # surfaced but only attributed to the report, never as validated citations;
 # Style — a list of one is prose, and parallel per-entity analysis prefers
 # one table (row per entity, column per dimension) over repeated sections.
-SYSTEM_PROMPT_SHA256 = "22b004ef4160e95dd746bbc81d650c8a1cd6d8ebc080e20dbbe1e041f292d7c7"
+# 2026-08-14 (2): rule 11 — platform-mechanics questions route to the
+# platform_reference tool (David: on-demand, not prompt-embedded); its
+# content is background knowledge, stated freely, never cited.
+SYSTEM_PROMPT_SHA256 = "2731d9fef86382daa768a7351539f8a24adeb33dae51a18d18483d76a4af25b2"
 # 2026-08-05 (2): entity-class semantics (David-approved) — entity_type is
 # the unit the census enumerates; person-evidence also lives in company
 # docs (team/founder sections outweigh the cv corpus ~4x), so people
@@ -61,7 +64,10 @@ SYSTEM_PROMPT_SHA256 = "22b004ef4160e95dd746bbc81d650c8a1cd6d8ebc080e20dbbe1e041
 # 2026-08-14 (2): documents_for_company id-join (David-approved) — the name
 # resolves once against the company registry, docs join by id; description
 # now states the empty-vs-company_match distinction.
-TOOL_SCHEMA_SHA256 = "1837975fe5dfac8bcc98bf8e58ebb215b372ee7880f51e401d7d3168de7a65d7"
+# 2026-08-14 (3): platform_reference tool (thread-021 issue 1, David:
+# on-demand tool over prompt embedding) — serves the platform-background
+# doc as uncitable knowledge; nothing registers in the evidence registry.
+TOOL_SCHEMA_SHA256 = "0a4152c3890a872d091bdeb8242b4efe1b74a2b6cd08f2b6d928f04cfc4521a1"
 
 
 def test_prompt_prefix_stability():
@@ -86,6 +92,22 @@ def test_tool_schema_stability():
         "schema embeds the filter registry, so registry edits land here too. If "
         f"intentional, update TOOL_SCHEMA_SHA256 to {actual!r}."
     )
+
+
+def test_platform_reference_is_background_knowledge_not_evidence():
+    from x1_advisor.agent.tools import build_tools
+
+    reg = EvidenceRegistry()
+    tools = build_tools(None, acl="admin", registry=reg, tracker=None)
+    pr = next(t for t in tools if t.name == "platform_reference")
+    out = pr.function()
+    # real content served, maintainer banner stripped
+    assert "specialist agents" in out and "<!--" not in out
+    # structurally uncitable: the call registered NOTHING, so no ref can
+    # ever resolve to it — this is the enforcement, not the prompt wording
+    assert len(reg) == 0
+    # and the description carries the never-cite contract the model reads
+    assert "never cite" in pr.description
 
 
 def test_citation_validator_resolves_dedupes_and_drops():

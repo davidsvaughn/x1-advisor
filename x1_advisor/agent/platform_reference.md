@@ -1,18 +1,15 @@
-# X1 Platform Reference
+<!-- The advisor's internal platform knowledge, served on demand by the
+     platform_reference tool (tools.py) — BACKGROUND KNOWLEDGE, NEVER
+     CITABLE (David, 2026-08-14): the tool registers nothing in the
+     evidence registry, so no ref can exist; the model may restate this
+     content freely, even verbatim, but never quotes or cites it as a
+     document. Edit this file freely — tool RESULTS are not pinned by the
+     prompt sha or tool-schema digest, so content edits need no comparison
+     ceremony. Sources: x1-backend/mastra/eval/OVERVIEW.md, x1-app
+     services (InvestorMatchService, ProcessEvaluationRequest,
+     ReportChatService), platform schema; David-reviewed. -->
 
-> **DRAFT for David's review** (2026-08-14, triage thread-021 issue 1). This
-> document becomes a *citable corpus document*: once approved it is ingested
-> (source_type `platform_reference`, visibility `x1`) so the advisor can
-> retrieve and cite it when users ask what evaluations are, what they cover,
-> or how the platform's data fits together. This file stays in git as the
-> source of truth; re-ingest picks up edits via content-hash versioning.
->
-> Content researched from: `x1-backend/mastra/eval/OVERVIEW.md` (the eval
-> engine's own product documentation), `x1-app` services
-> (`InvestorMatchService`, `ProcessEvaluationRequest`, `ReportChatService`),
-> and the platform schema. Please review — especially the scoring weights
-> and the "not based on" section — and edit anything that shouldn't be
-> user-visible.
+# X1 Platform Reference
 
 ## What X1 is
 

@@ -29,6 +29,17 @@ from x1_advisor.retrieval import retrieve
 from x1_advisor.scan import ScanScope
 from x1_advisor.scan import scan as run_scan
 
+# The advisor's internal platform knowledge (thread-021 issue 1; David
+# 2026-08-14: on-demand tool, not prompt-embedded, not ingested). Loaded once;
+# the leading maintainer comment is stripped so the model sees content only.
+# Served OUTSIDE the evidence registry by design — no ref exists, so the
+# content is structurally uncitable.
+from pathlib import Path
+
+_PLATFORM_REFERENCE = (Path(__file__).parent / "platform_reference.md").read_text()
+if _PLATFORM_REFERENCE.lstrip().startswith("<!--"):
+    _PLATFORM_REFERENCE = _PLATFORM_REFERENCE.split("-->", 1)[1].lstrip()
+
 SNIPPET_CHARS = 600
 SOURCE_CHARS = 6000
 SUMMARY_CONTEXT_CHARS = 400
@@ -467,6 +478,19 @@ def build_tools(conn, *, acl: Any, registry: EvidenceRegistry,
                                         "params": {"type": "object"}},
                          "required": ["name"]},
              function=structured_query),
+        Tool(name="platform_reference",
+             description=(
+                 "How the X1 platform itself works: what evaluations are and "
+                 "cover, how they are generated and scored, how investor "
+                 "matches are computed, what platform data exists (labels, "
+                 "metrics, uploads) and its visibility rules. Call this for "
+                 "platform-mechanics questions instead of searching the "
+                 "corpus. Returns your own background knowledge, not "
+                 "evidence: restate or summarize it freely, but never cite "
+                 "it, attach a ref to it, or present it as a quoted "
+                 "document."),
+             parameters={"type": "object", "properties": {}},
+             function=lambda: _PLATFORM_REFERENCE),
         Tool(name="web_research",
              description="Research a question on the live web. Call this whenever the "
                          "answer depends on the CURRENT state of the world — market "

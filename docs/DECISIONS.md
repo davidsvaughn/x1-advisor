@@ -67,11 +67,20 @@ The three David-gated triage items were put to David and decided:
   comparison cycle, not two. SYSTEM_PROMPT_SHA256 updated. The comparison
   run folds into the next QA trio (David: hold off, don't run per-change);
   no acceptance until it runs.
-- **Platform-reference doc (issue 1): I draft, David edits.** Draft at
-  `docs/PLATFORM-REFERENCE-DRAFT.md` with [DAVID] markers on every fact
-  needing confirmation; on approval it ingests as a citable corpus doc
-  (source_type `platform_reference`, visibility `x1`), file staying in git
-  as source of truth.
+- **Platform-reference doc (issue 1): I draft, David edits.** Drafted from
+  evidence (`x1-backend/mastra/eval/OVERVIEW.md`, `InvestorMatchService`,
+  schema); David approved the content, then redirected the mechanism twice:
+  (a) "internal knowledge — restate freely, even verbatim, but never
+  direct-quote or cite it" (kills the ingest-as-corpus-doc plan: a corpus
+  doc is by construction quotable evidence with a ref); (b) after the
+  prompt-bloat discussion, **on-demand tool over prompt embedding**. Shipped
+  as the `platform_reference` tool: serves
+  `x1_advisor/agent/platform_reference.md` (in-package, maintainer banner
+  stripped), registers NOTHING in the evidence registry — no ref exists, so
+  uncitability is structural, not prompt-hoped; prompt rule 11 routes
+  platform-mechanics questions to it. Doc edits need no comparison
+  ceremony (tool results are pinned by neither digest). ~60 always-on
+  tokens (description) vs ~1,250 embedded.
 
 ## 2026-08-13 — E4b (summary + condense roles): gpt-5.6-luna adopted; embeddings pinned
 
