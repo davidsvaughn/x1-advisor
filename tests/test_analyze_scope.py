@@ -119,7 +119,7 @@ def test_tool_wrapper_body_imports_and_runs(monkeypatch):
     monkeypatch.setattr(analyze_mod, "analyze", lambda *a, **k: {
         "coverage": {"docs_read": 1, "docs_in_scope": 1, "entities_read": 1,
                      "evaluations_read": 1, "relevant_evaluations": 1,
-                     "basic_reports_skipped_as_premium_excerpts": 0,
+                     "redundant_renderings_skipped": 0,
                      "relevant_documents": 1, "eval_recency": "current",
                      "mode": "full_read"},
         "findings": [{"document_id": 1, "entity_id": 1, "evaluation_id": "5",
@@ -133,3 +133,27 @@ def test_tool_wrapper_body_imports_and_runs(monkeypatch):
     assert out["coverage"]["eval_recency_defaulted"] is True
     assert out["findings"][0]["refs"]          # support became a citable ref
     assert len(reg) == 2                       # coverage ref + 1 chunk ref
+
+
+def test_canonical_read_skips_sections_and_basic_when_premium_present():
+    rows = [
+        {"document_id": 1, "entity_id": 10, "title": "A — Premium",
+         "source_type": "eval_premium", "evaluation_id": "5",
+         "block_index": 0, "text": "full report"},
+        {"document_id": 2, "entity_id": 10, "title": "A — Basic",
+         "source_type": "eval_basic", "evaluation_id": "5",
+         "block_index": 0, "text": "excerpt"},
+        {"document_id": 3, "entity_id": 10, "title": "A — Team section",
+         "source_type": "eval_section", "evaluation_id": "5",
+         "block_index": 0, "text": "verbatim subset"},
+        # a different eval WITHOUT premium: its section survives
+        {"document_id": 4, "entity_id": 10, "title": "A — Old section",
+         "source_type": "eval_section", "evaluation_id": "6",
+         "block_index": 0, "text": "no premium twin"},
+    ]
+    from x1_advisor.agent.analyze import resolve_scope
+    docs = resolve_scope(StubConn(rows), entity_type="startup_company",
+                         source_types=["eval_premium", "eval_basic",
+                                       "eval_section"], acl="admin")
+    assert [d["document_id"] for d in docs] == [1, 4]
+    assert docs[0]["redundant_renderings_skipped"] == 2

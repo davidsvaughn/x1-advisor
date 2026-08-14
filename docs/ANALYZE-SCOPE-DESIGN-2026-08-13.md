@@ -1,11 +1,22 @@
 # analyze_scope — budgeted semantic map/reduce over a document scope
 
-> Status: **proposed design** (2026-08-13). Build is gated on demonstrated
-> demand per PLAN §R — David's live-testing flags showing questions where
-> sampled retrieval was the limiting factor. Named as a future capability by
-> QUESTION-BANK §3.2 (the SCAN-A class); this doc makes it buildable on a
-> green light. Companion precedent: `scan_text` (exact lexical census,
-> shipped 2934f7a) — analyze_scope is its semantic sibling.
+> Status: **SHIPPED 2026-08-14** (`6c2ca07`..`12bf804`+) — the demand
+> trigger fired same-week (thread-032: "this question deserves a deeper
+> semantic search"). Built as specified, with three amendments David drove
+> during the build:
+> 1. **Embedding prefilter**: scopes over FULL_READ_CAP=100 rank all docs
+>    by best-chunk similarity and read the frontier in relevance order,
+>    stopping after 15 consecutive irrelevant or MAX_READS=120 — vectors
+>    prioritize, the reader judges; stopping rule + unread tail disclosed.
+> 2. **eval_recency='current' structural default** for evaluation scopes
+>    ('all' overrides; echoed in coverage) — standing-assessment semantics.
+> 3. **Canonical-read policy**: per evaluation read the premium report
+>    only — sections are verbatim subsets (verified), basic is derived;
+>    sections-only scopes and premium-less evals still read directly.
+>    Rationale: advisor access will be premium-purchasers (David).
+> Net effect: the full current-vintage eval corpus is ~55 canonical docs —
+> a strict full census, no frontier needed until the corpus grows ~2x.
+> Grading (s7 batch) still pending per §4.
 
 ## 1. What it is
 

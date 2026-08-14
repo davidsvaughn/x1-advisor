@@ -102,19 +102,24 @@ def resolve_scope(conn, *, entity_type: str, source_types: list[str],
                              "blocks": []})
         d["blocks"].append((r["block_index"], r["text"]))
     out = list(docs.values())
-    # basic reports are EXCERPTS of the same run's premium report (David
-    # 2026-08-14): when an evaluation's premium doc is readable for this
-    # requester, its basic twin is duplicate text — skip it. When premium is
-    # gated (non-purchaser), basic is what they may read: it stays. The skip
+    # Canonical-read policy (David 2026-08-14: advisor access will be
+    # premium-purchasers, so premium is always readable): per evaluation,
+    # the premium report is THE long-form read — its section docs are
+    # verbatim subsets of it (verified 2026-08-14) and its basic report is
+    # derived (excerpt in current-gen bundles, condensation in older ones).
+    # When an evaluation's premium doc is in the resolved set, skip that
+    # evaluation's section and basic docs; an explicit sections-only scope
+    # has no premium in-set, so targeted section reads still work, and
+    # evals without a premium doc fall back to sections+basic. The skip
     # count rides the coverage disclosure via the caller.
     premium_evals = {d["evaluation_id"] for d in out
                      if d["source_type"] == "eval_premium" and d["evaluation_id"]}
     kept = [d for d in out
-            if not (d["source_type"] == "eval_basic"
+            if not (d["source_type"] in ("eval_basic", "eval_section")
                     and d["evaluation_id"] in premium_evals)]
     skipped = len(out) - len(kept)
     for d in kept:
-        d["basic_twins_skipped"] = skipped     # same value on all; read once
+        d["redundant_renderings_skipped"] = skipped
     return kept
 
 
@@ -254,8 +259,8 @@ def analyze(conn, *, question: str, entity_type: str,
                                               if m.get("evaluation_id")}),
                      "relevant_evaluations": len({m["evaluation_id"] for m in relevant
                                                   if m.get("evaluation_id")}),
-                     "basic_reports_skipped_as_premium_excerpts":
-                         docs[0].get("basic_twins_skipped", 0) if docs else 0,
+                     "redundant_renderings_skipped":
+                         docs[0].get("redundant_renderings_skipped", 0) if docs else 0,
                      "relevant_documents": len(relevant),
                      "eval_recency": eval_recency,
                      "mode": mode,

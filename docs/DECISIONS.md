@@ -52,6 +52,28 @@ jsonb_typeof-guarded. Tool-schema digest moved (catalog is embedded in
 structured_query's description); TOOL_SCHEMA_SHA256 updated. Verified live:
 sector "biotech" → Angiex, BMI OrganBank, Orphagen Pharmaceuticals.
 
+## 2026-08-14 (8) — analyze_scope shipped; advisor access = premium purchasers
+
+The 2026-08-13 design's demand trigger fired within a day (thread-032) and
+the tool shipped same-day with three David-driven amendments (see the
+design doc's banner): embedding prefilter (vectors prioritize, reader
+judges), structural eval_recency='current' default, and the canonical-read
+policy — per evaluation read ONLY the premium report (sections are verbatim
+subsets of it, verified on live data; basic is derived — literal excerpt in
+current-gen bundles, independent condensation in older ones).
+
+**Product decision (David): advisor access will be limited to users who
+purchased the premium report** — so premium text is always readable for
+advisor users and the premium-gating corner needs no further investment.
+Dev runs at full access. The class ACL machinery STAYS (private docs,
+drafts, hidden evals — and never identity walls); only premium-gate
+polish is retired. Net scope effect: current-vintage eval corpus = ~55
+canonical docs — under the full-read cap, so the flagship question class
+gets a strict complete census. Bugs found live and fixed: function-body
+ImportError invisible to build-time tests (regression test now invokes
+the real wrapper body). s7 grading batch still owed; the pending
+comparison cycle now also carries analyze_scope's prompt/tool changes.
+
 ## 2026-08-14 (7) — eval_recency: evaluation-vintage semantics (thread-029)
 
 David's design question ("would the advisor only look at each startup's most
