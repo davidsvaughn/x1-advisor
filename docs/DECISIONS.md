@@ -4,6 +4,43 @@
 > engineering choices land here, newest first. Each entry names its evidence (spike
 > output, manifest path, or doc reference) and the revisit trigger if one exists.
 
+## 2026-08-14 — analyze_scope reads sections-as-units with a per-eval cap (thread-36 cost)
+
+Thread-36's census turn cost $0.197 — top-2 all-time with its sibling — and
+the review led through three designs, each measured live on the same
+brand/market-positioning census over the 45 current evaluations:
+
+1. **Premium-unit read (v1, shipped 2026-08-14 morning):** 63 docs,
+   $0.147 after the cache fix. Correct but reads ~8.4k tokens/eval when
+   the question concerns 1-2 sections.
+2. **Sections-as-units, uncapped (rejected on data):** $0.126 and WORSE —
+   93% of sections judged relevant (every section has a Concerns block, so
+   a weakness-phrased question matches everything), the stop rule never
+   fired, the 280-read cap burned on 45 evals' full section sets. Lesson:
+   for broad censuses total tokens are corpus-bound; unit size alone
+   saves nothing.
+3. **Sections-as-units + per-evaluation cap K=3 (SHIPPED — David: "try
+   cap at K=3", reviving his own earlier per-startup-cap instinct):**
+   judge each eval from its 3 best-ranked sections. **$0.059, 40s, all
+   45 evaluations covered** (135 reads, 180 cap-skips disclosed via
+   `per_evaluation_read_cap` / `docs_skipped_by_eval_cap`).
+
+Canonical-read policy v2: per evaluation prefer sections > premium >
+basic (premium is now the fallback, inverting the morning's rule —
+David: "the 7 sections are the meat"; intro restates, conclusion
+repeats). MAX_READS 120→280 (smaller units). Cache opt-out on map calls
+(`prompt_cache_options: explicit`) shipped separately — unique per-doc
+prompts paid the 1.25x write premium with zero reads.
+
+**Watch-items:** (a) the judgment bar shifts with read policy — the K=3
+sections are the most concern-flavored, and 45/45 evals came back
+"relevant" vs 31 counted from premium units; terra applies the final
+counting bar in live turns, and the owed QA-trio rerun prices this
+alongside the title repair and ivfflat swap. (b) Future: slice the
+premium CONCLUSION into its own unit (David); intro stays ignored.
+(c) The direct reduce call said "46" of 45 evals — synthesis arithmetic
+is not citable, coverage counts are.
+
 ## 2026-08-14 — ANN index: hnsw → ivfflat; dense leg rewritten to actually use it
 
 **Context.** The research-split re-embed left a 12,566-chunk backlog whose

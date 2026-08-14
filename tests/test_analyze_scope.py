@@ -135,7 +135,36 @@ def test_tool_wrapper_body_imports_and_runs(monkeypatch):
     assert len(reg) == 2                       # coverage ref + 1 chunk ref
 
 
-def test_canonical_read_skips_sections_and_basic_when_premium_present():
+def test_frontier_per_evaluation_read_cap():
+    # 130 sections over 13 evals, 10 each: the frontier must judge each eval
+    # from its top PER_EVAL_READS units instead of devouring one eval's tail
+    rows = []
+    for i in range(130):
+        rows.append({"document_id": i, "entity_id": i // 10, "title": f"D{i}",
+                     "source_type": "eval_section", "evaluation_id": str(i // 10),
+                     "block_index": 0, "text": "text"})
+
+    def fake_ranker(conn, doc_ids, question, tracker):
+        return sorted(doc_ids)                 # eval 0's ten docs first
+
+    def fake_ask(prompt):
+        if "Synthesize" in prompt:
+            return "everything relevant"
+        return '{"relevant": true, "findings": "hit", "supports": [0]}'
+
+    out = analyze(StubConn(rows), question="q", entity_type="startup_company",
+                  source_types=["eval_section"], acl="admin", tracker=None,
+                  ask=fake_ask, ranker=fake_ranker)
+    cov = out["coverage"]
+    assert cov["per_evaluation_read_cap"] == 3
+    assert cov["evaluations_read"] == 13       # breadth: every eval touched
+    assert cov["docs_read"] == 13 * 3          # ...from its top-3 units only
+    assert cov["docs_skipped_by_eval_cap"] == 130 - 13 * 3
+
+
+def test_canonical_read_prefers_sections_then_premium_then_basic():
+    # policy v2 (2026-08-14): sections are the read units; premium is the
+    # fallback for evals without section docs; basic only when neither exists
     rows = [
         {"document_id": 1, "entity_id": 10, "title": "A — Premium",
          "source_type": "eval_premium", "evaluation_id": "5",
@@ -146,14 +175,34 @@ def test_canonical_read_skips_sections_and_basic_when_premium_present():
         {"document_id": 3, "entity_id": 10, "title": "A — Team section",
          "source_type": "eval_section", "evaluation_id": "5",
          "block_index": 0, "text": "verbatim subset"},
-        # a different eval WITHOUT premium: its section survives
-        {"document_id": 4, "entity_id": 10, "title": "A — Old section",
-         "source_type": "eval_section", "evaluation_id": "6",
-         "block_index": 0, "text": "no premium twin"},
+        # eval with premium+basic but NO sections: premium survives, basic not
+        {"document_id": 4, "entity_id": 11, "title": "B — Premium",
+         "source_type": "eval_premium", "evaluation_id": "6",
+         "block_index": 0, "text": "no section twins"},
+        {"document_id": 5, "entity_id": 11, "title": "B — Basic",
+         "source_type": "eval_basic", "evaluation_id": "6",
+         "block_index": 0, "text": "excerpt"},
+        # eval with basic only: basic survives
+        {"document_id": 6, "entity_id": 12, "title": "C — Basic",
+         "source_type": "eval_basic", "evaluation_id": "7",
+         "block_index": 0, "text": "only rendering"},
     ]
     from x1_advisor.agent.analyze import resolve_scope
     docs = resolve_scope(StubConn(rows), entity_type="startup_company",
                          source_types=["eval_premium", "eval_basic",
                                        "eval_section"], acl="admin")
-    assert [d["document_id"] for d in docs] == [1, 4]
-    assert docs[0]["redundant_renderings_skipped"] == 2
+    assert [d["document_id"] for d in docs] == [3, 4, 6]
+    assert docs[0]["redundant_renderings_skipped"] == 3
+
+
+def test_canonical_read_premium_only_scope_still_reads_premium():
+    rows = [
+        {"document_id": 1, "entity_id": 10, "title": "A — Premium",
+         "source_type": "eval_premium", "evaluation_id": "5",
+         "block_index": 0, "text": "full report"},
+    ]
+    from x1_advisor.agent.analyze import resolve_scope
+    docs = resolve_scope(StubConn(rows), entity_type="startup_company",
+                         source_types=["eval_premium"], acl="admin")
+    assert [d["document_id"] for d in docs] == [1]
+    assert docs[0]["redundant_renderings_skipped"] == 0

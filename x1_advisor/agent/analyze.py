@@ -33,7 +33,14 @@ from x1_advisor.retrieval import _acl_sql
 
 ANALYZE_MODEL = os.environ.get("ADVISOR_ANALYZE_MODEL", "gpt-5.6-luna")
 FULL_READ_CAP = 100     # scopes up to this size are read in full (strict census)
-MAX_READS = 120         # frontier mode never reads more than this many docs
+# Frontier cap. Raised 120 -> 280 with the sections-as-units policy
+# (2026-08-14): units shrank ~5-8x, so a topical census over ~90 current
+# evaluations (2-3 relevant sections each) needs ~200-270 unit reads to
+# stay complete — at roughly 1/6 the old per-unit cost.
+MAX_READS = 280
+# Judge each evaluation from its K best-ranked units (David 2026-08-14,
+# "try cap at K=3"): breadth over depth for counting questions.
+PER_EVAL_READS = 3
 STOP_AFTER_IRRELEVANT = 15   # frontier stopping rule: consecutive irrelevant
 MAP_WORKERS = 8
 PER_DOC_FINDING_CHARS = 1200    # map output budget per document
@@ -102,21 +109,32 @@ def resolve_scope(conn, *, entity_type: str, source_types: list[str],
                              "blocks": []})
         d["blocks"].append((r["block_index"], r["text"]))
     out = list(docs.values())
-    # Canonical-read policy (David 2026-08-14: advisor access will be
-    # premium-purchasers, so premium is always readable): per evaluation,
-    # the premium report is THE long-form read — its section docs are
-    # verbatim subsets of it (verified 2026-08-14) and its basic report is
-    # derived (excerpt in current-gen bundles, condensation in older ones).
-    # When an evaluation's premium doc is in the resolved set, skip that
-    # evaluation's section and basic docs; an explicit sections-only scope
-    # has no premium in-set, so targeted section reads still work, and
-    # evals without a premium doc fall back to sections+basic. The skip
-    # count rides the coverage disclosure via the caller.
+    # Canonical-read policy v2 (David 2026-08-14, thread-36 cost review):
+    # SECTION docs are the read units — "the 7 sections are the meat"; the
+    # premium report is the same signal re-rendered 5-8x larger (intro
+    # restates the sections, conclusion repeats them), and basic is derived
+    # from premium. Per evaluation: read its section docs and skip its
+    # premium + basic renderings; an evaluation with no section docs in
+    # the set falls back to premium, then basic. Explicit premium-only
+    # scopes have no sections in-set and read premium as before. Smaller
+    # units also rank better: the frontier queues the sections a question
+    # is actually about instead of whole reports. Possible future: slice
+    # the premium CONCLUSION into its own doc and add it to the units
+    # (David: intro is throwaway; conclusion mostly repeats the meat).
+    section_evals = {d["evaluation_id"] for d in out
+                     if d["source_type"] == "eval_section" and d["evaluation_id"]}
     premium_evals = {d["evaluation_id"] for d in out
                      if d["source_type"] == "eval_premium" and d["evaluation_id"]}
-    kept = [d for d in out
-            if not (d["source_type"] in ("eval_basic", "eval_section")
-                    and d["evaluation_id"] in premium_evals)]
+
+    def _canonical(d: dict[str, Any]) -> bool:
+        if d["source_type"] == "eval_premium":
+            return d["evaluation_id"] not in section_evals
+        if d["source_type"] == "eval_basic":
+            return (d["evaluation_id"] not in section_evals
+                    and d["evaluation_id"] not in premium_evals)
+        return True
+
+    kept = [d for d in out if _canonical(d)]
     skipped = len(out) - len(kept)
     for d in kept:
         d["redundant_renderings_skipped"] = skipped
@@ -237,7 +255,26 @@ def analyze(conn, *, question: str, entity_type: str,
             ranker = rank_by_embedding
         order = ranker(conn, [d["document_id"] for d in docs], question, tracker)
         by_id = {d["document_id"]: d for d in docs}
-        queue = [by_id[i] for i in order if i in by_id][:MAX_READS]
+        # Per-evaluation read cap (David 2026-08-14, "try cap at K=3"): judge
+        # each evaluation from its K best-ranked units. Without it, a broad
+        # weakness census judged 93% of sections relevant, so the frontier
+        # burned its whole budget on the first 45 evaluations and never
+        # reached the rest — breadth beats depth for counting questions.
+        # The blind spot (units past rank K) is named in the disclosure.
+        reads_per_eval: dict[str, int] = {}
+        queue, cap_skipped = [], 0
+        for i in order:
+            d = by_id.get(i)
+            if d is None:
+                continue
+            ev = d.get("evaluation_id")
+            if ev is not None:
+                if reads_per_eval.get(ev, 0) >= PER_EVAL_READS:
+                    cap_skipped += 1
+                    continue
+                reads_per_eval[ev] = reads_per_eval.get(ev, 0) + 1
+            queue.append(d)
+        queue = queue[:MAX_READS]
         mapped = []
         with ThreadPoolExecutor(max_workers=MAP_WORKERS) as pool:
             for start in range(0, len(queue), MAP_WORKERS):
@@ -275,6 +312,8 @@ def analyze(conn, *, question: str, entity_type: str,
                          "irrelevant documents in embedding-relevance order"
                          if stopped_early else
                          f"read cap ({MAX_READS}) or queue exhausted",
+                         "per_evaluation_read_cap": PER_EVAL_READS,
+                         "docs_skipped_by_eval_cap": cap_skipped,
                          "docs_unread": len(docs) - len(mapped)}
                         if mode != "full_read" else {})},
         "findings": [{"document_id": m["document_id"],
