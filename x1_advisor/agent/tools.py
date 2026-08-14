@@ -350,7 +350,12 @@ def build_tools(conn, *, acl: Any, registry: EvidenceRegistry,
         sf = FIELDS["source_type"]
         if isinstance(source_types, str):
             source_types = [source_types]
-        source_types = list(source_types or sf.values)
+        source_types = list(source_types or
+                            [v for v in sf.values if v != "eval_research"])
+        # research logs are opt-in for deep reads: they are the raw
+        # pre-editorial research (huge, and not the evaluation's own
+        # conclusions) — scope them explicitly for verification/evidence
+        # questions
         unknown = sorted(set(source_types) - set(sf.values))
         if unknown:
             return json.dumps({"error": f"unknown source_types {unknown}; "
@@ -512,7 +517,11 @@ def build_tools(conn, *, acl: Any, registry: EvidenceRegistry,
                  "own phrase alongside any compound phrase or spelling "
                  "variant — text that expresses a concept rarely reproduces "
                  "the exact multi-word form, and a base-token hit is reported "
-                 "as that variant. A scan covers only documents attributed "
+                 "as that variant. eval_research documents are the "
+                 "evaluations' raw research logs (search queries + sourced "
+                 "findings): exclude them from what-does-the-evaluation-"
+                 "assert censuses, include them for evidence hunts. "
+                 "A scan covers only documents attributed "
                  "to the scanned class. Information about people also lives "
                  "in company documents (team/founder evaluation sections, "
                  "pitch decks) — for people questions, scan `cv` for the "

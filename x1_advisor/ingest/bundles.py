@@ -220,18 +220,27 @@ def parse_bundle(bundle: dict, source_ref: str,
         if not isinstance(sec, dict):
             continue
         label = SECTION_LABELS.get(key, key.replace("_", " ").title())
-        parts = []
+        # 2026-08-14 (David): analysis and research findings are DIFFERENT
+        # kinds of text — analysis is the evaluation's editorial conclusion
+        # (verbatim inside the premium report); research_findings is the raw
+        # pre-editorial research log (search queries, sourced facts, gaps —
+        # NOT in the premium report, and 2-6x larger). Fused they blur
+        # provenance (raw research cited as "(evaluation section)") and
+        # pollute assertion censuses with query strings, so each becomes its
+        # own document with its own source_type.
         if sec.get("analysis"):
-            parts.append(str(sec["analysis"]))
+            docs.append(SourceDoc(
+                "eval_section", f"{name} — {label} (evaluation section)",
+                str(sec["analysis"]), "x1",
+                {**base_meta, "section_key": key,
+                 "section_score": _section_score(sec)},
+            ))
         if sec.get("research_findings"):
-            parts.append(f"## Research Findings\n\n{sec['research_findings']}")
-        if not parts:
-            continue
-        docs.append(SourceDoc(
-            "eval_section", f"{name} — {label} (evaluation section)",
-            "\n\n".join(parts), "x1",
-            {**base_meta, "section_key": key, "section_score": _section_score(sec)},
-        ))
+            docs.append(SourceDoc(
+                "eval_research", f"{name} — {label} (research findings)",
+                str(sec["research_findings"]), "x1",
+                {**base_meta, "section_key": key},
+            ))
 
     deck = _first(
         (inputs.get("pitch_deck") or {}).get("extracted_text"),          # gen-1

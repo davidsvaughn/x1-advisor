@@ -23,7 +23,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # Bump when the meaning of a stored filter contract changes (registry fields,
 # operators, or resolution semantics) — old bundles then compare honestly.
-FILTER_CONTRACT_VERSION = 2   # v2 2026-08-14: + eval_recency (thread-029)
+FILTER_CONTRACT_VERSION = 3   # v3 2026-08-14: + eval_research source_type
 # Bump when the ACL class predicates change (retrieval._acl_sql / queries.py).
 ACL_POLICY_VERSION = 2      # 2 = structured queries gated (Step 0.1)
 

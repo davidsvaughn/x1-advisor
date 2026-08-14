@@ -75,7 +75,7 @@ FIELDS: dict[str, FilterField] = {
             key="source_type", kind="enum",
             description="document class",
             values=("profile", "eval_section", "eval_premium", "eval_basic",
-                    "deck_extract", "website"),
+                    "eval_research", "deck_extract", "website"),
         ),
         FilterField(
             key="entity_type", kind="enum",

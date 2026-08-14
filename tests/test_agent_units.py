@@ -88,7 +88,10 @@ SYSTEM_PROMPT_SHA256 = "37d92b9960637d155d819560c8e012b4c728424f4c76327dd25dd715
 # 2026-08-13 design doc; demand trigger = thread-032.
 # 2026-08-14 (8): analyze_scope embedding prefilter + structural
 # eval_recency='current' default for evaluation scopes ('all' overrides).
-TOOL_SCHEMA_SHA256 = "67ad35b5a7bc13fab3d9f746f8ae36ed4f27a6f46bb00873e890f6d947c370a9"
+# 2026-08-14 (9): eval_research source_type (research logs split from
+# section docs, David-approved) — filter contract v3; analyze default
+# scope excludes it (opt-in for verification questions).
+TOOL_SCHEMA_SHA256 = "228b18f2535e5c992681ba27bc8ba7c95100af8032190d56fef84956167beaf6"
 
 
 def test_prompt_prefix_stability():
