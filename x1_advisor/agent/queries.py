@@ -114,6 +114,78 @@ def _list_startups(conn, params: dict, acl: Any) -> list[dict]:
     return conn.execute(sql, args).fetchall()
 
 
+# --- label resolver (bank §1.4 classification questions) --------------------
+# One reusable resolver across the platform's label vocabularies (standing
+# registry-resolver rule: never a one-off industry mapper). Each source yields
+# (startup_company_id, label, detail) rows; matching is a substring ILIKE at
+# any hierarchy level. JSON columns are guarded with jsonb_typeof so a null or
+# non-array value contributes nothing instead of erroring the query.
+LABEL_SOURCES: dict[str, str] = {
+    "industry": """SELECT s.id AS startup_company_id,
+                          ind->>'category' AS label, ind->>'subcategory' AS detail
+                   FROM startup_companies s
+                   CROSS JOIN LATERAL jsonb_array_elements(
+                       CASE WHEN jsonb_typeof(s.industries::jsonb) = 'array'
+                            THEN s.industries::jsonb ELSE '[]'::jsonb END) ind""",
+    "sector": """SELECT s.id AS startup_company_id, sec.value AS label,
+                        NULL::text AS detail
+                 FROM startup_companies s
+                 CROSS JOIN LATERAL jsonb_array_elements_text(
+                     CASE WHEN jsonb_typeof(s.target_sectors::jsonb) = 'array'
+                          THEN s.target_sectors::jsonb ELSE '[]'::jsonb END
+                  || CASE WHEN jsonb_typeof(s.custom_target_sectors::jsonb) = 'array'
+                          THEN s.custom_target_sectors::jsonb ELSE '[]'::jsonb END
+                     ) sec(value)""",
+    "region": """SELECT scr.startup_company_id, r.name AS label,
+                        r.description AS detail
+                 FROM startup_company_regions scr
+                 JOIN regions r ON r.id = scr.region_id""",
+}
+
+
+def _label_source(params: dict) -> str:
+    lt = str(params.get("label_type") or "").strip().lower()
+    if lt not in LABEL_SOURCES:
+        raise ValueError(
+            f"label_type must be one of {sorted(LABEL_SOURCES)}, got {lt!r}")
+    return LABEL_SOURCES[lt]
+
+
+def _startups_by_label(conn, params: dict, acl: Any) -> list[dict]:
+    src = _label_source(params)
+    value = str(params.get("value") or "").strip()
+    if not value:
+        raise ValueError("value is required (a substring of the label)")
+    c_sql, c_args = _company_acl(acl)
+    return conn.execute(
+        f"""WITH labels AS ({src})
+            SELECT s.name, s.slug, s.is_published,
+                   array_agg(DISTINCT l.label) AS matched_labels
+            FROM labels l
+            JOIN startup_companies s ON s.id = l.startup_company_id
+            WHERE (l.label ILIKE '%%' || %s || '%%'
+                   OR l.detail ILIKE '%%' || %s || '%%'){c_sql}
+            GROUP BY s.id, s.name, s.slug, s.is_published
+            ORDER BY s.name LIMIT %s""",
+        (value, value, *c_args, _limit(params, MAX_ROWS)),
+    ).fetchall()
+
+
+def _list_labels(conn, params: dict, acl: Any) -> list[dict]:
+    src = _label_source(params)
+    c_sql, c_args = _company_acl(acl)
+    return conn.execute(
+        f"""WITH labels AS ({src})
+            SELECT l.label, count(DISTINCT l.startup_company_id) AS startups
+            FROM labels l
+            JOIN startup_companies s ON s.id = l.startup_company_id
+            WHERE l.label IS NOT NULL{c_sql}
+            GROUP BY l.label
+            ORDER BY startups DESC, l.label LIMIT %s""",
+        (*c_args, _limit(params, MAX_ROWS)),
+    ).fetchall()
+
+
 def _top_startups_by_score(conn, params: dict, acl: Any) -> list[dict]:
     e_sql, e_args = _eval_acl(acl)
     c_sql, c_args = _company_acl(acl)
@@ -308,6 +380,28 @@ QUERIES: dict[str, dict[str, Any]] = {
         "params": {"fundraising_round": "optional, e.g. Seed",
                    "limit": f"optional, max {MAX_ROWS}"},
         "description": "List startups visible to you (name, round, status, HQ), optionally filtered by fundraising round.",
+    },
+    "startups_by_label": {
+        "fn": _startups_by_label,
+        "params": {"label_type": "required: industry | sector | region",
+                   "value": "required substring match",
+                   "limit": f"optional, max {MAX_ROWS}"},
+        "description": ("Startups visible to you carrying a platform label "
+                        "matching value. label_type: 'industry' (LinkedIn-style "
+                        "category, matched at any hierarchy level), 'sector' "
+                        "(target sectors incl. custom), 'region'. Faster and "
+                        "more authoritative than text-scanning for "
+                        "classification questions; empty means no label "
+                        "matches — the classification may still exist only "
+                        "in document text."),
+    },
+    "list_labels": {
+        "fn": _list_labels,
+        "params": {"label_type": "required: industry | sector | region",
+                   "limit": f"optional, max {MAX_ROWS}"},
+        "description": ("The platform's label vocabulary of one type with "
+                        "visible-startup counts — discover exact label values "
+                        "before filtering with startups_by_label."),
     },
     "top_startups_by_score": {
         "fn": _top_startups_by_score, "params": {"limit": "optional, default 10"},

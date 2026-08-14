@@ -76,11 +76,13 @@ def _resolve_deck_visibility(conn, doc) -> None:
 
 
 def ingest_bundle(conn, client, bucket_name, path, *, entity_id, is_published,
-                  eval_is_visible, extra_meta, stats) -> None:
+                  eval_is_visible, extra_meta, stats,
+                  fallback_company_name=None) -> None:
     raw = client.bucket(bucket_name).blob(path).download_as_bytes()
     bundle = json.loads(raw)
     source_ref = f"gs://{bucket_name}/{path}"
-    docs = parse_bundle(bundle, source_ref)
+    docs = parse_bundle(bundle, source_ref,
+                        fallback_company_name=fallback_company_name)
     for doc in docs:
         doc.metadata.update(extra_meta)
         if entity_id is not None:
@@ -104,7 +106,7 @@ def run_db_mode(conn, client, limit, stats) -> None:
     with conn.cursor() as cur:
         cur.execute(
             """SELECT e.id, e.startup_company_id, e.raw_json, e.is_visible,
-                      s.is_published
+                      s.is_published, s.name
                FROM startup_company_evaluations e
                JOIN startup_companies s ON s.id = e.startup_company_id
                WHERE e.raw_json IS NOT NULL
@@ -123,6 +125,10 @@ def run_db_mode(conn, client, limit, stats) -> None:
                 eval_is_visible=row["is_visible"],
                 extra_meta={"evaluation_id": row["id"]},
                 stats=stats,
+                # legacy prod bundles carry no internal company name — the
+                # joined app-table name is the fallback (629 docs shipped as
+                # "Unknown company" without it; triage thread-021)
+                fallback_company_name=row["name"],
             )
         except UnsupportedBundleShape:
             stats["skipped:experimental_shape"] += 1

@@ -4,6 +4,38 @@
 > engineering choices land here, newest first. Each entry names its evidence (spike
 > output, manifest path, or doc reference) and the revisit trigger if one exists.
 
+## 2026-08-14 — "Unknown company" title repair + label resolver (triage thread-021)
+
+Two fixes out of the thread-21 triage queue, both landed the day after the
+re-convergence:
+
+**1. 629 "Unknown company" docs repaired.** Post-restore verification found
+629 of 1,122 live startup-company docs titled "Unknown company — …" (and
+carrying `company_name: "Unknown company"` in chunk metadata):
+`backfill_evals.run_db_mode` joined `startup_companies` but never passed the
+name, and prod's legacy bundles carry no internal company name, so
+`parse_bundle`'s fallback chain bottomed out. Checked and NOT broken: entity
+attribution, orphaned docs (zero — every live source_ref matches a current
+eval row), duplicate generations (X1 Pipeline genuinely has 20 prod evals;
+7 sections legitimately share each source_ref). Fix: (a) DB mode now passes
+the app-table name as `fallback_company_name`; (b) new **in-place repair
+path** in `store.upsert_document` — unchanged content_hash + changed title
+→ same row/version/embeddings (chunk text is markdown-only), title +
+denormalized chunk metadata rewritten, record summary dropped for
+regeneration (it was generated under the stale title); action `repaired`.
+Repaired summaries shift retrieval bait → **QA trio must be rerun before
+the next baseline acceptance** (the 2026-08-13 bar predates this repair).
+
+**2. Label resolver** (`startups_by_label` + `list_labels`): one reusable
+registry resolver across the platform's label vocabularies — industry
+(LinkedIn-style category, matched at any hierarchy level), sector (target
+sectors incl. custom), region (pivot registry) — per the standing
+registry-resolver rule, replacing the 34 s text-census fallback for
+classification questions (thread-21 turn 46). JSON label columns are
+jsonb_typeof-guarded. Tool-schema digest moved (catalog is embedded in
+structured_query's description); TOOL_SCHEMA_SHA256 updated. Verified live:
+sector "biotech" → Angiex, BMI OrganBank, Orphagen Pharmaceuticals.
+
 ## 2026-08-13 — E4b (summary + condense roles): gpt-5.6-luna adopted; embeddings pinned
 
 The provisional gpt-5-mini record-summary pick (2026-07-09) finally got its

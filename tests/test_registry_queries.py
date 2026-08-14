@@ -169,8 +169,61 @@ def test_count_cvs_counts_under_cv_acl():
     assert "v.is_published" in sql          # unpublished CVs are owner-only
 
 
+# --- label resolver (bank §1.4 classification questions) --------------------
+
+
+def test_label_resolver_rejects_unknown_label_type():
+    with pytest.raises(ValueError):
+        queries.run_query(StubConn(), "startups_by_label",
+                          {"label_type": "mood", "value": "x"}, acl="admin")
+    with pytest.raises(ValueError):
+        queries.run_query(StubConn(), "list_labels", {}, acl="admin")
+
+
+def test_startups_by_label_requires_value():
+    with pytest.raises(ValueError):
+        queries.run_query(StubConn(), "startups_by_label",
+                          {"label_type": "sector"}, acl="admin")
+
+
+def test_startups_by_label_matches_all_levels_under_company_acl():
+    row = {"name": "BMI OrganBank", "slug": "bmi", "is_published": True,
+           "matched_labels": ["Biotechnology"]}
+    conn = StubConn(rows=[row])
+    out = queries.run_query(conn, "startups_by_label",
+                            {"label_type": "sector", "value": "biotech"},
+                            acl={"user_id": 9})
+    assert out == [row]
+    sql, params = conn.calls[0]
+    # substring match at every hierarchy level, not just the display label
+    assert "l.label ILIKE" in sql and "l.detail ILIKE" in sql
+    assert "s.is_published" in sql            # drafts stay owner-only
+    # a null or non-array json column contributes nothing instead of erroring
+    assert "jsonb_typeof" in sql
+    assert params[0] == "biotech"
+
+
+def test_list_labels_counts_only_visible_companies():
+    conn = StubConn(rows=[{"label": "FinTech", "startups": 7}])
+    out = queries.run_query(conn, "list_labels", {"label_type": "industry"},
+                            acl={"user_id": 9})
+    assert out[0]["startups"] == 7
+    sql, _ = conn.calls[0]
+    assert "count(DISTINCT l.startup_company_id)" in sql
+    assert "s.is_published" in sql
+
+
+def test_region_labels_come_from_the_pivot_registry():
+    conn = StubConn(rows=[])
+    queries.run_query(conn, "startups_by_label",
+                      {"label_type": "region", "value": "europe"}, acl="admin")
+    sql, _ = conn.calls[0]
+    assert "startup_company_regions" in sql and "JOIN regions" in sql
+
+
 def test_new_queries_are_in_the_catalog():
     cat = queries.catalog()
     for name in ("documents_for_company", "evaluation_score_stats",
-                 "investors_for_company", "count_cvs"):
+                 "investors_for_company", "count_cvs",
+                 "startups_by_label", "list_labels"):
         assert name in cat

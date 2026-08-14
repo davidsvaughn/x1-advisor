@@ -49,7 +49,11 @@ SYSTEM_PROMPT_SHA256 = "01ffce9b81be013ec94740e69e1992639e4978ff019a3aeca276ed85
 # capability build, bank §1.4/§1.5/§3.3): documents_for_company,
 # evaluation_score_stats, investors_for_company, count_cvs — the catalog is
 # embedded in structured_query's description, so the digest moves.
-TOOL_SCHEMA_SHA256 = "45c9ce1de30f99c4e8c14abddfdaa9fac2fcac7e91adae3f8d31c33b641e460c"
+# 2026-08-14: label resolver (triage thread-021 issue 2, David-queued):
+# startups_by_label + list_labels — one reusable resolver across the
+# platform's label vocabularies (industry/sector/region), replacing the
+# 34s text-census fallback for classification questions.
+TOOL_SCHEMA_SHA256 = "18efb7430a0489ce8034a51d6461937fafe1427bba9af788b672217e924549c6"
 
 
 def test_prompt_prefix_stability():
