@@ -400,18 +400,18 @@
       }
     },
     "v2c047": {
-      "digest": "7238d1e4ad80d8d5a8bb311262224e7b659cfa1ce6967e2fdfe16fd242b13526",
+      "digest": "11059d6a16eddae213ed66dba31c139a2871f238f4d44325ea67915b78ea972b",
       "builder_version": 3,
       "counts": {
-        "eligible": 64,
-        "scanned": 25,
+        "eligible": 51,
+        "scanned": 32,
         "matched": 0,
-        "no_match": 25,
-        "not_indexed": 39,
-        "scanned_chunks": 6459,
+        "no_match": 32,
+        "not_indexed": 19,
+        "scanned_chunks": 25568,
         "matching_chunks": 0,
-        "entity_names": 64,
-        "entity_records": 74
+        "entity_names": 51,
+        "entity_records": 50
       },
       "scope": {
         "mode": "absent",
@@ -429,25 +429,25 @@
         "match": {
           "method": "phrase",
           "any": [
-            "supply chain risk"
+            "insider trading"
           ],
           "all": []
         }
       }
     },
     "v2c048": {
-      "digest": "33b379f0c3d60e5cce85001f31e5c363f389f35b62f6eac2e12d29aadb54d60f",
+      "digest": "aa8065693fd36a9246974965a5cb19eb4b7c22bfb164c09481039d32d048f825",
       "builder_version": 3,
       "counts": {
-        "eligible": 64,
-        "scanned": 25,
+        "eligible": 51,
+        "scanned": 32,
         "matched": 0,
-        "no_match": 25,
-        "not_indexed": 39,
-        "scanned_chunks": 6459,
+        "no_match": 32,
+        "not_indexed": 19,
+        "scanned_chunks": 25568,
         "matching_chunks": 0,
-        "entity_names": 64,
-        "entity_records": 74
+        "entity_names": 51,
+        "entity_records": 50
       },
       "scope": {
         "mode": "absent",
@@ -465,7 +465,7 @@
         "match": {
           "method": "phrase",
           "any": [
-            "carbon credit"
+            "space debris"
           ],
           "all": []
         }

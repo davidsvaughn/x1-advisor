@@ -892,8 +892,8 @@ cases:
   - id: v2c047
     class: known_absence
     tier: core
-    provenance: "§6 (truth-robustness); absence verified offline"
-    question: "Which startup evaluations mention supply chain risk?"
+    provenance: "§6 (truth-robustness); re-authored 2026-08-13 (corpus restore falsified prior premise); absence verified"
+    question: "Which startup evaluations mention insider trading?"
     bindings: {}
     readiness: {source_available: true, tool_ready: true, scope: corpus,
                 operation: exact_scan, context_required: none, golden_priority: p0}
@@ -908,13 +908,13 @@ cases:
       entity_key: name
       source_types: [eval_section, eval_basic, eval_premium]
       granularity: [block]
-      match: {method: phrase, any: ["supply chain risk"]}
+      match: {method: phrase, any: ["insider trading"]}
 
   - id: v2c048
     class: known_absence
     tier: core
-    provenance: "§6 (truth-robustness); absence verified offline"
-    question: "What do the evaluations say about carbon credits?"
+    provenance: "§6 (truth-robustness); re-authored 2026-08-13 (corpus restore falsified prior premise); absence verified"
+    question: "What do the evaluations say about space debris?"
     bindings: {}
     readiness: {source_available: true, tool_ready: true, scope: corpus,
                 operation: exact_scan, context_required: none, golden_priority: p0}
@@ -929,12 +929,12 @@ cases:
       entity_key: name
       source_types: [eval_section, eval_basic, eval_premium]
       granularity: [block]
-      match: {method: phrase, any: ["carbon credit"]}
+      match: {method: phrase, any: ["space debris"]}
 
   - id: v2c049
     class: known_absence
     tier: core
-    provenance: "§6 (truth-robustness); absence verified offline"
+    provenance: "§6 (truth-robustness); re-authored 2026-08-13 (corpus restore falsified prior premise); absence verified"
     question: "Which startups mention synthetic biology in their evaluations?"
     bindings: {}
     readiness: {source_available: true, tool_ready: true, scope: corpus,
