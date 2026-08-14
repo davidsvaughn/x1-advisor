@@ -362,7 +362,8 @@ def build_tools(conn, *, acl: Any, registry: EvidenceRegistry,
                                         f"valid: {sorted(sf.values)}"})
         rf = FIELDS["eval_recency"]
         recency_defaulted = False
-        eval_types = {"eval_section", "eval_premium", "eval_basic"}
+        eval_types = {"eval_section", "eval_premium", "eval_basic",
+                      "eval_research"}
         if eval_recency == "all":
             eval_recency = None      # explicit all-vintages override
         elif eval_recency is None and eval_types & set(source_types):
