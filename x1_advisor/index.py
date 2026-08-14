@@ -86,7 +86,8 @@ def embed_missing(conn, cfg: IndexConfig, tracker: Tracker) -> int:
     (psycopg connections are not shared across threads); the INSERT is
     ON CONFLICT DO NOTHING so a racing writer — another worker or another
     process — degrades to wasted work, never a crash or a corrupt row.
-    ADVISOR_EMBED_WORKERS tunes the pool (default 4)."""
+    ADVISOR_EMBED_WORKERS tunes the pool (default 8 — held up clean
+    against the OpenAI tier on the 2026-08-14 research-split re-embed)."""
     import threading
     from concurrent.futures import ThreadPoolExecutor
 
@@ -100,7 +101,7 @@ def embed_missing(conn, cfg: IndexConfig, tracker: Tracker) -> int:
     if not ids:
         return 0
     batches = [ids[i:i + EMBED_BATCH] for i in range(0, len(ids), EMBED_BATCH)]
-    workers = max(1, int(os.environ.get("ADVISOR_EMBED_WORKERS", "4")))
+    workers = max(1, int(os.environ.get("ADVISOR_EMBED_WORKERS", "8")))
     done = 0
     lock = threading.Lock()
 
