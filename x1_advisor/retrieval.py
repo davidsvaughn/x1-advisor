@@ -28,6 +28,13 @@ RRF_K = 60
 LEG_DEPTH = 50          # candidates fetched per leg before fusion
 PER_DOC_CAP = 3         # diversification: max chunks per document in final top-k
 
+# ANN search tuning (ivfflat, 100 lists — see index.py). probes=10 scans 10% of
+# clusters; iterative relaxed_order keeps scanning (up to max_probes = all
+# lists, i.e. exact) when ACL/metadata filters reject candidates, so selective
+# filters cannot silently under-fill the leg (pgvector ≥0.8).
+IVFFLAT_PROBES = 10
+IVFFLAT_MAX_PROBES = 100
+
 RERANK_MODEL = "jina-reranker-v3"
 RERANK_DEPTH = 40       # fused candidates sent to the reranker
 RERANK_BLEND = 0.7      # final = 0.3·rrf_norm + 0.7·rerank_norm (pipeshub starting point)
@@ -275,13 +282,21 @@ def retrieve(
 
     hits: dict[int, Hit] = {}
 
+    # The dense leg must be shaped `ORDER BY e.embedding <=> const LIMIT k`
+    # directly on the vector table or the planner cannot use the ANN index at
+    # all — the previous correlated-subquery form silently forced an exact
+    # full-table scan (39s at 50k vectors on the f1-micro, 2026-08-14).
+    conn.execute(f"SET ivfflat.probes = {IVFFLAT_PROBES}")
+    conn.execute("SET ivfflat.iterative_scan = relaxed_order")
+    conn.execute(f"SET ivfflat.max_probes = {IVFFLAT_MAX_PROBES}")
     dense_rows = conn.execute(
         f"""SELECT c.id, c.document_id, c.block_index, c.page_number, c.text,
                    c.metadata, c.granularity, d.title, d.source_type
-            {_BASE_FROM} {where_tail}
-              AND EXISTS (SELECT 1 FROM advisor.emb_{cfg.id} e WHERE e.chunk_id = c.id)
-            ORDER BY (SELECT e.embedding <=> %s::vector
-                      FROM advisor.emb_{cfg.id} e WHERE e.chunk_id = c.id)
+            FROM advisor.emb_{cfg.id} e
+            JOIN advisor.doc_chunks c ON c.id = e.chunk_id
+            JOIN advisor.documents d ON d.id = c.document_id
+            WHERE d.superseded_by IS NULL {where_tail}
+            ORDER BY e.embedding <=> %s::vector
             LIMIT %s""",
         (*tail_params, qvec, LEG_DEPTH),
     ).fetchall()

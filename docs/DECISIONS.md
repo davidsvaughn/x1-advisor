@@ -4,6 +4,49 @@
 > engineering choices land here, newest first. Each entry names its evidence (spike
 > output, manifest path, or doc reference) and the revisit trigger if one exists.
 
+## 2026-08-14 — ANN index: hnsw → ivfflat; dense leg rewritten to actually use it
+
+**Context.** The research-split re-embed left a 12,566-chunk backlog whose
+HNSW rebuild ground at ~200 vectors/min on `x1-sql-test` (db-f1-micro:
+0.6GB RAM, 20GB HDD ≈ 15 random-read IOPS). Root cause chain: 64MB
+`maintenance_work_mem` forces pgvector's on-disk hnsw build; on-disk hnsw
+is a random-read workload; the disk can't serve it. David declined the
+instance upsize (priced: db-custom-1-3840 ≈ $49/mo vs $8) and chose
+ivfflat ("do the IVFF thing now... make a note that we might want to
+switch back later").
+
+**Landed.**
+- `emb_te3s_1536_ck1_ivf` (ivfflat, lists=100) built in **167s** over all
+  50,026 vectors — same box where hnsw was heading past the 3-hour mark.
+  Needs a session `maintenance_work_mem = '96MB'` (k-means wants 65MB).
+- `index.py`: `ANN_KIND` (env `ADVISOR_ANN_INDEX`, default ivfflat) drives
+  `ensure_config` + bulk-mode rebuild DDL; bulk drop removes both kinds.
+- **Side finding, the bigger one:** the dense retrieval leg's
+  correlated-subquery shape (`ORDER BY (SELECT e.embedding <=> qvec ...)`)
+  could never use ANY vector index — every search was an exact full-scan
+  of the emb table (EXPLAIN ANALYZE: 39.4s cold at 50k vectors, 220k
+  buffers, zero index use — so the hnsw index was decorative all along,
+  and part of every slow-turn mystery to date). Rewritten to the
+  index-served form (`FROM emb e JOIN ... ORDER BY e.embedding <=> qvec
+  LIMIT k`) with `ivfflat.probes=10` + `iterative_scan=relaxed_order` +
+  `max_probes=100`, so selective ACL/metadata filters trigger deeper
+  scanning instead of under-filled results (pgvector 0.8.1). Measured:
+  cold 9.9s, **warm 0.44s end-to-end incl. the OpenAI query-embed call**.
+  `analyze_scope`'s per-doc ranker keeps its exact aggregate (cost is
+  scope-bounded, not corpus-bounded).
+
+**Recall trade.** probes=10/100 lists ≈ top-10% clusters scanned;
+relaxed-order iterative scan closes the filtered-query hole. QA baselines
+were graded under exact-scan retrieval, so ranking may shift at the
+margins — **QA trio rerun (already owed for the title repair) will price
+this in the same batch.**
+
+**Revisit trigger.** If the instances are ever upsized (≥ ~4GB RAM +
+`maintenance_work_mem` ≥ 400MB), flip `ADVISOR_ANN_INDEX=hnsw` and
+reindex — retrieval's ivfflat GUCs are inert under hnsw, nothing else
+moves. Prod (`x1-sql`, same db-f1-micro) must get the ivfflat index at
+its next corpus build; do NOT let `ensure_config` build hnsw there.
+
 ## 2026-08-14 — "Unknown company" title repair + label resolver (triage thread-021)
 
 Three fixes out of the thread-21 triage queue, all landed the day after the

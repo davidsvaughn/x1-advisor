@@ -23,12 +23,38 @@ from x1_advisor.ingest.chunker import CHUNKER_VERSION
 
 EMBED_BATCH = 256
 # Bulk-load threshold: above this many missing chunks, embed_missing drops the
-# HNSW index, loads, and rebuilds it in one pass. Inserting THROUGH a live
+# ANN index, loads, and rebuilds it in one pass. Inserting THROUGH a live
 # hnsw index was the 2026-08-14 stall: each vector insert does graph
 # maintenance, 8 workers exhausted the Cloud SQL burst IO, and killed clients
 # left zombie backends grinding for minutes. 12,566 rows took ~1h stuck
 # through the index and 29s without it.
 BULK_REBUILD_THRESHOLD = 2000
+
+# ANN index kind. 2026-08-14 (David): ivfflat, because an hnsw build over the
+# 50k-vector corpus needs the graph in maintenance_work_mem to be feasible on
+# the db-f1-micro (0.6GB) instances — the on-disk fallback ground at ~200
+# vectors/min on the 20GB HDD (~15 random-read IOPS) vs 167s for the full
+# ivfflat build. We may switch back to hnsw if the instances are ever upsized
+# (needs maintenance_work_mem >= ~400MB at current corpus scale); retrieval
+# sets ivfflat.* GUCs that are inert under hnsw, so only this constant and a
+# reindex are involved in switching.
+ANN_KIND = os.environ.get("ADVISOR_ANN_INDEX", "ivfflat")
+IVFFLAT_LISTS = 100
+# ivfflat's k-means needs ~65MB at 50k vectors; the server default is 64MB.
+# Session-scoped bump, evaporates with the connection.
+INDEX_BUILD_MEM = "96MB"
+
+
+def _ann_index_name(cfg: "IndexConfig") -> str:
+    return f"emb_{cfg.id}_" + ("hnsw" if ANN_KIND == "hnsw" else "ivf")
+
+
+def _ann_index_ddl(cfg: "IndexConfig") -> str:
+    if ANN_KIND == "hnsw":
+        return (f"CREATE INDEX IF NOT EXISTS emb_{cfg.id}_hnsw ON advisor.emb_{cfg.id} "
+                "USING hnsw (embedding vector_cosine_ops)")
+    return (f"CREATE INDEX IF NOT EXISTS emb_{cfg.id}_ivf ON advisor.emb_{cfg.id} "
+            f"USING ivfflat (embedding vector_cosine_ops) WITH (lists = {IVFFLAT_LISTS})")
 
 
 @dataclass(frozen=True)
@@ -57,10 +83,8 @@ def ensure_config(conn, cfg: IndexConfig, activate: bool = False) -> None:
               chunk_id bigint PRIMARY KEY REFERENCES advisor.doc_chunks(id) ON DELETE CASCADE,
               embedding vector({cfg.dim}) NOT NULL)""",
     )
-    conn.execute(
-        f"""CREATE INDEX IF NOT EXISTS emb_{cfg.id}_hnsw
-            ON advisor.emb_{cfg.id} USING hnsw (embedding vector_cosine_ops)""",
-    )
+    conn.execute(f"SET maintenance_work_mem = '{INDEX_BUILD_MEM}'")
+    conn.execute(_ann_index_ddl(cfg))
     if activate:
         conn.execute("UPDATE advisor.index_configs SET status='experimental' WHERE status='active'")
         conn.execute("UPDATE advisor.index_configs SET status='active' WHERE id=%s", (cfg.id,))
@@ -113,8 +137,10 @@ def embed_missing(conn, cfg: IndexConfig, tracker: Tracker) -> int:
     bulk = len(ids) > BULK_REBUILD_THRESHOLD
     if bulk:
         print(f"  bulk mode: {len(ids)} missing > {BULK_REBUILD_THRESHOLD} — "
-              "dropping hnsw index for the load, rebuilding after", flush=True)
+              "dropping ANN index for the load, rebuilding after", flush=True)
+        # drop both kinds so a kind switch never leaves a stale twin behind
         conn.execute(f"DROP INDEX IF EXISTS advisor.emb_{cfg.id}_hnsw")
+        conn.execute(f"DROP INDEX IF EXISTS advisor.emb_{cfg.id}_ivf")
         conn.commit()
     batches = [ids[i:i + EMBED_BATCH] for i in range(0, len(ids), EMBED_BATCH)]
     workers = max(1, int(os.environ.get("ADVISOR_EMBED_WORKERS", "8")))
@@ -148,11 +174,10 @@ def embed_missing(conn, cfg: IndexConfig, tracker: Tracker) -> int:
     if bulk:
         import time as _time
         t0 = _time.monotonic()
-        conn.execute(
-            f"""CREATE INDEX IF NOT EXISTS emb_{cfg.id}_hnsw
-                ON advisor.emb_{cfg.id} USING hnsw (embedding vector_cosine_ops)""")
+        conn.execute(f"SET maintenance_work_mem = '{INDEX_BUILD_MEM}'")
+        conn.execute(_ann_index_ddl(cfg))
         conn.commit()
-        print(f"  hnsw index rebuilt in {_time.monotonic()-t0:.0f}s", flush=True)
+        print(f"  {ANN_KIND} index rebuilt in {_time.monotonic()-t0:.0f}s", flush=True)
     return total
 
 
