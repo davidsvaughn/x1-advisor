@@ -61,9 +61,12 @@ def _eval_acl(acl: Any, alias: str = "e") -> tuple[str, list]:
     return f" AND {alias}.is_visible", []
 
 
-def _limit(params: dict, default: int) -> int:
+def _limit(params: dict, default: int, cap: int = MAX_ROWS) -> int:
     """Bounded row cap. Bad input raises ValueError (surfaced as a tool error,
-    never an uncaught 500) rather than silently falling back to a default."""
+    never an uncaught 500) rather than silently falling back to a default.
+    `cap` is per-query: vocabulary listings are bounded by taxonomy size, not
+    by the generic row cap (thread-022: the 50-row clamp silently truncated a
+    66-label vocabulary and the answer stated 50 as exact)."""
     raw = params.get("limit", default)
     try:
         n = int(raw)
@@ -71,7 +74,7 @@ def _limit(params: dict, default: int) -> int:
         raise ValueError(f"limit must be an integer, got {raw!r}") from None
     if n < 1:
         raise ValueError(f"limit must be >= 1, got {n}")
-    return min(n, MAX_ROWS)
+    return min(n, cap)
 
 
 def _count_startups(conn, params: dict, acl: Any) -> list[dict]:
@@ -157,10 +160,13 @@ def _startups_by_label(conn, params: dict, acl: Any) -> list[dict]:
     if not value:
         raise ValueError("value is required (a substring of the label)")
     c_sql, c_args = _company_acl(acl)
+    # match_total = matching companies BEFORE the row cap (count over the
+    # grouped set), so a capped result can never masquerade as complete
     return conn.execute(
         f"""WITH labels AS ({src})
             SELECT s.name, s.slug, s.is_published,
-                   array_agg(DISTINCT l.label) AS matched_labels
+                   array_agg(DISTINCT l.label) AS matched_labels,
+                   count(*) OVER () AS match_total
             FROM labels l
             JOIN startup_companies s ON s.id = l.startup_company_id
             WHERE (l.label ILIKE '%%' || %s || '%%'
@@ -174,15 +180,18 @@ def _startups_by_label(conn, params: dict, acl: Any) -> list[dict]:
 def _list_labels(conn, params: dict, acl: Any) -> list[dict]:
     src = _label_source(params)
     c_sql, c_args = _company_acl(acl)
+    # a vocabulary is bounded by the taxonomy (industries table: 434 rows),
+    # not by the generic 50-row cap; label_total makes completeness explicit
     return conn.execute(
         f"""WITH labels AS ({src})
-            SELECT l.label, count(DISTINCT l.startup_company_id) AS startups
+            SELECT l.label, count(DISTINCT l.startup_company_id) AS startups,
+                   count(*) OVER () AS label_total
             FROM labels l
             JOIN startup_companies s ON s.id = l.startup_company_id
             WHERE l.label IS NOT NULL{c_sql}
             GROUP BY l.label
             ORDER BY startups DESC, l.label LIMIT %s""",
-        (*c_args, _limit(params, MAX_ROWS)),
+        (*c_args, _limit(params, 200, cap=500)),
     ).fetchall()
 
 
@@ -424,15 +433,21 @@ QUERIES: dict[str, dict[str, Any]] = {
                         "more authoritative than text-scanning for "
                         "classification questions; empty means no label "
                         "matches — the classification may still exist only "
-                        "in document text."),
+                        "in document text. Rows carry match_total: if fewer "
+                        "rows returned than match_total, the list is "
+                        "truncated — never present it as complete."),
     },
     "list_labels": {
         "fn": _list_labels,
         "params": {"label_type": "required: industry | sector | region",
-                   "limit": f"optional, max {MAX_ROWS}"},
+                   "limit": "optional, default 200, max 500"},
+        "max_rows": 500,
         "description": ("The platform's label vocabulary of one type with "
                         "visible-startup counts — discover exact label values "
-                        "before filtering with startups_by_label."),
+                        "before filtering with startups_by_label. Rows carry "
+                        "label_total (distinct labels in the full vocabulary): "
+                        "rows returned == label_total means the list is "
+                        "complete; fewer means truncated."),
     },
     "top_startups_by_score": {
         "fn": _top_startups_by_score, "params": {"limit": "optional, default 10"},
@@ -491,5 +506,6 @@ def run_query(conn, name: str, params: dict | None, *, acl: Any) -> list[dict]:
     if name not in QUERIES:
         raise KeyError(f"unknown structured query {name!r}; available: {sorted(QUERIES)}")
     _check_acl(acl)
-    rows = QUERIES[name]["fn"](conn, params or {}, acl)
-    return [dict(r) for r in rows[:MAX_ROWS]]
+    q = QUERIES[name]
+    rows = q["fn"](conn, params or {}, acl)
+    return [dict(r) for r in rows[: q.get("max_rows", MAX_ROWS)]]

@@ -67,7 +67,11 @@ SYSTEM_PROMPT_SHA256 = "2731d9fef86382daa768a7351539f8a24adeb33dae51a18d18483d76
 # 2026-08-14 (3): platform_reference tool (thread-021 issue 1, David:
 # on-demand tool over prompt embedding) — serves the platform-background
 # doc as uncitable knowledge; nothing registers in the evidence registry.
-TOOL_SCHEMA_SHA256 = "0a4152c3890a872d091bdeb8242b4efe1b74a2b6cd08f2b6d928f04cfc4521a1"
+# 2026-08-14 (4): truncation signals (thread-022 flag 2, David: "ship the
+# truncation fix") — label queries carry label_total/match_total so a
+# capped result can never read as complete; list_labels cap right-sized
+# to the taxonomy (500) via per-query max_rows.
+TOOL_SCHEMA_SHA256 = "5659405c215d25c22a4e9959a66b71d11b608463a26f8e7def9ed115c7d6009d"
 
 
 def test_prompt_prefix_stability():

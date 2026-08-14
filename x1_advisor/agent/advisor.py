@@ -289,6 +289,11 @@ def run_turn(conn, question: str, *, acl: Any = "admin",
     from x1_advisor.agent.tools import SUMMARY_CONTEXT_ENABLED
     from x1_advisor.fingerprint import turn_fingerprint
 
+    # phase timings (thread-022: console wall time ran ~3x latency_ms with no
+    # way to see where) — latency_ms stays the agent loop; the rest of the
+    # turn's real cost gets named. The service adds pool_wait/save/total.
+    timings_ms: dict[str, int] = {"agent": latency_ms}
+    _t = time.monotonic()
     config_id = active_config(conn).id
     # computed once, used twice: the Langfuse trace metadata (so a bad trace
     # names the code/prompt/corpus that produced it) and the turn bundle
@@ -299,6 +304,7 @@ def run_turn(conn, question: str, *, acl: Any = "admin",
         # or an E7 A/B run would be indistinguishable from noise
         feature_flags={"summary_context": SUMMARY_CONTEXT_ENABLED,
                        "agent_reasoning": AGENT_REASONING})
+    timings_ms["fingerprint"] = int((time.monotonic() - _t) * 1000)
 
     result = {
         "question": question,
@@ -315,17 +321,21 @@ def run_turn(conn, question: str, *, acl: Any = "admin",
         "steps": steps,
         "tool_calls": tool_calls,
         "latency_ms": latency_ms,
+        "timings_ms": timings_ms,
         "cost_usd": round(tracker.run_total, 6),
         "over_soft_cap": tracker.over_per_run_soft_cap(),
     }
     from x1_advisor.telemetry import emit_turn_trace
 
+    _t = time.monotonic()
     result["trace_id"] = emit_turn_trace(result, model=AGENT_MODEL,
                                          fingerprint=fingerprint)
+    timings_ms["telemetry"] = int((time.monotonic() - _t) * 1000)
 
     # the full replayable record. Kept OUT of the caller's user-facing fields:
     # it is an access surface (bundle.py P5) and far too large for a response
     # body, so the service pops it and save_turn persists it.
+    _t = time.monotonic()
     result["bundle"] = build_bundle(
         conn, question=question, history=history, thread_id=None, acl=acl,
         prompt=SYSTEM_PROMPT, tools=tools, agent_model=AGENT_MODEL,
@@ -333,11 +343,16 @@ def run_turn(conn, question: str, *, acl: Any = "admin",
         config_id=config_id, messages=messages,
         retrieval_explain=retrieval_explain, raw_answer=raw_answer,
         validated=validated, steps=steps, evidence=registry.to_list(),
+        # timings_ms rides by REFERENCE: the bundle-build and service phases
+        # (save/pool/total) land in it after this call and are present when
+        # the bundle is exported at save time
         summary={"verdict": verdict, "steps": len(steps),
                  "cost_usd": result["cost_usd"], "latency_ms": latency_ms,
+                 "timings_ms": timings_ms,
                  "over_soft_cap": result["over_soft_cap"],
                  "trace_id": result["trace_id"],
                  "citations": result["citation_stats"]})
+    timings_ms["bundle"] = int((time.monotonic() - _t) * 1000)
     return result
 
 

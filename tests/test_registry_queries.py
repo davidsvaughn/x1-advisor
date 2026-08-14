@@ -247,6 +247,31 @@ def test_list_labels_counts_only_visible_companies():
     assert "s.is_published" in sql
 
 
+def test_label_queries_carry_completeness_signals():
+    # a capped result must never masquerade as complete (thread-022: the
+    # 50-row clamp turned a 66-label vocabulary into "50 distinct" stated
+    # as exact). label_total/match_total ride on every row via a window
+    # over the grouped set, and list_labels' per-query max_rows overrides
+    # the generic clamp in run_query.
+    sixty = [{"label": f"L{i}", "startups": 1, "label_total": 60}
+             for i in range(60)]
+    conn = StubConn(rows=sixty)
+    out = queries.run_query(conn, "list_labels", {"label_type": "industry"},
+                            acl="admin")
+    assert len(out) == 60                    # NOT clamped to MAX_ROWS
+    assert out[0]["label_total"] == 60
+    sql, _ = conn.calls[0]
+    assert "count(*) OVER ()" in sql
+    assert queries.QUERIES["list_labels"]["max_rows"] == 500
+
+    conn = StubConn(rows=[{"name": "A", "slug": "a", "is_published": True,
+                           "matched_labels": ["X"], "match_total": 3}])
+    out = queries.run_query(conn, "startups_by_label",
+                            {"label_type": "sector", "value": "x"}, acl="admin")
+    assert out[0]["match_total"] == 3
+    assert "count(*) OVER ()" in conn.calls[0][0]
+
+
 def test_region_labels_come_from_the_pivot_registry():
     conn = StubConn(rows=[])
     queries.run_query(conn, "startups_by_label",

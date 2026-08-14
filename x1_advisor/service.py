@@ -114,14 +114,22 @@ async def ask(req: AskRequest, x_user_id: str | None = Header(default=None)) -> 
     acl = _acl_for(x_user_id)
 
     def _run() -> dict:
+        import time as _time
+        t0 = _time.monotonic()
         # one checkout per request: the turn and its persisted rows share a
         # transaction that belongs to this request and nobody else
         with app.state.pool.connection() as conn:
+            pool_ms = int((_time.monotonic() - t0) * 1000)
             result = run_turn(conn, req.question, acl=acl, history=req.history)
+            _t = _time.monotonic()
             result["thread_id"] = save_turn(
                 conn, result,
                 user_id=0 if acl == "admin" else acl["user_id"],
                 thread_id=req.thread_id)
+            timings = result.setdefault("timings_ms", {})
+            timings["pool_wait"] = pool_ms
+            timings["save"] = int((_time.monotonic() - _t) * 1000)
+            timings["request_total"] = int((_time.monotonic() - t0) * 1000)
             # the bundle is persisted and exported, not returned: it is a
             # separate access surface (bundle.py P5) and far larger than an
             # answer. A bundle-read endpoint is Gate 2 work.
