@@ -98,7 +98,10 @@ def emit_turn_trace(result: dict[str, Any], *, model: str,
                                   value=cs["resolved"] / cs["emitted"])
         langfuse.create_score(trace_id=trace_id, name="cost_usd",
                               value=result["cost_usd"])
-        langfuse.flush()
+        # no flush() here: it forced a synchronous network round-trip inside
+        # the turn (~1.5s measured, thread-022). The SDK's background worker
+        # delivers batches on its own interval and at exit; emit_judge_scores
+        # (offline, short-lived processes) keeps its explicit flush.
         return trace_id
     except Exception as exc:  # noqa: BLE001 — telemetry must never break a turn
         print(f"  [telemetry] Langfuse emission failed: {type(exc).__name__}: {exc}")

@@ -303,7 +303,11 @@ def run_turn(conn, question: str, *, acl: Any = "admin",
         # flags that change what the model is shown must ride the fingerprint,
         # or an E7 A/B run would be indistinguishable from noise
         feature_flags={"summary_context": SUMMARY_CONTEXT_ENABLED,
-                       "agent_reasoning": AGENT_REASONING})
+                       "agent_reasoning": AGENT_REASONING},
+        # live turns never block on a corpus-watermark recompute (thread-022:
+        # it was 20.5s of a 30s turn): a just-changed corpus yields the prior
+        # watermark flagged stale + a background refresh. QA paths stay exact.
+        block_watermark=False)
     timings_ms["fingerprint"] = int((time.monotonic() - _t) * 1000)
 
     result = {

@@ -88,7 +88,39 @@ def tool_schema_digest(tools: Iterable[Any]) -> str:
     return sha256_text(json.dumps(canonical, sort_keys=True, separators=(",", ":")))
 
 
-_watermark_cache: tuple[tuple, dict[str, Any]] | None = None
+_watermark_cache: tuple[str, dict[str, Any]] | None = None
+_watermark_refresh_lock = __import__("threading").Lock()
+# survives --reload restarts: without it every dev code edit reset the memo
+# and the next turn paid a full recompute on an UNCHANGED corpus
+_WATERMARK_CACHE_FILE = (
+    __import__("pathlib").Path(__file__).parents[1]
+    / ".qa-artifacts" / "cache" / "corpus_watermark.json")
+
+
+def _sentinel_key(sentinel: tuple) -> str:
+    import json as _json
+    # tuples serialize as arrays — stable key; default=str for the Decimal
+    # that sum(xmin) returns
+    return _json.dumps(sentinel, default=str)
+
+
+def _load_disk_cache() -> tuple[str, dict[str, Any]] | None:
+    try:
+        import json as _json
+        d = _json.loads(_WATERMARK_CACHE_FILE.read_text())
+        return d["sentinel_key"], d["watermark"]
+    except Exception:  # noqa: BLE001 — cache miss, never an error
+        return None
+
+
+def _save_disk_cache(key: str, watermark: dict[str, Any]) -> None:
+    try:
+        import json as _json
+        _WATERMARK_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _WATERMARK_CACHE_FILE.write_text(
+            _json.dumps({"sentinel_key": key, "watermark": watermark}))
+    except Exception:  # noqa: BLE001 — cache is an optimization only
+        pass
 
 
 def _corpus_sentinel(conn, config_id: str) -> tuple:
@@ -121,7 +153,8 @@ def _corpus_sentinel(conn, config_id: str) -> tuple:
     return (config_id, *[(r["n"], r["mx"], r["sx"]) for r in rows])
 
 
-def corpus_watermark(conn, config_id: str) -> dict[str, Any]:
+def corpus_watermark(conn, config_id: str, *,
+                     block: bool = True) -> dict[str, Any]:
     """Identity of the corpus that answered this turn.
 
     Covers everything retrieval reads: document content hashes, chunk **text and
@@ -130,15 +163,60 @@ def corpus_watermark(conn, config_id: str) -> dict[str, Any]:
     the cache key only — they are local to a database instance and would make
     two identical corpora look different.
 
-    ~1.6 s to compute in full, so it is memoized behind the sentinel above: a
-    turn pays ~100 ms while the corpus is unchanged, and the full price only on
-    the first turn after it moves.
+    The full recompute grows with the corpus (~20 s at 29k chunks — thread-022:
+    it ran INSIDE a user turn and tripled its latency), so it is memoized
+    behind the sentinel above (disk-backed, surviving --reload): ~100 ms while
+    the corpus is unchanged.
+
+    `block` chooses who pays when the corpus HAS moved:
+      - True (default; QA/experiments — manifests need exact identity): compute
+        inline, as always.
+      - False (live turns): return the previous watermark with `stale: True`
+        and refresh in a background thread so the next turn is exact. Only if
+        no previous watermark exists at all does a live turn compute inline.
     """
     global _watermark_cache
-    sentinel = _corpus_sentinel(conn, config_id)
-    if _watermark_cache and _watermark_cache[0] == sentinel:
+    sentinel_key = _sentinel_key(_corpus_sentinel(conn, config_id))
+    if _watermark_cache is None:
+        _watermark_cache = _load_disk_cache()
+    if _watermark_cache and _watermark_cache[0] == sentinel_key:
         return _watermark_cache[1]
+    if not block and _watermark_cache:
+        _spawn_watermark_refresh(config_id)
+        return {**_watermark_cache[1], "stale": True}
+    watermark = _compute_watermark(conn, config_id)
+    _watermark_cache = (sentinel_key, watermark)
+    _save_disk_cache(sentinel_key, watermark)
+    return watermark
 
+
+def _spawn_watermark_refresh(config_id: str) -> None:
+    """One background recompute at a time; its own connection (the turn's
+    conn belongs to the request thread)."""
+    import threading
+
+    if not _watermark_refresh_lock.acquire(blocking=False):
+        return   # a refresh is already running
+
+    def _refresh() -> None:
+        global _watermark_cache
+        try:
+            from x1_advisor.db import connect
+            with connect() as bg_conn:
+                key = _sentinel_key(_corpus_sentinel(bg_conn, config_id))
+                wm = _compute_watermark(bg_conn, config_id)
+            _watermark_cache = (key, wm)
+            _save_disk_cache(key, wm)
+        except Exception as exc:  # noqa: BLE001 — next blocking caller recomputes
+            print(f"  [fingerprint] background watermark refresh failed: {exc}")
+        finally:
+            _watermark_refresh_lock.release()
+
+    threading.Thread(target=_refresh, name="watermark-refresh",
+                     daemon=True).start()
+
+
+def _compute_watermark(conn, config_id: str) -> dict[str, Any]:
     docs = conn.execute(
         """SELECT count(*) AS documents,
                   coalesce(max(id), 0) AS max_document_id,
@@ -161,9 +239,7 @@ def corpus_watermark(conn, config_id: str) -> dict[str, Any]:
                                 '')) AS embedding_digest
             FROM advisor.emb_{config_id} e"""
     ).fetchone()
-    watermark = {**dict(docs), **dict(chunks), **dict(emb)}
-    _watermark_cache = (sentinel, watermark)
-    return watermark
+    return {**dict(docs), **dict(chunks), **dict(emb)}
 
 
 def corpus_text_watermark(conn) -> dict[str, Any]:
@@ -193,12 +269,14 @@ def corpus_text_watermark(conn) -> dict[str, Any]:
     return {**dict(docs), **dict(chunks)}
 
 
-def run_fingerprint(conn, *, config_id: str) -> dict[str, Any]:
+def run_fingerprint(conn, *, config_id: str,
+                    block_watermark: bool = True) -> dict[str, Any]:
     """The part of a fingerprint that does not involve a model or a prompt.
 
     Retrieval-only runs need this: recall moved 0.778 → 0.833 with no code
     change at all when record summaries landed, so a manifest carrying just a
-    git sha cannot explain its own numbers.
+    git sha cannot explain its own numbers. QA/experiment manifests keep the
+    default blocking (exact) watermark; live turns pass block_watermark=False.
     """
     dirty = git_dirty()
     return {
@@ -207,7 +285,8 @@ def run_fingerprint(conn, *, config_id: str) -> dict[str, Any]:
         # only meaningful when the SHA is not the whole story
         "source_tree_sha256": source_tree_sha256() if dirty else None,
         "config_id": config_id,
-        "corpus_watermark": corpus_watermark(conn, config_id),
+        "corpus_watermark": corpus_watermark(conn, config_id,
+                                             block=block_watermark),
         "filter_contract_version": FILTER_CONTRACT_VERSION,
         "acl_policy_version": ACL_POLICY_VERSION,
     }
@@ -216,9 +295,11 @@ def run_fingerprint(conn, *, config_id: str) -> dict[str, Any]:
 def turn_fingerprint(conn, *, prompt: str, tools: Sequence[Any],
                      agent_model: str, config_id: str,
                      agent_model_resolved: str | None = None,
-                     feature_flags: dict[str, Any] | None = None) -> dict[str, Any]:
+                     feature_flags: dict[str, Any] | None = None,
+                     block_watermark: bool = True) -> dict[str, Any]:
     return {
-        **run_fingerprint(conn, config_id=config_id),
+        **run_fingerprint(conn, config_id=config_id,
+                          block_watermark=block_watermark),
         "prompt_sha256": sha256_text(prompt),
         "tool_schema_sha256": tool_schema_digest(tools),
         # `agent_model` is what we asked for ("gpt-5.1"); `agent_model_resolved`
