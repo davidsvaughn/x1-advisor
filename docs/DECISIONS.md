@@ -52,6 +52,33 @@ jsonb_typeof-guarded. Tool-schema digest moved (catalog is embedded in
 structured_query's description); TOOL_SCHEMA_SHA256 updated. Verified live:
 sector "biotech" → Angiex, BMI OrganBank, Orphagen Pharmaceuticals.
 
+## 2026-08-14 (4) — truncation signals + turn-latency fix (thread-022 flag 2)
+
+David's "should it take 30s?" flag exposed two independent defects
+(`871952b`, `35d9100`):
+
+**Silent truncation:** registry label queries clamped at 50 rows with no
+signal — a 66-label vocabulary answered as "50 distinct" stated exact, and
+the agent's higher-limit retry was a silent no-op. Now: label rows carry
+`label_total`/`match_total` (window count over the grouped set), per-query
+`max_rows` overrides the generic clamp (list_labels 500, taxonomy-bounded),
+and descriptions teach the completeness contract. No-Silent-Truncation now
+holds at the tool layer for this class.
+
+**Watermark-in-the-turn:** new `timings_ms` phase instrumentation (kept
+permanently in results + bundle summaries) split the 30.3s turn: agent 7.5s,
+corpus-watermark recompute 20.5s, langfuse flush 1.5s. The exact watermark
+(md5 over all chunk text + all embedding vectors; grows with the corpus)
+recomputed inline on the first turn after any corpus change. David confirmed
+the full-checksum rigor is wanted (same-day proof: the title repair was
+metadata-only — invisible to counts/timestamps, caught by the digest), so
+the fix moves WHO PAYS, not what is computed: live turns take the prior
+watermark flagged `stale: true` + single-flight background refresh;
+QA/experiment manifests keep blocking-exact compute; the memo is now
+disk-backed (--reload restarts no longer trigger recomputes on an unchanged
+corpus); no synchronous langfuse flush inside turns. Measured: 30.3s → 5.1s
+on the post-change turn, exact again on the next.
+
 ## 2026-08-14 (3) — industry label repair, test + prod (thread-022 flag 1)
 
 David's thread-22 flag ("Janitorial services... relic of a bug, wrong ID
