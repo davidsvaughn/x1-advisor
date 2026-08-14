@@ -52,6 +52,34 @@ jsonb_typeof-guarded. Tool-schema digest moved (catalog is embedded in
 structured_query's description); TOOL_SCHEMA_SHA256 updated. Verified live:
 sector "biotech" → Angiex, BMI OrganBank, Orphagen Pharmaceuticals.
 
+## 2026-08-14 (3) — industry label repair, test + prod (thread-022 flag 1)
+
+David's thread-22 flag ("Janitorial services... relic of a bug, wrong ID
+field") diagnosed and repaired same-day. Bug: x1-backend `mastra/import`
+emits LinkedIn industry ids by design (`data/industries.tsv`); x1-app's
+`applyStartupImportResults` looked them up as `industries` PKs until
+`8373ca98` (2026-06-02) — a forward-only fix, no backfill, both envs
+dirty. Proof of mechanism: every absurd label's embedded id, reinterpreted
+as linkedin_id, lands on the evidently-correct industry (vascular-medical
+"Janitorial Services" → Hospitals and Health Care; climate "Recreational
+Facilities" → Environmental Services; "Caterers" → Software Development).
+
+Repair (David: safe deterministic re-map, test first, then prod): curated
+7-label absurd set AND linkedin interpretation exists → replace embedded
+object with the correct row; dedupe; everything else untouched; legacy
+bare-string entries passed through. Script + original-row backups in
+`.qa-artifacts/repairs/` (owner-only). Applied: TEST 14 companies /
+20 labels; PROD 31 companies / 39 labels (explicit David-directed prod
+write via the x1-sql proxy). Absurd-label count now 0 on both. Test-side
+corpus heal: 14 profile docs versioned, 14 summaries, 59 vectors.
+
+Open: the review-candidates list (~40 pairs where a linkedin
+interpretation exists outside the curated set) provably mixes further
+mis-maps with correct labels — separating them needs a plausibility
+audit or David's eyeball pass; recorded in triage thread-022. The
+advisor itself behaved correctly throughout (list_labels reported the
+DB faithfully) — this flag was the triage loop catching an APP-DATA bug.
+
 ## 2026-08-14 (2) — thread-021 gated items decided (David)
 
 The three David-gated triage items were put to David and decided:
