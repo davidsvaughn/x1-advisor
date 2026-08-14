@@ -148,6 +148,78 @@ async def ask(req: AskRequest, x_user_id: str | None = Header(default=None)) -> 
             headers={"Retry-After": "10"}) from None
 
 
+@app.post("/ask/stream")
+async def ask_stream(req: AskRequest,
+                     x_user_id: str | None = Header(default=None)):
+    """Streaming variant of /ask (thread-029: a 1,400-token answer is ~14s of
+    generation — stream it so reading starts at first token, not last).
+
+    Server-sent events, one JSON object per `data:` line:
+      {"type":"tool","name":...}    a tool call started (progress signal)
+      {"type":"delta","text":...}   raw answer text as the model writes it
+      {"type":"result", ...}        the full /ask response — the VALIDATED
+                                    answer + citations; clients re-render
+                                    from this (streamed text is pre-validation)
+      {"type":"error","detail":...}
+    """
+    import asyncio
+    import queue as _queue
+    import time as _time
+
+    from fastapi.responses import StreamingResponse
+
+    acl = _acl_for(x_user_id)
+    q: _queue.Queue = _queue.Queue()
+    seen_tools: list[str] = []
+
+    def cb(chunk) -> None:            # runs in the worker thread
+        for tc in chunk.tool_calls or []:
+            if tc.tool_name and (not seen_tools or seen_tools[-1] != tc.tool_name):
+                seen_tools.append(tc.tool_name)
+                q.put({"type": "tool", "name": tc.tool_name})
+        if chunk.content:
+            q.put({"type": "delta", "text": chunk.content})
+
+    def _run() -> None:
+        try:
+            t0 = _time.monotonic()
+            with app.state.pool.connection() as conn:
+                pool_ms = int((_time.monotonic() - t0) * 1000)
+                result = run_turn(conn, req.question, acl=acl,
+                                  history=req.history, streaming_callback=cb)
+                _t = _time.monotonic()
+                result["thread_id"] = save_turn(
+                    conn, result,
+                    user_id=0 if acl == "admin" else acl["user_id"],
+                    thread_id=req.thread_id)
+                timings = result.setdefault("timings_ms", {})
+                timings["pool_wait"] = pool_ms
+                timings["save"] = int((_time.monotonic() - _t) * 1000)
+                timings["request_total"] = int((_time.monotonic() - t0) * 1000)
+                result.pop("bundle", None)
+                result.pop("bundle_path", None)
+                q.put({"type": "result", **result})
+        except PoolTimeout:
+            q.put({"type": "error",
+                   "detail": f"advisor is at capacity ({POOL_MAX} concurrent "
+                             "turns); retry shortly"})
+        except Exception as exc:  # noqa: BLE001 — surface to the stream, don't drop it
+            q.put({"type": "error", "detail": f"{type(exc).__name__}: {exc}"})
+        finally:
+            q.put(None)
+
+    asyncio.get_running_loop().run_in_executor(None, _run)
+
+    async def gen():
+        while True:
+            item = await anyio.to_thread.run_sync(q.get)
+            if item is None:
+                break
+            yield f"data: {json.dumps(item, default=str)}\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
 # --- dev-console support endpoints -----------------------------------------
 # Thread history and the source viewer are DEV-GRADE: no authz beyond the
 # console gate (they serve the admin view). Production equivalents are Gate 2
@@ -498,14 +570,41 @@ async function send() {
   $("status").textContent = "thinking…";
   const t0 = Date.now();
   try {
-    const rsp = await fetch("/ask", {
+    const rsp = await fetch("/ask/stream", {
       method: "POST",
       headers: { "Content-Type": "application/json",
                  ...($("acl").value === "admin" ? { "X-User-Id": "admin" } : {}) },
       body: JSON.stringify({ question: q, thread_id: threadId, history }),
     });
     if (!rsp.ok) throw new Error(rsp.status + " " + await rsp.text());
-    const r = await rsp.json();
+    // SSE over fetch: tool events show progress, deltas render live (raw,
+    // pre-validation), the final result event re-renders validated + cited
+    const reader = rsp.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "", raw = "", lastPaint = 0, r = null;
+    const aDiv = box.querySelector(".a");
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const parts = buf.split("\\n\\n"); buf = parts.pop();
+      for (const p of parts) {
+        if (!p.startsWith("data: ")) continue;
+        const ev = JSON.parse(p.slice(6));
+        if (ev.type === "tool") {
+          $("status").textContent = `running ${ev.name}…`;
+        } else if (ev.type === "delta") {
+          raw += ev.text;
+          if (Date.now() - lastPaint > 120) {     // throttle re-renders
+            aDiv.innerHTML = md(raw, ex);
+            $("status").textContent = "writing…";
+            box.scrollIntoView(false); lastPaint = Date.now();
+          }
+        } else if (ev.type === "result") { r = ev; }
+        else if (ev.type === "error") { throw new Error(ev.detail); }
+      }
+    }
+    if (!r) throw new Error("stream ended without a result");
     threadId = r.thread_id; $("tid").textContent = threadId;
     history.push({ role: "user", content: q },
                  { role: "assistant", content: r.answer });

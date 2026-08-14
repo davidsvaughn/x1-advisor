@@ -207,12 +207,18 @@ def _history_messages(history: list[dict] | None,
 
 def run_turn(conn, question: str, *, acl: Any = "admin",
              history: list[dict] | None = None,
-             tracker: Tracker | None = None) -> dict[str, Any]:
+             tracker: Tracker | None = None,
+             streaming_callback: Any = None) -> dict[str, Any]:
     """One user question → grounded, citation-validated answer + usage table.
 
     `history` = prior turns [{"role": "user"|"assistant", "content": str}, ...];
     the last 5 exchanges ride verbatim, anything older is condensed once per call
-    (cheap model) — tool results from prior turns are never replayed."""
+    (cheap model) — tool results from prior turns are never replayed.
+
+    `streaming_callback` (haystack StreamingCallbackT) receives live chunks —
+    text deltas + tool-call deltas — for the service's streaming endpoint. The
+    streamed text is the RAW answer; the returned/persisted answer remains the
+    citation-validated one (a streaming client re-renders on the final result)."""
     # cost ledger is default-ON (no-silent-spend); ADVISOR_COST_LEDGER overrides path
     ledger = os.environ.get("ADVISOR_COST_LEDGER", "cost_ledger.jsonl")
     tracker = tracker or Tracker(run_id=f"turn:{int(time.time())}",
@@ -236,7 +242,8 @@ def run_turn(conn, question: str, *, acl: Any = "admin",
     t0 = time.monotonic()
     messages = agent.run(
         messages=[*_history_messages(history, tracker),
-                  ChatMessage.from_user(question)])["messages"]
+                  ChatMessage.from_user(question)],
+        streaming_callback=streaming_callback)["messages"]
     latency_ms = int((time.monotonic() - t0) * 1000)
 
     steps = []

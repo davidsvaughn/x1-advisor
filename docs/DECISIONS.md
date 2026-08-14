@@ -52,6 +52,17 @@ jsonb_typeof-guarded. Tool-schema digest moved (catalog is embedded in
 structured_query's description); TOOL_SCHEMA_SHA256 updated. Verified live:
 sector "biotech" → Angiex, BMI OrganBank, Orphagen Pharmaceuticals.
 
+## 2026-08-14 (6) — console streaming (thread-029)
+
+Long complete answers are generation-bound (1,392 tokens ≈ 14s of terra
+writing; overhead already cut to <0.5s), so the lever is perceived latency:
+`/ask/stream` SSE endpoint + streaming console. Tool-call events show
+progress ("running list_labels…"), raw text deltas render live, and the
+final event carries the citation-VALIDATED answer + citations, re-rendered
+on arrival — streamed text is explicitly pre-validation. Measured: first
+text at 2.6s where the same answer previously showed nothing for 17s.
+Non-streaming /ask unchanged (REPL, QA, future API clients).
+
 ## 2026-08-14 (5) — distribution-tail presentation combo (thread-027)
 
 David on the industries answer: correct but "hard to digest by a human" —
