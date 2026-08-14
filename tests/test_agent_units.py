@@ -32,7 +32,12 @@ from x1_advisor.ingest.chunker import chunk_markdown
 # retrieved passages is a sample artifact, not a statistic (an agent declined
 # an aggregate it could partially serve, without running the registry, and
 # characterized corpus-wide content off two searches).
-SYSTEM_PROMPT_SHA256 = "01ffce9b81be013ec94740e69e1992639e4978ff019a3aeca276ed857f48e1c5"
+# 2026-08-14: batched prompt addendum (David-approved, triage thread-021
+# issues 3b + 4): rule 10 — evaluation reports' own outbound links may be
+# surfaced but only attributed to the report, never as validated citations;
+# Style — a list of one is prose, and parallel per-entity analysis prefers
+# one table (row per entity, column per dimension) over repeated sections.
+SYSTEM_PROMPT_SHA256 = "22b004ef4160e95dd746bbc81d650c8a1cd6d8ebc080e20dbbe1e041f292d7c7"
 # 2026-08-05 (2): entity-class semantics (David-approved) — entity_type is
 # the unit the census enumerates; person-evidence also lives in company
 # docs (team/founder sections outweigh the cv corpus ~4x), so people

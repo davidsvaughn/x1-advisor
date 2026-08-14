@@ -58,6 +58,7 @@ did, same-day, as review criteria were folded in).
 | `docs/QA-DESIGN-AND-DEEPEVAL-INDEPENDENT-REVIEW-2026-08-06.md` | **point-in-time review** (2026-08-06, at `87ac00e`) — QA design, s6 baseline, DeepEval; findings F1–F10 |
 | `docs/QA-REVIEW-CONSOLIDATED-2026-08-07.md` | **point-in-time review** (2026-08-07) — verification pass over both prior QA reviews; consolidated priorities |
 | `docs/ANALYZE-SCOPE-DESIGN-2026-08-13.md` | **proposed design** — semantic map/reduce tool; build gated on live-testing demand (SCAN-A class) |
+| `docs/PLATFORM-REFERENCE-DRAFT.md` | **content draft awaiting David's edit** — becomes a citable corpus doc (`platform_reference`) once approved; [DAVID] markers are the open questions |
 | `docs/triage/` | **living, GITIGNORED (local-only)** — one triage doc per live advisor thread (flags + diagnoses + fix status). NO content restrictions: quotes answers/corpus freely (David 2026-08-12) — which is exactly why it never enters git. See its README |
 | `docs/refs/` | reference-mining notes (pipeshub, chroma) cited by ARCHITECTURE |
 | `docs/archive/` | **absorbed point-in-time docs** — the 2026-07-30 reviews, the stale HANDOFF snapshot, kickoff transcripts. Evidence trail only; see its README |

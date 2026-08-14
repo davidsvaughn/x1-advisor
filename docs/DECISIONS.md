@@ -52,6 +52,27 @@ jsonb_typeof-guarded. Tool-schema digest moved (catalog is embedded in
 structured_query's description); TOOL_SCHEMA_SHA256 updated. Verified live:
 sector "biotech" → Angiex, BMI OrganBank, Orphagen Pharmaceuticals.
 
+## 2026-08-14 (2) — thread-021 gated items decided (David)
+
+The three David-gated triage items were put to David and decided:
+
+- **Cite-through (issue 3b): surface, labeled.** New prompt rule 10 —
+  evaluation reports' own outbound links may be surfaced, always attributed
+  to the report ("the evaluation cites …"), never as validated citations
+  (they never appear in square brackets).
+- **Formatting addendum (issue 4): approved as described.** Style now says:
+  a list of one is prose, never a numbered list; parallel per-entity
+  analysis prefers one table (row per entity, column per dimension) over
+  repeated sections. Batched with rule 10 into ONE prompt edit — one
+  comparison cycle, not two. SYSTEM_PROMPT_SHA256 updated. The comparison
+  run folds into the next QA trio (David: hold off, don't run per-change);
+  no acceptance until it runs.
+- **Platform-reference doc (issue 1): I draft, David edits.** Draft at
+  `docs/PLATFORM-REFERENCE-DRAFT.md` with [DAVID] markers on every fact
+  needing confirmation; on approval it ingests as a citable corpus doc
+  (source_type `platform_reference`, visibility `x1`), file staying in git
+  as source of truth.
+
 ## 2026-08-13 — E4b (summary + condense roles): gpt-5.6-luna adopted; embeddings pinned
 
 The provisional gpt-5-mini record-summary pick (2026-07-09) finally got its
