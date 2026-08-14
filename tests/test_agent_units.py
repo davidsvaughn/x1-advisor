@@ -53,7 +53,10 @@ SYSTEM_PROMPT_SHA256 = "01ffce9b81be013ec94740e69e1992639e4978ff019a3aeca276ed85
 # startups_by_label + list_labels — one reusable resolver across the
 # platform's label vocabularies (industry/sector/region), replacing the
 # 34s text-census fallback for classification questions.
-TOOL_SCHEMA_SHA256 = "18efb7430a0489ce8034a51d6461937fafe1427bba9af788b672217e924549c6"
+# 2026-08-14 (2): documents_for_company id-join (David-approved) — the name
+# resolves once against the company registry, docs join by id; description
+# now states the empty-vs-company_match distinction.
+TOOL_SCHEMA_SHA256 = "1837975fe5dfac8bcc98bf8e58ebb215b372ee7880f51e401d7d3168de7a65d7"
 
 
 def test_prompt_prefix_stability():

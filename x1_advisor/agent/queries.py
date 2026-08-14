@@ -251,8 +251,33 @@ def _required_name(params: dict) -> str:
 
 def _documents_for_company(conn, params: dict, acl: Any) -> list[dict]:
     """Coverage/inventory (bank §3.3): what exists for this company, and what
-    of it is searchable text vs a file on record vs premium-gated."""
+    of it is searchable text vs a file on record vs premium-gated.
+
+    company_name resolves ONCE against the canonical app-table registry
+    (substring on startup_companies.name, under the company ACL); everything
+    downstream joins by company id. Titles are presentation, never lookup
+    keys — the 2026-08-14 "Unknown company" repair showed why: 629 docs with
+    broken titles were invisible to the old title match, while an id join
+    would have kept them in inventory throughout. (The pre-restore fixture
+    docs that forced the title convention — entity_id NULL, no local row —
+    are retired; DECISIONS 2026-08-13/14.)
+
+    An empty result means NO visible company matches the name; a company
+    that matches but has nothing on record comes back as an explicit
+    company_match row, so the two never blur."""
     name = _required_name(params)
+    c_sql, c_args = _company_acl(acl)
+    companies = conn.execute(
+        f"""SELECT s.id, s.name FROM startup_companies s
+            WHERE s.name ILIKE '%%' || %s || '%%'{c_sql}
+            ORDER BY s.name""",
+        (name, *c_args),
+    ).fetchall()
+    if not companies:
+        return []               # honest empty: no visible company matches
+    ids = [r["id"] for r in companies]
+    by_id = {r["id"]: r["name"] for r in companies}
+
     doc_sql, doc_args = _doc_acl(acl)
     # a doc is searchable for THIS requester if any of its source blocks
     # survives the same premium predicate the retriever applies
@@ -268,45 +293,46 @@ def _documents_for_company(conn, params: dict, acl: Any) -> list[dict]:
         else:
             open_args = []
         open_filter = f"c.granularity = 'block' AND {prem}"
-    # the entity's name is the title's first ' — ' segment (scan.py convention)
-    # — it spans fixture envs the app-table id join cannot see
     indexed = conn.execute(
-        f"""SELECT d.title, d.source_type, d.version, d.visibility, d.is_published,
+        f"""SELECT d.entity_id, d.title, d.source_type, d.version, d.visibility,
+                   d.is_published,
                    coalesce(max(c.metadata->>'entity_ref_env'), 'test') AS env,
                    count(c.id) FILTER (WHERE c.granularity = 'block') AS blocks,
                    count(c.id) FILTER (WHERE {open_filter}) AS open_blocks
             FROM advisor.documents d
             JOIN advisor.doc_chunks c ON c.document_id = d.id
             WHERE d.entity_type = 'startup_company'
-              AND d.superseded_by IS NULL
-              AND split_part(d.title, ' — ', 1) ILIKE '%%' || %s || '%%'{doc_sql}
+              AND d.entity_id = ANY(%s)
+              AND d.superseded_by IS NULL{doc_sql}
             GROUP BY d.id
             ORDER BY d.source_type, d.title, d.version""",
-        (*open_args, name, *doc_args),
+        (*open_args, ids, *doc_args),
     ).fetchall()
 
-    c_sql, c_args = _company_acl(acl)
+    # the companies list is already ACL-filtered, so uploads inherit the
+    # company-publication gate through ids; only upload privacy remains
     up_sql, up_args = "", []
     if acl != "admin":
         owned = [int(i) for i in
                  ((acl.get("owned_entity_ids") or {}).get("startup_company") or [])]
         if owned:
-            up_sql, up_args = " AND (sd.visibility <> 'private' OR s.id = ANY(%s))", [owned]
+            up_sql = " AND (sd.visibility <> 'private' OR sd.startup_company_id = ANY(%s))"
+            up_args = [owned]
         else:
             up_sql = " AND sd.visibility <> 'private'"
     uploads = conn.execute(
-        f"""SELECT sd.document_type, sd.file_name, sd.visibility,
-                   sd.created_at::date AS uploaded
+        f"""SELECT sd.startup_company_id, sd.document_type, sd.file_name,
+                   sd.visibility, sd.created_at::date AS uploaded
             FROM startup_company_documents sd
-            JOIN startup_companies s ON s.id = sd.startup_company_id
-            WHERE s.name ILIKE '%%' || %s || '%%'{c_sql}{up_sql}
+            WHERE sd.startup_company_id = ANY(%s){up_sql}
             ORDER BY sd.document_type, sd.created_at""",
-        (name, *c_args, *up_args),
+        (ids, *up_args),
     ).fetchall()
 
     out: list[dict] = []
     for r in indexed:
-        row = {"kind": "indexed", "title": r["title"],
+        row = {"kind": "indexed", "company": by_id.get(r["entity_id"]),
+               "title": r["title"],
                "source_type": r["source_type"], "version": r["version"],
                "env": r["env"], "visibility": r["visibility"],
                "is_published": r["is_published"], "blocks": r["blocks"],
@@ -315,9 +341,14 @@ def _documents_for_company(conn, params: dict, acl: Any) -> list[dict]:
             row["gated"] = True     # exists; its text is premium-gated for you
         out.append(row)
     for r in uploads:
-        out.append({"kind": "upload", "document_type": r["document_type"],
+        out.append({"kind": "upload", "company": by_id.get(r["startup_company_id"]),
+                    "document_type": r["document_type"],
                     "file_name": r["file_name"], "visibility": r["visibility"],
                     "uploaded": r["uploaded"]})
+    if not out:
+        # the company exists but has nothing on record — say so explicitly
+        return [{"kind": "company_match", "company": by_id[i],
+                 "indexed_documents": 0, "uploads": 0} for i in ids]
     return out
 
 
@@ -420,7 +451,10 @@ QUERIES: dict[str, dict[str, Any]] = {
                         "sections/basic/premium, profile, deck extract, website) "
                         "with per-document searchable/gated status, plus uploaded "
                         "files on record (pitch decks etc.), which are not "
-                        "searchable text."),
+                        "searchable text. company_name resolves against the "
+                        "company registry; an empty result means no visible "
+                        "company matches, while a company with nothing on "
+                        "record returns an explicit company_match row."),
     },
     "evaluation_score_stats": {
         "fn": _evaluation_score_stats, "params": {},

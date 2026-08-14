@@ -6,7 +6,7 @@
 
 ## 2026-08-14 — "Unknown company" title repair + label resolver (triage thread-021)
 
-Two fixes out of the thread-21 triage queue, both landed the day after the
+Three fixes out of the thread-21 triage queue, all landed the day after the
 re-convergence:
 
 **1. 629 "Unknown company" docs repaired.** Post-restore verification found
@@ -26,7 +26,23 @@ regeneration (it was generated under the stale title); action `repaired`.
 Repaired summaries shift retrieval bait → **QA trio must be rerun before
 the next baseline acceptance** (the 2026-08-13 bar predates this repair).
 
-**2. Label resolver** (`startups_by_label` + `list_labels`): one reusable
+**2. documents_for_company switched to id-join (David: "let's do the
+id-join change").** The corpus half matched docs by the title's
+company-name segment — a documented workaround for the fixtures era
+(prod_fixtures docs had entity_id NULL; the title was the only key spanning
+both populations). All fixture docs are retired and 0/1,214 live docs lack
+entity_id, so the workaround was pure liability — the Unknown-company bug
+proved it by blinding the coverage query to 629 docs. Now: company_name
+resolves ONCE against `startup_companies.name` under the company ACL;
+docs and uploads join by id. Bonus semantics: empty = no visible company
+matches; a company with nothing on record returns an explicit
+`company_match` row (feeds the issue-1 coverage-disclosure work). Rows
+carry the resolved `company` name for multi-match clarity. Verified live:
+Angiex full 20-doc inventory; draft companies (Kadence) stay owner-only at
+the resolution gate. `scan.py`'s title-segment use is display-fallback
+only (titles we generate) — left as is.
+
+**3. Label resolver** (`startups_by_label` + `list_labels`): one reusable
 registry resolver across the platform's label vocabularies — industry
 (LinkedIn-style category, matched at any hierarchy level), sector (target
 sectors incl. custom), region (pivot registry) — per the standing
