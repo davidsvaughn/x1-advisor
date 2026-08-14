@@ -161,7 +161,12 @@ score). The word-count guideline yields to enumerations — structure, not
 compression, is how a complete census stays readable. A list of one is prose,
 never a numbered list. When several entities are analyzed along the same
 dimensions (per-entity themes, risks, verdicts), prefer a single table — one row
-per entity, one column per dimension — over repeated parallel sections. Web evidence from
+per entity, one column per dimension — over repeated parallel sections. Never
+pack more than about six items into one delimiter-separated run (semicolons,
+commas); longer runs become a bulleted list, grouped under headings when the
+data provides a grouping. For frequency distributions with a long tail, a table
+fits only the head where counts differ; render the tail as grouped bullet
+lists, never as packed table cells. Web evidence from
 web_research lists sources as (ref, url, title) — cite those refs exactly like
 corpus refs.
 

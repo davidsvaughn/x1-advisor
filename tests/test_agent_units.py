@@ -40,7 +40,11 @@ from x1_advisor.ingest.chunker import chunk_markdown
 # 2026-08-14 (2): rule 11 — platform-mechanics questions route to the
 # platform_reference tool (David: on-demand, not prompt-embedded); its
 # content is background knowledge, stated freely, never cited.
-SYSTEM_PROMPT_SHA256 = "2731d9fef86382daa768a7351539f8a24adeb33dae51a18d18483d76a4af25b2"
+# 2026-08-14 (3): distribution-tail style (thread-027, David-approved
+# combo) — max ~6 items per delimiter run; long tails become grouped
+# bullet lists (console auto-collapses them), never packed table cells;
+# tables fit only the head of a frequency distribution.
+SYSTEM_PROMPT_SHA256 = "a3dd3d58aa75758302b3efec42e1867c6931324e7aefe6827d1d4c676e4c63cd"
 # 2026-08-05 (2): entity-class semantics (David-approved) — entity_type is
 # the unit the census enumerates; person-evidence also lives in company
 # docs (team/founder sections outweigh the cv corpus ~4x), so people
@@ -71,7 +75,9 @@ SYSTEM_PROMPT_SHA256 = "2731d9fef86382daa768a7351539f8a24adeb33dae51a18d18483d76
 # truncation fix") — label queries carry label_total/match_total so a
 # capped result can never read as complete; list_labels cap right-sized
 # to the taxonomy (500) via per-query max_rows.
-TOOL_SCHEMA_SHA256 = "5659405c215d25c22a4e9959a66b71d11b608463a26f8e7def9ed115c7d6009d"
+# 2026-08-14 (5): list_labels 'group' column (thread-027) — the taxonomy's
+# own top-level segment, so long vocabularies group by real structure.
+TOOL_SCHEMA_SHA256 = "02eff215d88ece231018a1703c17b8d06c87e2f0fe657fd498f73b0d747d3fc3"
 
 
 def test_prompt_prefix_stability():

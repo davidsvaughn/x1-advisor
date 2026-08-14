@@ -52,6 +52,20 @@ jsonb_typeof-guarded. Tool-schema digest moved (catalog is embedded in
 structured_query's description); TOOL_SCHEMA_SHA256 updated. Verified live:
 sector "biotech" → Angiex, BMI OrganBank, Orphagen Pharmaceuticals.
 
+## 2026-08-14 (5) — distribution-tail presentation combo (thread-027)
+
+David on the industries answer: correct but "hard to digest by a human" —
+semicolon-packed table cells, alphabetical tails, no grouping/collapse.
+Shipped combo (David: "yes ship that combo"): (1) `list_labels` industry
+rows carry `group` = the LinkedIn taxonomy's own top-level segment (16
+groups on test) — tails group by REAL structure, not invented themes;
+(2) style rules: max ~6 items per delimiter run; frequency-distribution
+tails render as grouped bullet lists (console auto-collapse applies),
+tables only for the head. Both digests updated; prompt change batches into
+the already-pending comparison cycle. Held for the production UI: explicit
+model-emitted collapse (`<details>`) syntax. First live sample: 8.5s, head
+table, grouped lede; watch-items in triage thread-027.
+
 ## 2026-08-14 (4) — truncation signals + turn-latency fix (thread-022 flag 2)
 
 David's "should it take 30s?" flag exposed two independent defects

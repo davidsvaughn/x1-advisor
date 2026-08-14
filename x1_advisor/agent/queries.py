@@ -181,10 +181,14 @@ def _list_labels(conn, params: dict, acl: Any) -> list[dict]:
     src = _label_source(params)
     c_sql, c_args = _company_acl(acl)
     # a vocabulary is bounded by the taxonomy (industries table: 434 rows),
-    # not by the generic 50-row cap; label_total makes completeness explicit
+    # not by the generic 50-row cap; label_total makes completeness explicit.
+    # "group" = the taxonomy's own top-level segment (industry detail is the
+    # LinkedIn hierarchy path "Manufacturing > Medical Equipment …") so long
+    # tails can be grouped by REAL structure, not invented themes (thread-027)
     return conn.execute(
         f"""WITH labels AS ({src})
             SELECT l.label, count(DISTINCT l.startup_company_id) AS startups,
+                   min(split_part(l.detail, ' > ', 1)) AS "group",
                    count(*) OVER () AS label_total
             FROM labels l
             JOIN startup_companies s ON s.id = l.startup_company_id
@@ -447,7 +451,9 @@ QUERIES: dict[str, dict[str, Any]] = {
                         "before filtering with startups_by_label. Rows carry "
                         "label_total (distinct labels in the full vocabulary): "
                         "rows returned == label_total means the list is "
-                        "complete; fewer means truncated."),
+                        "complete; fewer means truncated. Industry rows also "
+                        "carry 'group', the taxonomy's own top-level segment — "
+                        "use it to organize long vocabularies."),
     },
     "top_startups_by_score": {
         "fn": _top_startups_by_score, "params": {"limit": "optional, default 10"},
