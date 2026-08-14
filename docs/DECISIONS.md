@@ -52,6 +52,14 @@ jsonb_typeof-guarded. Tool-schema digest moved (catalog is embedded in
 structured_query's description); TOOL_SCHEMA_SHA256 updated. Verified live:
 sector "biotech" → Angiex, BMI OrganBank, Orphagen Pharmaceuticals.
 
+## 2026-08-14 (9) — eval-8 dangling pointer retired (David: "just delete this")
+
+The one eternal `error:NotFound` in every backfill: evaluation row 8
+(X1 Pipeline, score 67, 2025-08) pointed at a GCS blob missing on prod
+itself. Pointer NULLED on both envs (row + score kept for history; backup
+`.qa-artifacts/repairs/eval8-pointer-backup-2026-08-14.json`). Backfills
+are silent about it forever.
+
 ## 2026-08-14 (8) — analyze_scope shipped; advisor access = premium purchasers
 
 The 2026-08-13 design's demand trigger fired within a day (thread-032) and
