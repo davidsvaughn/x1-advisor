@@ -91,7 +91,7 @@ SYSTEM_PROMPT_SHA256 = "37d92b9960637d155d819560c8e012b4c728424f4c76327dd25dd715
 # 2026-08-14 (9): eval_research source_type (research logs split from
 # section docs, David-approved) — filter contract v3; analyze default
 # scope excludes it (opt-in for verification questions).
-TOOL_SCHEMA_SHA256 = "228b18f2535e5c992681ba27bc8ba7c95100af8032190d56fef84956167beaf6"
+TOOL_SCHEMA_SHA256 = "45753cfff0558b49e2b47997aba9da3d4b0e9b686c7692c2dbbeb095eeecaac8"
 
 
 def test_prompt_prefix_stability():

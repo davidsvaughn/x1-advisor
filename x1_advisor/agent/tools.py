@@ -609,18 +609,24 @@ def build_tools(conn, *, acl: Any, registry: EvidenceRegistry,
              function=lambda: _PLATFORM_REFERENCE),
         Tool(name="analyze_scope",
              description=(
-                 "Semantic census: a cheap model reads EVERY document in a "
-                 "bounded scope IN FULL and returns per-document findings "
-                 "with citable source-block refs, plus a cross-document "
+                 "Semantic census: a cheap model reads every evaluation in "
+                 "a bounded scope (its best-matching section documents, "
+                 "capped per evaluation — the cap rides the coverage "
+                 "disclosure) and returns per-document findings with "
+                 "citable source-block refs, plus a cross-document "
                  "synthesis. scan_text censuses exact WORDS; this censuses "
                  "MEANING — use it when the question asks which documents "
                  "discuss/flag/imply something (weaknesses, risks, themes) "
                  "in any wording, or for recurring-pattern analysis over a "
                  "whole scope. Slower (~20-60s) and costs real money: "
-                 f"reserve it for questions phrase-scanning cannot answer; "
-                 f"scopes over {100} documents must be narrowed. Cite each "
-                 "finding via its refs; the reduction is synthesis, not "
-                 "evidence. Always disclose coverage counts."),
+                 "reserve it for questions phrase-scanning cannot answer. "
+                 "Cite each finding via its refs; the reduction is "
+                 "synthesis, not evidence, and NEVER contains counts. For "
+                 "'how many' answers use the coverage counts "
+                 "(relevant_evaluations / relevant_documents — computed "
+                 "mechanically); never count findings by hand: several "
+                 "findings can share one evaluation. Always disclose "
+                 "coverage counts."),
              parameters={"type": "object",
                          "properties": {
                              "question": {

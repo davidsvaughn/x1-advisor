@@ -38,9 +38,10 @@ FULL_READ_CAP = 100     # scopes up to this size are read in full (strict census
 # evaluations (2-3 relevant sections each) needs ~200-270 unit reads to
 # stay complete — at roughly 1/6 the old per-unit cost.
 MAX_READS = 280
-# Judge each evaluation from its K best-ranked units (David 2026-08-14,
-# "try cap at K=3"): breadth over depth for counting questions.
-PER_EVAL_READS = 3
+# Judge each evaluation from its K best-ranked units (David 2026-08-14):
+# breadth over depth for counting questions. K=3 measured $0.059/40s on
+# the thread-36 census; K=2 trial same day.
+PER_EVAL_READS = 2
 STOP_AFTER_IRRELEVANT = 15   # frontier stopping rule: consecutive irrelevant
 MAP_WORKERS = 8
 PER_DOC_FINDING_CHARS = 1200    # map output budget per document
@@ -66,6 +67,11 @@ Reply with ONLY a JSON object:
 _REDUCE_PROMPT = """Below are per-document findings extracted for one analytical question.
 Synthesize them: recurring patterns, notable outliers, and an overall
 answer to the question. Max {budget} characters. No preamble.
+
+NEVER state totals or counts of documents/evaluations/companies — the
+caller computes those mechanically from coverage data, and findings may
+contain several documents per evaluation, so any count you produce is
+wrong. Describe patterns and outliers only.
 
 QUESTION: {question}
 

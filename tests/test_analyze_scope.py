@@ -152,14 +152,15 @@ def test_frontier_per_evaluation_read_cap():
             return "everything relevant"
         return '{"relevant": true, "findings": "hit", "supports": [0]}'
 
+    from x1_advisor.agent.analyze import PER_EVAL_READS
     out = analyze(StubConn(rows), question="q", entity_type="startup_company",
                   source_types=["eval_section"], acl="admin", tracker=None,
                   ask=fake_ask, ranker=fake_ranker)
     cov = out["coverage"]
-    assert cov["per_evaluation_read_cap"] == 3
+    assert cov["per_evaluation_read_cap"] == PER_EVAL_READS
     assert cov["evaluations_read"] == 13       # breadth: every eval touched
-    assert cov["docs_read"] == 13 * 3          # ...from its top-3 units only
-    assert cov["docs_skipped_by_eval_cap"] == 130 - 13 * 3
+    assert cov["docs_read"] == 13 * PER_EVAL_READS   # ...top-K units only
+    assert cov["docs_skipped_by_eval_cap"] == 130 - 13 * PER_EVAL_READS
 
 
 def test_canonical_read_prefers_sections_then_premium_then_basic():
