@@ -58,6 +58,7 @@ did, same-day, as review criteria were folded in).
 | `docs/QA-DESIGN-AND-DEEPEVAL-INDEPENDENT-REVIEW-2026-08-06.md` | **point-in-time review** (2026-08-06, at `87ac00e`) — QA design, s6 baseline, DeepEval; findings F1–F10 |
 | `docs/QA-REVIEW-CONSOLIDATED-2026-08-07.md` | **point-in-time review** (2026-08-07) — verification pass over both prior QA reviews; consolidated priorities |
 | `docs/ANALYZE-SCOPE-DESIGN-2026-08-13.md` | **proposed design** — semantic map/reduce tool; build gated on live-testing demand (SCAN-A class) |
+| `docs/HARNESS-STRATEGY-ASSESSMENT-2026-08-17.md` | **point-in-time assessment** (2026-08-17) — multi-turn substrate: evolve vs. replatform; coupling audit (~35 Haystack-coupled lines), review of the chat1 consultation, convergent first moves (recall_evidence → artifact registry → server-owned history), harness bake-off protocol. All proposals David-gated |
 | `x1_advisor/agent/platform_reference.md` | **adopted, LIVE** (2026-08-14) — the advisor's platform-background knowledge, served by the `platform_reference` tool as structurally uncitable content (nothing registers in the evidence registry). Edit freely: tool results are pinned by neither digest |
 | `docs/triage/` | **living, GITIGNORED (local-only)** — one triage doc per live advisor thread (flags + diagnoses + fix status). NO content restrictions: quotes answers/corpus freely (David 2026-08-12) — which is exactly why it never enters git. See its README |
 | `docs/refs/` | reference-mining notes (pipeshub, chroma) cited by ARCHITECTURE |
