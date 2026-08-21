@@ -52,10 +52,20 @@ framework-free behind a thin adapter.
 6. **QA (§7):** keep the bundle/ledger/flag/triage loop; replace the graded
    golden suite + calibration + adjudication with a 12-case smoke set, the
    canonical multi-turn scripts graded on *mechanics* (deterministic), and
-   spot-check judging of flagged turns only. Observability behind a thin
-   emitter; Langfuse vs Opik is a one-afternoon spike, not a decision.
-7. **Plan (§8):** ~3 weeks to parity-plus on the six-step multi-turn protocol,
-   with the harness spike at day 3 and the QA-lite loop from day 1.
+   spot-check judging of flagged turns only. Observability: decide the trace
+   schema and the single thread id now; decide the product (Opik vs
+   Langfuse) in week 1 on the harness spike's own trace stream — the
+   day-to-day loop exists in both, and the Opik-only half (shipped agent
+   metrics, thread-level rules, user simulation, optimizer) is precisely the
+   machinery we should stop building by hand, adopted under the
+   mechanics-first discipline.
+7. **Retrieval (§4.6):** untouched by the session design — locators cross
+   turns, vectors do not. One cheap independent experiment queued: a
+   `halfvec(1024)` index config that cuts the vector footprint ~3× on the
+   0.6 GB db-f1-micro and may re-open HNSW.
+8. **Plan (§8):** ~3 weeks to parity-plus on the six-step multi-turn protocol,
+   with the harness spike at day 3, the observability go/no-go in parallel,
+   and the QA-lite loop from day 1.
 
 ---
 
@@ -432,6 +442,56 @@ replayed. Deep Agents' offloading (>20k tokens) and summarization (85%)
 remain enabled as backstops and should essentially never fire — firing is a
 metric to alarm on, not a feature to rely on.
 
+### 4.6 Where retrieval touches the session (and where it does not)
+
+The RAG stack is the part of gen 3 with numbers behind it (golden-v1
+recall@10 0.757 / MRR 0.581 post-restore; warm dense leg 0.44 s end-to-end
+including the embed call; the largest quality lever ever measured was record
+summaries, +0.055 — not the index type). v2 keeps `retrieval.py` as-is and
+the session design is deliberately orthogonal to it. The touchpoints,
+explicitly:
+
+- **Locators, not vectors, cross turns.** Artifacts store
+  `(document_id, block_index)`; `recall` revalidation is one SQL `IN` query
+  under `_acl_sql`. No embedding call on the follow-up path — that is the
+  whole mechanism behind "$0.086 → ~$0.01".
+- **Corpus versioning.** Version-and-append (`documents.superseded_by`)
+  means a locator can go stale between turns. `dropped_stale` on the recall
+  card plus the `corpus_watermark` stamped on every artifact is how the
+  agent says "the corpus moved since turn 3" instead of silently re-citing.
+- **`census`'s embedding prefilter** (`analyze.rank_by_embedding`) is an
+  exact aggregate over the scope's documents — scope-bounded, never
+  corpus-bounded. Unchanged.
+- **`recall(select={"query": …})`** ranks findings *inside* one artifact:
+  FTS/substring over the findings text first; embed on the fly only if that
+  proves inadequate (tens of items, pennies).
+- **Record summaries** stay retrieval-only and non-citable; the thread brief
+  and working sets never touch vectors.
+
+**The footprint question is real, the ANN-kind question is not.** One index
+config exists (`te3s_1536_ck1`: `text-embedding-3-small`, 1536 dims, stored
+`vector(1536)` float32, `index.py:70,84`). ~50k vectors × 1536 × 4 B ≈
+**307 MB of vectors plus an index of similar size on a db-f1-micro with
+0.6 GB RAM** — the reason HNSW could not build (`index.py:34-38`: needs
+~400 MB `maintenance_work_mem` at this scale), the reason cold scans were
+39 s before the dense-leg rewrite, and the reason ivfflat was the right
+pragmatic call. At 50k vectors ivfflat-vs-HNSW is a marginal recall/latency
+trade; the memory footprint is not marginal.
+
+**E1b — a retrieval-only experiment, independent of v2 (~1 h, ~$0.50):** a
+second `index_configs` row — the registry exists for exactly this, one
+`emb_{config}` table per config, graded on golden-v1 retrieval metrics with
+no agent and no judge — using `halfvec(1024)`: `text-embedding-3-small`
+called with the API's `dimensions=1024` (Matryoshka truncation) and
+pgvector's half-precision type (0.8.1 on test; `halfvec` since 0.7). ≈100 MB
+instead of ≈307 MB: a 3× cut that may make HNSW buildable in memory on the
+same instance and, separately, measures whether 1024 dims costs recall. If
+recall holds, flip it `active` and record E1b in DECISIONS; if not, an hour
+was spent. E1 (embedding *model* swap) stays deferred as pinned. The two
+open retrieval-*quality* items — the lexical leg silent on most golden
+questions (E5) and the reranker built-but-off (`retrieval.py:196-237`) —
+remain bake-offs the v2 run record supports; nothing in v2 depends on them.
+
 ---
 
 ## 5. Tool surface (≈8 tools, atomic, stable schemas)
@@ -726,47 +786,90 @@ the adapter to the three middlewares + the profile (~300 lines), and re-run
   *logged* digest in the fingerprint for forensics. Edits to prompts and
   tool descriptions are normal commits.
 
-### 7.3 Observability
+### 7.3 Observability and the post-launch improvement loop
 
-One thin emitter (`telemetry.py`, ~100 lines) with the span shape chat3
-sketched: thread → turn → model steps / tool spans / subagent spans, each
-carrying `thread_id`, `turn_id`, git sha, prompt+tool digest, model, cost,
-cache read/write, artifact handles, citations resolved/dropped. Behind it,
-**Langfuse or Opik is a one-afternoon spike on the same trace stream**.
+Two decisions here, with different clocks.
+
+**Decide at the outset (substrate, product-independent):**
+
+- **One thread id everywhere.** `advisor.threads.id` = LangGraph
+  `configurable.thread_id` = the tracer's thread/session id. Both Opik
+  (`opik_tracer.py:335`) and Langfuse's LangChain handler key conversations
+  off that config value. This is the decision the May POC got wrong
+  (thread_id set, inert).
+- **The emitter schema** (`telemetry.py`, ~100 lines): thread → turn →
+  model step / tool span / subagent span, each carrying `turn_id`, git sha,
+  prompt+tool digest, model, **cost from our ledger** (both products accept a
+  supplied cost; in Opik a supplied `total_cost` wins over its own
+  calculation, `SpanDAO.java:1888`), cache read/write, artifact handles,
+  citations resolved/dropped.
+- **The run record** `{question, answer, citations, evidence, trace,
+  fingerprint}` — what either product's dataset/experiment features ingest,
+  and what ~60% of the existing QA code already consumes (§7.4).
+
 Neither product sits in the critical path; neither owns the semantics of a
 citation.
 
-Opik facts that matter for the spike (surveyed at `~/code/x1/dev/opik`,
-v2.2.36, HEAD 2026-08-20):
+**Decide in week 1 (product): Opik vs Langfuse, with the post-launch loop
+as the criterion.** The honest comparison, Opik surveyed at
+`~/code/x1/dev/opik` (v2.2.36, 2026-08-20), Langfuse from its current docs:
 
-- **Fit:** `track_langgraph(graph, OpikTracer(...))` injects callbacks once;
-  LangGraph `configurable.thread_id` **auto-maps** to the Opik thread
-  (`opik_tracer.py:335-336`); subgraph/subagent runs nest via
-  `parent_run_id`, and LangGraph interrupts/resumes are modeled explicitly.
-  Cost is computed server-side from usage **including cache read/write
-  tokens**, and a supplied `total_cost` wins (`SpanDAO.java:1888`) — so
-  `cost.py` stays authoritative. `run_simulation(app, SimulatedUser, …)`
-  drives an app that **owns its own history by `thread_id`**
-  (`simulator.py:22-24`) — exactly our `/ask`. Trace → dataset item exists
-  (UI + raw REST client). Trajectory/tool-correctness judges exist. Native
-  OTLP ingestion is **HTTP/protobuf only**.
-- **Costs:** the minimal self-host is **9 containers** (MySQL, Redis,
-  ClickHouse, ZooKeeper, MinIO, Java backend, Python backend, frontend +
-  init one-shots; `deployment/docker-compose/docker-compose.yaml`), no
-  documented RAM/disk footprint (budget ~6–8 GB), **no OSS auth** — a
-  hard-coded `default`/`admin` workspace (`AuthService.java:44-62`); put it
-  behind a network boundary. Retention is off by default (disk grows).
-- **One trap:** the Python SDK **truncates any span input/output field
-  over 20 MB by wholesale replacement** with an `{"opik_truncated": true}`
-  marker, logged as a warning from a background thread
-  (`payload_truncation.py:41-61`, `config.py:250`). Set
-  `max_payload_size_mb=0` to disable. Our cards are kilobytes, so this is a
-  config line, not a blocker — but it is exactly the class of silent loss
-  the project's standing rule forbids, so it is set on day one.
-- `langfuse` stays viable and already integrated (`telemetry.py`); the
-  deciding factors are the thread view and simulation, both of which are
-  "nice". Spike both on the same stream; pick by which one makes a flagged
-  turn faster to diagnose.
+| Loop capability | Langfuse | Opik |
+|---|---|---|
+| Thread/session view; cost incl. cache tokens; LangGraph subgraph nesting | ✅ sessions | ✅ threads (LangGraph `thread_id` auto-maps; interrupts/resume modeled) |
+| Flag a turn → dataset item → experiment → compare runs | ✅ datasets, experiments (item- and run-level evaluators) | ✅ same, + dataset versioning, + `TestSuite` |
+| Online judge on production traces (sampling, filters, backfill) | ✅ LLM-as-a-judge **and code evaluators**; managed templates | ✅ rules (hallucination/moderation/relevance templates) |
+| **Thread-level automatic rules** (coherence, frustration, custom Python over the whole conversation) | ➖ session scores via SDK/API; you assemble the context and run the judge yourself | ✅ built in, 15-min inactivity trigger |
+| **Built-in agent metrics** (trajectory accuracy, tool-correctness, task completion) + ~20 heuristic metrics | ➖ bring your own judge prompt | ✅ shipped (`metrics/llm_judges/trajectory_accuracy`, …) |
+| **Multi-turn user simulation** against an app that owns its history by `thread_id` | ✗ | ✅ `run_simulation(app, SimulatedUser(persona, fixed_responses))` — exactly our `/ask`; `fixed_responses` = deterministic scripts |
+| **Prompt/agent optimization** (GEPA, HRPO, evolutionary, few-shot Bayesian, meta-prompt, parameter) over a dataset + metric, incl. tools via `OptimizableAgent` | ✗ | ✅ `opik-optimizer` |
+| Annotation queues (human review) | ✅ traces/observations/sessions | ✅ traces + threads |
+| Prompt versioning linked to traces | ✅ | ✅ content-hashed commits |
+| OTel ingestion | ✅ | ✅ HTTP/protobuf only |
+| Self-host | lighter; OSS has users/auth | **9 containers**, **no OSS auth**, undocumented footprint (~6–8 GB), retention off by default; Comet's hosted tier exists for the spike (verify limits) |
+| Maturity / churn | mature | fast-moving (daily releases); SDK hard-pins `litellm` — resolver dry-run against `deepagents`/`langchain` first |
+| Traps | — | SDK **truncates any span field >20 MB by wholesale replacement** (`payload_truncation.py:41-61`); set `max_payload_size_mb=0` on day one |
+
+Read honestly: **the day-to-day loop — see the thread, flag the turn, make
+it a case, re-run, compare, sample-judge production — exists in both.** The
+Opik-only column is the *machinery* half of the improvement loop: shipped
+agent metrics, thread-level rules, user simulation, optimization. That is
+exactly the half this project spent ~8k LOC and ~$300 of judge spend
+building by hand, and exactly the half §7.2 proposes to shrink. So the
+argument for Opik is not "more features"; it is **"someone else maintains
+the generic evaluation machinery, so we never re-grow our own."** The
+argument against is ops (nine containers, no auth — it must sit behind a
+network boundary wherever production traces originate) and churn.
+
+Two disciplines travel with whichever tool wins, because the Opik-only
+features are also the ones nearest the doom loop:
+
+1. **Deterministic mechanics first, judge second** (the escalation-gate
+   methodology, kept): scripts A/B and the six-step protocol are graded on
+   route, single-census, follow-up cost, working-set carry, citation
+   resolution — code, not judges. Shipped judge metrics run as *sampled
+   online rules* and *spot checks*, never as a gate.
+2. **The optimizer only ever touches bounded, non-product prompts** — the
+   census map prompt, the brief updater, the reduce prompt — on held-out
+   data, with the result landing as a normal reviewed commit. Never the
+   system prompt's product semantics (the no-test-case-hacking rule, now
+   with a tool that makes hacking easy).
+
+**Recommendation:** run the product spike in **week 1 on the harness
+spike's own trace stream** (days 3–5, parallel), not at day 10.
+Go/no-go for Opik: (a) the stack runs on the dev box (or Comet's hosted
+tier) within budget; (b) dependency resolution with the v2 env is clean;
+(c) `track_langgraph` shows the six-step protocol as one thread with nested
+tool/subagent spans and ledger cost; (d) trace → dataset → `evaluate` on
+script A works; (e) `run_simulation` with `fixed_responses` drives script A
+against `/ask`; (f) truncation disabled. Pass → Opik is the QA-lite
+substrate and §7.2's home-grown runner shrinks to adapters (the script
+runner becomes `run_simulation` + `evaluate_threads`; the comparator
+becomes experiment compare). Fail on (a)/(b) → Langfuse (already wired,
+zero ops) carries the build, and the home-grown ~150-line runner stands;
+revisit Opik when there is production traffic to justify the ops. Either
+way, production traces need an owned project (not the personal dev org)
+before launch — an ops/ownership item on every path.
 
 ### 7.4 What the harness survey found (the inventory behind §7.2)
 
@@ -839,12 +942,15 @@ as grading machinery:
 | 4–5 | `ThreadBriefMiddleware` + brief schema; thread-scoped evidence + shown-this-turn + revalidation; `recall` select grammar | script A/B run end-to-end; follow-up cost ≤ $0.02 |
 | 6–7 | Full tool port (`search`, `scan`, `query`, `source`, `web`, `platform_reference`); prompt distillation; server-owned `/ask` + SSE; console on the new API | smoke-12 passes on mechanics; live session with David |
 | 8–9 | Working sets: `resolve_set`, page-context snapshot → `ws:n`, scope handles on scan/census/search | "just the ones over 77 → which of these mention X → exact quotes" without prose reconstruction |
-| 10 | Telemetry emitter + Langfuse/Opik spike; cache-write in the step table; prefix alarm; offload/summarize alarms | traces with thread view for script A |
-| 11–12 | QA-lite: smoke + scripts runner (mechanics), ACL probes, spot-check judge on flagged turns; replay `full` | runner green; one triage doc written against v2 |
+| 3–5 (parallel track) | Telemetry emitter + single thread id (day 3, with the harness spike); **Opik go/no-go per §7.3** on that trace stream (Comet hosted tier or docker on the dev box; dependency dry-run; truncation off) | six-step protocol visible as one thread with nested spans + ledger cost in the chosen tool; decision in DECISIONS |
+| 10 | Cache-write in the step table; prefix-stability alarm; offload/summarize alarms; online sampled judge rule (hallucination/faithfulness) on live turns | alarms fire in a forced test; one sampled judge score lands on a live trace |
+| 11–12 | QA-lite: smoke-12 + scripts A/B on mechanics — Opik-native (`run_simulation` + `evaluate_threads` + experiments) if the go/no-go passed, else the ~150-line home-grown runner; ACL probes; spot-check judge on flagged turns; replay `full` | runner green; one triage doc written against v2 |
 | 13–15 | Supervised live use; triage; first `research` subagent **only if** a flagged thread demands it; DECISIONS entry: v2 replaces v1 behind `/ask` | David's call |
 
-Parallel, any time: reranker bake-off (the jina path is built and off —
-`retrieval.py:196-237`); skills for `platform_reference`/style.
+Parallel, any time, independent of v2: **E1b `halfvec(1024)` index config**
+(§4.6 — ~1 h, retrieval-only, may re-open HNSW on the f1-micro); reranker
+bake-off (the jina path is built and off — `retrieval.py:196-237`); E5
+lexical-leg query preprocessing; skills for `platform_reference`/style.
 
 ### What this plan deliberately does not do
 
