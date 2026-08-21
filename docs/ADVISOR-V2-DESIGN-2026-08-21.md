@@ -487,10 +487,42 @@ pgvector's half-precision type (0.8.1 on test; `halfvec` since 0.7). ≈100 MB
 instead of ≈307 MB: a 3× cut that may make HNSW buildable in memory on the
 same instance and, separately, measures whether 1024 dims costs recall. If
 recall holds, flip it `active` and record E1b in DECISIONS; if not, an hour
-was spent. E1 (embedding *model* swap) stays deferred as pinned. The two
-open retrieval-*quality* items — the lexical leg silent on most golden
-questions (E5) and the reranker built-but-off (`retrieval.py:196-237`) —
-remain bake-offs the v2 run record supports; nothing in v2 depends on them.
+was spent. E1 (embedding *model* swap) stays deferred as pinned.
+
+**E2b — re-run the reranker on the right metric (~1 h, retrieval-only).**
+Search is two-stage by design: stage 1 is recall-oriented and content-blind
+(dense top-50 + FTS top-50 fused by RRF — a rank-only formula; each chunk's
+vector was computed without knowing the question, so it encodes *topic*,
+not *answer-fit*); stage 2, built and **off**, is `jina-reranker-v3` — a
+0.6B listwise model that reads the query together with the fused top-40
+(each clipped to 4,096 chars) and scores them jointly, blended
+0.3·rrf + 0.7·rerank, then re-sorted before dedup / per-doc cap / top-8
+(`retrieval.py:196-237, 334`; `search_corpus` never passes `rerank=True`,
+`tools.py:104-106`; only `experiments/run.py --rerank` exercises it). Cost
+≈ $0.001 per search (token-billed, `cost.py:117` still "verify"); latency
+one extra round trip, ~300–500 ms on a 0.44 s leg. E2 (DECISIONS
+2026-07-08) called it a wash — recall@10 0.778 → 0.792, MRR 0.727 → 0.718,
+the same 5 zero-recall questions either way — but two things make that
+less conclusive than it reads: (1) **recall@10 is the wrong k** — a
+reranker reorders *within* the set, and what the agent sees is the top
+**8 snippets** that enter context, i.e. precision at small k, the direct
+input to the `synthesis_error` / `citation_coverage_error` classes the
+funnel found dominant; (2) **the corpus has tripled since** (~29k → ~50k
+vectors), and E4b measured recall falling 0.833 → 0.757 from distractor
+pressure alone — the regime where reranking starts to pay. One placement
+quirk to test alongside: rerank currently runs *before* summary expansion
+(`retrieval.py:334` vs `:359`), so it scores generated record summaries
+that are then swapped for source blocks; an after-expansion arm would let
+it pick the best block per routed document. Protocol: `run.py --rerank` on
+today's corpus, paired manifests, scored on **precision@8 + MRR** (not
+recall@10), two arms (before/after expansion). If it moves, enable for
+`search` only — `scan` and `census` read everything in scope and never
+rank; the session substrate is untouched. (`jina-reranker-v3.5` exists,
+same API, if the v3 row is retired.)
+
+E5 (lexical-leg query preprocessing — the leg is silent on most golden
+questions) stays the third open retrieval-quality item. All three are
+bake-offs the v2 run record supports; nothing in v2 depends on them.
 
 ---
 
@@ -948,8 +980,9 @@ as grading machinery:
 | 13–15 | Supervised live use; triage; first `research` subagent **only if** a flagged thread demands it; DECISIONS entry: v2 replaces v1 behind `/ask` | David's call |
 
 Parallel, any time, independent of v2: **E1b `halfvec(1024)` index config**
-(§4.6 — ~1 h, retrieval-only, may re-open HNSW on the f1-micro); reranker
-bake-off (the jina path is built and off — `retrieval.py:196-237`); E5
+(§4.6 — ~1 h, retrieval-only, may re-open HNSW on the f1-micro); **E2b
+reranker re-run** (§4.6 — ~1 h, precision@8 + MRR on the tripled corpus,
+before/after-expansion arms; enable for `search` only if it moves); E5
 lexical-leg query preprocessing; skills for `platform_reference`/style.
 
 ### What this plan deliberately does not do
